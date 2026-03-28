@@ -200,14 +200,23 @@ class SCFuzzyCombo(QWidget):
             if event.type() == QEvent.FocusIn:
                 QTimer.singleShot(0, lambda: self._show_list(self._input.text().strip()))
             elif event.type() == QEvent.FocusOut:
-                QTimer.singleShot(150, self._maybe_hide)
+                # Longer delay so the popup doesn't vanish before a click
+                # registers on it (the popup is WindowDoesNotAcceptFocus).
+                QTimer.singleShot(300, self._maybe_hide)
+            elif event.type() == QEvent.KeyPress:
+                # Re-grab focus in case the always-on-top popup stole it
+                if not self._input.hasFocus():
+                    self._input.setFocus()
         return super().eventFilter(obj, event)
 
     def _maybe_hide(self):
-        has = self._input.hasFocus()
-        log.warning("[FuzzyCombo] _maybe_hide: hasFocus=%s", has)
-        if not has:
-            self._list.hide()
+        # Check if the input still has focus OR the cursor is over the
+        # popup list (user is about to click an item).
+        if self._input.hasFocus():
+            return
+        if self._list.isVisible() and self._list.underMouse():
+            return
+        self._list.hide()
 
     def _toggle(self):
         if self._list.isVisible():
@@ -247,6 +256,11 @@ class SCFuzzyCombo(QWidget):
                     len(matches), pos.x(), pos.y(), self.width(), h)
         self._list.setGeometry(pos.x(), pos.y(), self.width(), h)
         self._list.show()
+        # Re-grab focus after showing the popup — on Windows, showing a
+        # top-level Tool window can steal activation even with
+        # WindowDoesNotAcceptFocus set.
+        if not self._input.hasFocus():
+            self._input.setFocus()
 
     # ── Selection ─────────────────────────────────────────────────────────
 
