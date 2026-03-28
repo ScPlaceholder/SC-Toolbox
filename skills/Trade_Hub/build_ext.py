@@ -68,11 +68,10 @@ PAYLOAD = {
         },
         {
             "id": "multi_hop",
-            "name": "MULTI-HOP OPTIMIZER",
-            "desc": "Rotating cargo \u2014 best profit-per-SCU/distance at each stop (switch to LOOPS tab)",
+            "name": "MAX PROFIT",
+            "desc": "Exhaustive search \u2014 finds the absolute highest profit chains up to 5 legs (switch to LOOPS tab)",
             "params": {
-                "max_steps": 3,
-                "score_metric": "profit_per_distance",
+                "max_steps": 5,
             },
         },
     ],

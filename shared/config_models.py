@@ -122,6 +122,10 @@ class SkillConfig:
 class LauncherSettings:
     hotkey_launcher: str = "<shift>+`"
     language: str = "en"
+    grid_rows: int = 3
+    grid_cols: int = 2
+    disabled_skills: list[str] = field(default_factory=list)
+    grid_layout: dict[str, str] = field(default_factory=dict)  # "row,col" -> skill_id
     skill_hotkeys: dict[str, str] = field(default_factory=dict)
     skill_windows: dict[str, WindowGeometry] = field(default_factory=dict)
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
@@ -130,6 +134,10 @@ class LauncherSettings:
     def from_dict(cls, data: dict[str, Any], skills: list[SkillConfig]) -> LauncherSettings:
         hotkey_launcher = str(data.get("hotkey_launcher", "<shift>+`"))
         language = str(data.get("language", "en"))
+        grid_rows = _clamp(_safe_int(data.get("grid_rows", 3), 3), 1, 10)
+        grid_cols = _clamp(_safe_int(data.get("grid_cols", 2), 2), 1, 10)
+        disabled_skills = list(data.get("disabled_skills", []))
+        grid_layout = dict(data.get("grid_layout", {}))
 
         skill_hotkeys: dict[str, str] = {}
         skill_windows: dict[str, WindowGeometry] = {}
@@ -143,6 +151,10 @@ class LauncherSettings:
         return cls(
             hotkey_launcher=hotkey_launcher,
             language=language,
+            grid_rows=grid_rows,
+            grid_cols=grid_cols,
+            disabled_skills=disabled_skills,
+            grid_layout=grid_layout,
             skill_hotkeys=skill_hotkeys,
             skill_windows=skill_windows,
             raw=dict(data),
@@ -153,6 +165,10 @@ class LauncherSettings:
         out = dict(self.raw)
         out["hotkey_launcher"] = self.hotkey_launcher
         out["language"] = self.language
+        out["grid_rows"] = self.grid_rows
+        out["grid_cols"] = self.grid_cols
+        out["disabled_skills"] = self.disabled_skills
+        out["grid_layout"] = self.grid_layout
         for sid, hk in self.skill_hotkeys.items():
             # Reconstruct the settings_key — convention is ``hotkey_{id}``
             out[f"hotkey_{sid}"] = hk

@@ -216,7 +216,15 @@ exit /b
 
 :refresh_path
 :: Reload PATH from the registry so we pick up freshly installed Python
+set "USER_PATH="
+set "SYS_PATH="
 for /f "tokens=2*" %%A in ('reg query "HKCU\Environment" /v Path 2^>nul') do set "USER_PATH=%%B"
 for /f "tokens=2*" %%A in ('reg query "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" /v Path 2^>nul') do set "SYS_PATH=%%B"
-set "PATH=!USER_PATH!;!SYS_PATH!"
+if not defined USER_PATH set "USER_PATH="
+if not defined SYS_PATH set "SYS_PATH=%PATH%"
+if "!USER_PATH!"=="" (
+    set "PATH=!SYS_PATH!"
+) else (
+    set "PATH=!USER_PATH!;!SYS_PATH!"
+)
 exit /b

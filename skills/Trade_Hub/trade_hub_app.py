@@ -44,11 +44,12 @@ from shared.i18n import s_ as _
 from trade_hub_data import (
     Route, MultiRoute, FilterState, DataFetcher,
     COLUMNS, COLUMN_KEYS, LOOP_COLUMNS, LOOP_COLUMN_KEYS,
+    MIXED_COLUMNS, MIXED_COLUMN_KEYS,
     apply_filters, sort_routes, find_multi_routes, sort_multi_routes,
     profit_tier, get_unique_commodities, fmt_distance, fmt_eta,
     load_config, save_config,
     calc_profit, set_calc_mode, get_calc_mode,
-    set_market_mode, find_multi_routes_optimized,
+    set_market_mode, find_max_profit_routes,
 )
 
 # Platform-guarded Win32 imports
@@ -237,6 +238,8 @@ class RouteDetailDialog(QDialog):
             self._build_single_route(d)
         elif route_type == "multi":
             self._build_multi_route(d)
+        elif route_type == "mixed":
+            self._build_mixed_route(d)
 
     def _add_header(self, text: str, color: str = ""):
         lbl = QLabel(text)
@@ -277,6 +280,23 @@ class RouteDetailDialog(QDialog):
         row.addWidget(v, 1)
         self._content_layout.addWidget(row_w)
 
+    def _add_colored_row(self, label: str, value: str, label_color: str = "", value_color: str = ""):
+        """Row where both the label and value have custom colours."""
+        row_w = QWidget()
+        row_w.setFixedHeight(26)
+        row_w.setStyleSheet("background: transparent;")
+        row = QHBoxLayout(row_w)
+        row.setSpacing(8)
+        row.setContentsMargins(0, 0, 0, 0)
+        k = QLabel(label)
+        k.setFixedWidth(140)
+        k.setStyleSheet(f"font-family: Consolas; font-size: 9pt; color: {label_color or P.fg_dim}; background: transparent;")
+        row.addWidget(k)
+        v = QLabel(value)
+        v.setStyleSheet(f"font-family: Consolas; font-size: 9pt; font-weight: bold; color: {value_color or P.fg}; background: transparent;")
+        row.addWidget(v, 1)
+        self._content_layout.addWidget(row_w)
+
     def _add_value_row(self, label: str, value: str, color: str = ""):
         """Large value row for financial figures."""
         row_w = QWidget()
@@ -310,39 +330,40 @@ class RouteDetailDialog(QDialog):
 
         self._add_header("ROUTE SUMMARY", P.tool_trade)
         self._add_separator()
-        self._add_row("Ship:", ship)
-        self._add_row("Commodity:", commodity, P.fg_bright)
-        self._add_row("Load:", f"{eff_scu:,} SCU")
+        self._add_colored_row("Ship:", ship, P.tool_trade, P.fg_bright)
+        self._add_colored_row("Commodity:", commodity, P.tool_trade, P.fg_bright)
+        self._add_colored_row("Load:", f"{eff_scu:,} SCU", P.yellow, P.yellow)
         if distance > 0:
-            self._add_row("Distance:", fmt_distance(distance))
-            self._add_row("Travel Time:", fmt_eta(distance), P.energy_cyan)
+            self._add_colored_row("Distance:", fmt_distance(distance), P.energy_cyan, P.energy_cyan)
+            self._add_colored_row("Travel Time:", fmt_eta(distance), P.energy_cyan, P.energy_cyan)
 
         self._add_header("FINANCIALS", P.green)
         self._add_separator()
-        self._add_value_row("Total Cost:", f"{total_cost:,.0f} aUEC", P.red)
-        self._add_value_row("Total Revenue:", f"{total_revenue:,.0f} aUEC", P.accent)
-        self._add_value_row("Profit:", f"+{profit:,.0f} aUEC", P.green)
-        self._add_row("Margin/SCU:", f"{margin:,.0f} aUEC/SCU", P.accent)
-        self._add_row("ROI:", f"{roi:.1f}%", P.green if roi > 50 else P.yellow)
+        self._add_colored_row("Total Cost:", f"{total_cost:,.0f} aUEC", P.red, P.red)
+        self._add_colored_row("Total Revenue:", f"{total_revenue:,.0f} aUEC", P.accent, P.accent)
+        self._add_colored_row("Profit:", f"+{profit:,.0f} aUEC", P.green, P.green)
+        self._add_colored_row("Margin/SCU:", f"{margin:,.0f} aUEC/SCU", P.green, P.accent)
+        roi_color = P.green if roi > 50 else P.yellow
+        self._add_colored_row("ROI:", f"{roi:.1f}%", roi_color, roi_color)
 
         self._add_header("BUY LOCATION", P.accent)
         self._add_separator()
-        self._add_row("Terminal:", d.get("buy_terminal", "?"))
-        self._add_row("Location:", d.get("buy_location", "?"))
-        self._add_row("System:", d.get("buy_system", "?"))
-        self._add_row("Price:", f"{price_buy:,.0f} aUEC/SCU")
-        self._add_row("Available:", f"{d.get('scu_available', 0):,} SCU")
-        self._add_value_row("Purchase Total:", f"{total_cost:,.0f} aUEC", P.red)
+        self._add_colored_row("Terminal:", d.get("buy_terminal", "?"), P.accent, P.fg_bright)
+        self._add_colored_row("Location:", d.get("buy_location", "?"), P.accent, P.fg)
+        self._add_colored_row("System:", d.get("buy_system", "?"), P.energy_cyan, P.energy_cyan)
+        self._add_colored_row("Price:", f"{price_buy:,.0f} aUEC/SCU", P.red, P.red)
+        self._add_colored_row("Available:", f"{d.get('scu_available', 0):,} SCU", P.yellow, P.yellow)
+        self._add_colored_row("Purchase Total:", f"{total_cost:,.0f} aUEC", P.red, P.red)
 
         self._add_header("SELL LOCATION", P.orange)
         self._add_separator()
-        self._add_row("Terminal:", d.get("sell_terminal", "?"))
-        self._add_row("Location:", d.get("sell_location", "?"))
-        self._add_row("System:", d.get("sell_system", "?"))
-        self._add_row("Price:", f"{price_sell:,.0f} aUEC/SCU")
-        self._add_row("Demand:", f"{d.get('scu_demand', 0):,} SCU")
-        self._add_value_row("Sale Revenue:", f"{total_revenue:,.0f} aUEC", P.green)
-        self._add_value_row("Profit Here:", f"+{profit:,.0f} aUEC", P.green)
+        self._add_colored_row("Terminal:", d.get("sell_terminal", "?"), P.orange, P.fg_bright)
+        self._add_colored_row("Location:", d.get("sell_location", "?"), P.orange, P.fg)
+        self._add_colored_row("System:", d.get("sell_system", "?"), P.energy_cyan, P.energy_cyan)
+        self._add_colored_row("Price:", f"{price_sell:,.0f} aUEC/SCU", P.accent, P.accent)
+        self._add_colored_row("Demand:", f"{d.get('scu_demand', 0):,} SCU", P.yellow, P.yellow)
+        self._add_colored_row("Sale Revenue:", f"{total_revenue:,.0f} aUEC", P.green, P.green)
+        self._add_colored_row("Profit Here:", f"+{profit:,.0f} aUEC", P.green, P.green)
 
     def _build_multi_route(self, d: dict):
         ship = d.get("ship", "No ship")
@@ -353,13 +374,13 @@ class RouteDetailDialog(QDialog):
 
         total_distance = sum(leg.get("distance", 0) for leg in legs)
 
-        self._add_header(f"MULTI-LEG ROUTE ({num_legs} legs)", P.tool_trade)
+        self._add_header(f"MULTI-LEG ROUTE  \u2022  {num_legs} legs", P.tool_trade)
         self._add_separator()
-        self._add_row("Ship:", ship)
-        self._add_value_row("Total Profit:", f"+{total_profit:,.0f} aUEC", P.green)
+        self._add_colored_row("Ship:", ship, P.tool_trade, P.fg_bright)
+        self._add_colored_row("Total Profit:", f"+{total_profit:,.0f} aUEC", P.green, P.green)
         if total_distance > 0:
-            self._add_row("Total Distance:", fmt_distance(total_distance))
-            self._add_row("Total Travel Time:", fmt_eta(total_distance), P.energy_cyan)
+            self._add_colored_row("Total Distance:", fmt_distance(total_distance), P.energy_cyan, P.energy_cyan)
+            self._add_colored_row("Total Travel:", fmt_eta(total_distance), P.energy_cyan, P.energy_cyan)
 
         for i, leg in enumerate(legs, 1):
             eff = leg.get("eff_scu", 0)
@@ -371,23 +392,106 @@ class RouteDetailDialog(QDialog):
             leg_dist = leg.get("distance", 0)
             running_investment += leg_cost
 
-            self._add_header(f"LEG {i}: {leg.get('commodity', '?')}", P.accent)
+            self._add_header(f"LEG {i}:  {leg.get('commodity', '?')}", P.accent)
             self._add_separator()
-            self._add_row("Buy:", f"{leg.get('buy_terminal', '?')} ({leg.get('buy_system', '?')})")
-            self._add_row("Sell:", f"{leg.get('sell_terminal', '?')} ({leg.get('sell_system', '?')})")
-            self._add_row("Load:", f"{eff:,} SCU")
+            self._add_colored_row("Buy:", f"{leg.get('buy_terminal', '?')} ({leg.get('buy_system', '?')})", P.accent, P.fg_bright)
+            self._add_colored_row("Sell:", f"{leg.get('sell_terminal', '?')} ({leg.get('sell_system', '?')})", P.orange, P.fg_bright)
+            self._add_colored_row("Load:", f"{eff:,} SCU", P.yellow, P.yellow)
             if leg_dist > 0:
-                self._add_row("Travel:", f"{fmt_distance(leg_dist)} \u2022 {fmt_eta(leg_dist)}", P.energy_cyan)
-            self._add_value_row("Purchase:", f"{leg_cost:,.0f} aUEC", P.red)
-            self._add_value_row("Revenue:", f"{leg_revenue:,.0f} aUEC", P.accent)
-            self._add_value_row("Leg Profit:", f"+{leg_profit:,.0f} aUEC", P.green)
+                self._add_colored_row("Travel:", f"{fmt_distance(leg_dist)} \u2022 {fmt_eta(leg_dist)}", P.energy_cyan, P.energy_cyan)
+            self._add_colored_row("Purchase:", f"{leg_cost:,.0f} aUEC", P.red, P.red)
+            self._add_colored_row("Revenue:", f"{leg_revenue:,.0f} aUEC", P.accent, P.accent)
+            self._add_colored_row("Leg Profit:", f"+{leg_profit:,.0f} aUEC", P.green, P.green)
 
         self._add_header("TOTALS", P.green)
         self._add_separator()
-        self._add_value_row("Total Investment:", f"{running_investment:,.0f} aUEC", P.red)
-        self._add_value_row("Total Profit:", f"+{total_profit:,.0f} aUEC", P.green)
+        self._add_colored_row("Total Investment:", f"{running_investment:,.0f} aUEC", P.red, P.red)
+        self._add_colored_row("Total Profit:", f"+{total_profit:,.0f} aUEC", P.green, P.green)
         if total_distance > 0:
-            self._add_row("Total Travel:", f"{fmt_distance(total_distance)} \u2022 {fmt_eta(total_distance)}", P.energy_cyan)
+            self._add_colored_row("Total Travel:", f"{fmt_distance(total_distance)} \u2022 {fmt_eta(total_distance)}", P.energy_cyan, P.energy_cyan)
+
+    def _build_mixed_route(self, d: dict):
+        ship = d.get("ship", "No ship")
+        total_profit = d.get("total_profit", 0)
+        total_invest = d.get("total_investment", 0)
+        roi = d.get("roi", 0)
+        fill_eff = d.get("fill_efficiency", 0)
+        legs = d.get("legs", [])
+        num_legs = len(legs)
+        total_dist = d.get("total_distance", 0)
+
+        # ── Route overview (gold) ─────────────────────────────────────
+        self._add_header(f"MIXED FREIGHT  \u2022  {num_legs} legs  \u2022  {fill_eff:.0f}% fill", P.tool_trade)
+        self._add_separator()
+        self._add_colored_row("Ship:", ship, P.tool_trade, P.fg_bright)
+        self._add_colored_row("Total Profit:", f"+{total_profit:,.0f} aUEC", P.green, P.green)
+        if total_invest > 0:
+            self._add_colored_row("Total Cost:", f"{total_invest:,.0f} aUEC", P.red, P.red)
+            roi_color = P.green if roi > 50 else P.yellow
+            self._add_colored_row("ROI:", f"{roi:.1f}%", roi_color, roi_color)
+        self._add_colored_row("Bay Efficiency:", f"{fill_eff:.1f}%", P.yellow, P.yellow)
+        if total_dist > 0:
+            self._add_colored_row("Total Distance:", fmt_distance(total_dist), P.energy_cyan, P.energy_cyan)
+            self._add_colored_row("Travel Time:", fmt_eta(total_dist), P.energy_cyan, P.energy_cyan)
+
+        for i, leg in enumerate(legs, 1):
+            leg_scu = leg.get("total_scu", 0)
+            leg_fill = leg.get("fill_pct", 0)
+            leg_profit = leg.get("leg_profit", 0)
+            leg_dist = leg.get("distance", 0)
+            slots = leg.get("slots", [])
+
+            # ── Leg header (blue) ─────────────────────────────────────
+            self._add_header(f"LEG {i}:  {leg.get('buy_terminal', '?')}  \u2192  {leg.get('sell_terminal', '?')}", P.accent)
+            self._add_separator()
+            self._add_colored_row("System:", f"{leg.get('buy_system', '?')} \u2192 {leg.get('sell_system', '?')}", P.energy_cyan, P.energy_cyan)
+            if leg_dist > 0:
+                self._add_colored_row("Travel:", f"{fmt_distance(leg_dist)} \u2022 {fmt_eta(leg_dist)}", P.energy_cyan, P.energy_cyan)
+
+            # ── Cargo slots ───────────────────────────────────────────
+            for slot in slots:
+                is_primary = slot.get("is_primary", False)
+                is_illegal = slot.get("is_illegal", False)
+                scu = slot.get("scu_loaded", 0)
+                buy_p = slot.get("price_buy", 0)
+                sell_p = slot.get("price_sell", 0)
+                slot_profit = slot.get("profit", 0)
+                commodity = slot.get("commodity", "?")
+
+                # Primary = green, Filler = purple, Illegal = red
+                if is_illegal:
+                    name_color = P.red
+                elif is_primary:
+                    name_color = P.green
+                else:
+                    name_color = P.purple
+
+                role_icon = "\u2605" if is_primary else "\u25cb"
+                tag = "Primary" if is_primary else "Filler"
+                illegal_tag = "  \u26a0 ILLEGAL" if is_illegal else ""
+
+                # Commodity header — role on the left, commodity name on the right
+                self._add_colored_row(f"{role_icon}  {tag}{illegal_tag}", commodity, name_color, name_color)
+                self._add_colored_row("    SCU:", f"{scu:,}", P.yellow, P.yellow)
+                self._add_colored_row("    Buy:", f"{buy_p:,.2f} aUEC/SCU", P.red, P.red)
+                self._add_colored_row("    Sell:", f"{sell_p:,.2f} aUEC/SCU", P.accent, P.accent)
+                profit_color = P.green if is_primary else P.purple
+                self._add_colored_row("    Profit:", f"+{slot_profit:,.0f} aUEC", profit_color, profit_color)
+
+            # ── Leg totals ─────────────────────────────────────────────
+            self._add_separator()
+            self._add_colored_row("Leg Fill:", f"{leg_scu:,} SCU  ({leg_fill:.1f}%)", P.yellow, P.yellow)
+            self._add_colored_row("Leg Profit:", f"+{leg_profit:,.0f} aUEC", P.green, P.green)
+
+        # ── Grand totals ─────────────────────────────────────────────
+        self._add_header("TOTALS", P.green)
+        self._add_separator()
+        self._add_colored_row("Total Profit:", f"+{total_profit:,.0f} aUEC", P.green, P.green)
+        if total_invest > 0:
+            self._add_colored_row("Total Cost:", f"{total_invest:,.0f} aUEC", P.red, P.red)
+            roi_color = P.green if roi > 50 else P.yellow
+            self._add_colored_row("ROI:", f"{roi:.1f}%", roi_color, roi_color)
+        self._add_colored_row("Bay Efficiency:", f"{fill_eff:.1f}% avg", P.yellow, P.yellow)
 
     def _toggle_pin(self):
         if self._pinned:
@@ -496,8 +600,8 @@ class TradeHubWindow(SCWindow):
     def __init__(self, cmd_file: str, x=80, y=80, w=1400, h=900,
                  refresh_interval=300.0, max_routes=500, opacity=0.95) -> None:
         super().__init__(
-            title="Trade Hub", width=w, height=h,
-            min_w=800, min_h=400, opacity=opacity, always_on_top=True,
+            title="Trade Hub", width=max(w, 1400), height=max(h, 1200),
+            min_w=800, min_h=600, opacity=opacity, always_on_top=True,
         )
         # Remove WindowDoesNotAcceptFocus so text inputs work
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowDoesNotAcceptFocus)
@@ -531,6 +635,12 @@ class TradeHubWindow(SCWindow):
         self._hotkey = _DEFAULT_HOTKEY
         self._hotkey_stop: Optional[threading.Event] = None
         self._hotkey_thread: Optional[threading.Thread] = None
+        self._freight_mode = "BULK"  # "BULK" or "MIXED"
+        self._allow_illegal = False  # default: no illegal cargo
+        self._all_mixed: list = []
+        self._filtered_mixed: list = []
+        self._mixed_sort_col = "total_profit"
+        self._mixed_sort_reverse = True
 
         self._build_ui()
 
@@ -539,6 +649,13 @@ class TradeHubWindow(SCWindow):
             self._set_ship(cfg["ship_name"])
         if cfg.get("hotkey"):
             self._hotkey = cfg["hotkey"]
+        self._freight_mode = cfg.get("freight_mode", "BULK")
+        self._allow_illegal = cfg.get("allow_illegal_cargo", False)
+        if hasattr(self, '_btn_bulk'):
+            self._update_freight_mode_btns()
+        if hasattr(self, '_btn_illegal_yes'):
+            self._update_illegal_btns()
+        self._sync_table_visibility()
 
         self._start_ipc()
         self._start_hotkey_listener()
@@ -552,9 +669,9 @@ class TradeHubWindow(SCWindow):
         self._title_bar = SCTitleBar(
             self, title="TRADE HUB",
             icon_text="\u25c8", accent_color=P.tool_trade,
-            hotkey_text=self._hotkey,
             show_minimize=False,
             extra_buttons=[
+                ("Tutorial", self._open_tutorial),
                 ("UEX | Patreon", lambda: QDesktopServices.openUrl(QUrl("https://www.patreon.com/uexcorp"))),
             ],
         )
@@ -566,17 +683,12 @@ class TradeHubWindow(SCWindow):
         body.setStyleSheet(f"QSplitter::handle {{ background: {P.border}; width: 1px; }}")
 
         # ── Sidebar ──
-        sidebar_scroll = QScrollArea()
-        sidebar_scroll.setFixedWidth(215)
-        sidebar_scroll.setWidgetResizable(True)
-        sidebar_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        sidebar_scroll.setStyleSheet(f"QScrollArea {{ background: {P.bg_secondary}; border: none; }}")
-        sb = QWidget()
-        sb.setStyleSheet(f"background: {P.bg_secondary};")
-        sb_lay = QVBoxLayout(sb)
+        sidebar = QWidget()
+        sidebar.setFixedWidth(235)
+        sidebar.setStyleSheet(f"background: {P.bg_secondary};")
+        sb_lay = QVBoxLayout(sidebar)
         sb_lay.setContentsMargins(4, 4, 4, 4)
         sb_lay.setSpacing(1)
-        sidebar_scroll.setWidget(sb)
 
         def section(text, pad_top=6) -> None:
             lbl = QLabel(text)
@@ -600,6 +712,61 @@ class TradeHubWindow(SCWindow):
         vmw.setLayout(vm_row)
         sb_lay.addWidget(vmw)
         self._update_view_mode_btns()
+
+        # Freight mode
+        section(_("FREIGHT MODE:"), 8)
+        fm_row = QHBoxLayout()
+        fm_row.setContentsMargins(10, 2, 10, 0)
+        self._btn_bulk = QPushButton(_("BULK"))
+        self._btn_bulk.setCursor(Qt.PointingHandCursor)
+        self._btn_bulk.clicked.connect(lambda: self._set_freight_mode("BULK"))
+        fm_row.addWidget(self._btn_bulk)
+        self._btn_mixed = QPushButton(_("MIXED"))
+        self._btn_mixed.setCursor(Qt.PointingHandCursor)
+        self._btn_mixed.clicked.connect(lambda: self._set_freight_mode("MIXED"))
+        fm_row.addWidget(self._btn_mixed)
+        fm_w = QWidget()
+        fm_w.setStyleSheet("background: transparent;")
+        fm_w.setLayout(fm_row)
+        sb_lay.addWidget(fm_w)
+        self._update_freight_mode_btns()
+
+        # Allow illegal cargo
+        section(_("ALLOW ILLEGAL CARGO:"), 8)
+        il_row = QHBoxLayout()
+        il_row.setContentsMargins(10, 2, 10, 0)
+        self._btn_illegal_yes = QPushButton(_("YES"))
+        self._btn_illegal_yes.setCursor(Qt.PointingHandCursor)
+        self._btn_illegal_yes.clicked.connect(lambda: self._set_allow_illegal(True))
+        il_row.addWidget(self._btn_illegal_yes)
+        self._btn_illegal_no = QPushButton(_("NO"))
+        self._btn_illegal_no.setCursor(Qt.PointingHandCursor)
+        self._btn_illegal_no.clicked.connect(lambda: self._set_allow_illegal(False))
+        il_row.addWidget(self._btn_illegal_no)
+        il_w = QWidget()
+        il_w.setStyleSheet("background: transparent;")
+        il_w.setLayout(il_row)
+        sb_lay.addWidget(il_w)
+        self._update_illegal_btns()
+
+        # Market calculations toggle
+        section("MARKET CALCULATIONS:", 8)
+        mc_row = QHBoxLayout()
+        mc_row.setContentsMargins(10, 2, 10, 0)
+        self._use_max_profit = False
+        self._btn_mc_max = QPushButton("Max Profit")
+        self._btn_mc_max.setCursor(Qt.PointingHandCursor)
+        self._btn_mc_max.clicked.connect(lambda: self._set_market_calc(True))
+        mc_row.addWidget(self._btn_mc_max)
+        self._btn_mc_demand = QPushButton("Reported Demand")
+        self._btn_mc_demand.setCursor(Qt.PointingHandCursor)
+        self._btn_mc_demand.clicked.connect(lambda: self._set_market_calc(False))
+        mc_row.addWidget(self._btn_mc_demand)
+        mc_w = QWidget()
+        mc_w.setStyleSheet("background: transparent;")
+        mc_w.setLayout(mc_row)
+        sb_lay.addWidget(mc_w)
+        self._update_mc_btns()
 
         # Vehicle
         section(_("VEHICLE:"), 10)
@@ -655,8 +822,8 @@ class TradeHubWindow(SCWindow):
 
         # Commodity
         section(_("COMMODITY"))
-        self._commodity_combo = SCComboBox()
-        self._commodity_combo.currentIndexChanged.connect(lambda _: self._apply_search())
+        self._commodity_combo = SCFuzzyCombo(placeholder=_("Commodity..."))
+        self._commodity_combo.item_selected.connect(lambda _: self._apply_search())
         sb_lay.addWidget(self._commodity_combo)
 
         # Min SCU
@@ -679,61 +846,29 @@ class TradeHubWindow(SCWindow):
         self._search.search_changed.connect(lambda _: self._apply_search())
         sb_lay.addWidget(self._search)
 
-        # Separator
-        sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
-        sep.setStyleSheet(f"color: {P.border}; margin: 8px 6px;")
-        sep.setFixedHeight(1)
-        sb_lay.addWidget(sep)
-
-        # Search button
-        search_btn = SCButton("SEARCH", glow_color=P.tool_trade)
-        search_btn.setProperty("primary", True)
-        search_btn.clicked.connect(self._apply_search)
-        sb_lay.addWidget(search_btn)
-
-        # Clear button
+        # Clear + Refresh side by side
+        cr_row = QHBoxLayout()
+        cr_row.setContentsMargins(0, 0, 0, 0)
+        cr_row.setSpacing(4)
         clear_btn = SCButton("CLEAR")
         clear_btn.clicked.connect(self._clear_filters)
-        sb_lay.addWidget(clear_btn)
-
-        # Refresh button
+        cr_row.addWidget(clear_btn)
         self._refresh_btn = SCButton("REFRESH", glow_color=P.tool_trade)
         self._refresh_btn.clicked.connect(self._on_manual_refresh)
-        sb_lay.addWidget(self._refresh_btn)
+        cr_row.addWidget(self._refresh_btn)
+        cr_w = QWidget()
+        cr_w.setStyleSheet("background: transparent;")
+        cr_w.setLayout(cr_row)
+        sb_lay.addWidget(cr_w)
 
         # Profit calculator
-        sep2 = QFrame()
-        sep2.setFrameShape(QFrame.HLine)
-        sep2.setStyleSheet(f"color: {P.border}; margin: 8px 10px;")
-        sep2.setFixedHeight(1)
-        sb_lay.addWidget(sep2)
         profit_btn = SCButton("$  PROFIT CALC", glow_color=P.tool_trade)
         profit_btn.clicked.connect(self._open_profit_calculator)
         sb_lay.addWidget(profit_btn)
 
-        # Market calculations toggle
-        section("MARKET CALCULATIONS:", 8)
-        mc_row = QHBoxLayout()
-        mc_row.setContentsMargins(10, 2, 10, 0)
-        self._use_max_profit = False
-        self._btn_mc_max = QPushButton("Max Profit")
-        self._btn_mc_max.setCursor(Qt.PointingHandCursor)
-        self._btn_mc_max.clicked.connect(lambda: self._set_market_calc(True))
-        mc_row.addWidget(self._btn_mc_max)
-        self._btn_mc_demand = QPushButton("Reported Demand")
-        self._btn_mc_demand.setCursor(Qt.PointingHandCursor)
-        self._btn_mc_demand.clicked.connect(lambda: self._set_market_calc(False))
-        mc_row.addWidget(self._btn_mc_demand)
-        mc_w = QWidget()
-        mc_w.setStyleSheet("background: transparent;")
-        mc_w.setLayout(mc_row)
-        sb_lay.addWidget(mc_w)
-        self._update_mc_btns()
-
         sb_lay.addStretch(1)
 
-        body.addWidget(sidebar_scroll)
+        body.addWidget(sidebar)
 
         # ── Right content: tabs with routes + loops tables ──
         right = QWidget()
@@ -777,11 +912,28 @@ class TradeHubWindow(SCWindow):
         self._loop_table = SCTable(loop_cols, sortable=True)
         self._loop_table.row_double_clicked.connect(self._on_loop_select)
 
+        # Mixed freight table
+        _fc2 = lambda v: f"{v:,.0f}" if v else "\u2014"
+        _fi2 = lambda v: f"{v:,}" if v else "\u2014"
+        mixed_cols = [
+            ColumnDef(_("Origin Terminal"), "origin", 160),
+            ColumnDef(_("Sys"), "origin_sys", 65),
+            ColumnDef(_("Legs"), "legs", 42, Qt.AlignRight),
+            ColumnDef(_("Commodity Mix"), "commodities", 280),
+            ColumnDef(_("Fill %"), "fill_pct", 65, Qt.AlignRight),
+            ColumnDef(_("Min Avail SCU"), "avail", 80, Qt.AlignRight, fmt=lambda v: f"{v:,} SCU" if v else "\u2014"),
+            ColumnDef(_("Est. Total Profit"), "total_profit", 145, Qt.AlignRight, fg_color=P.green, fmt=lambda v: f"{v:,.0f} " + _("aUEC") if v else "\u2014"),
+        ]
+        self._mixed_table = SCTable(mixed_cols, sortable=True)
+        self._mixed_table.row_double_clicked.connect(self._on_mixed_select)
+        self._mixed_table.hide()
+
         # Stack: show only one table at a time
         self._route_table.show()
         self._loop_table.hide()
         right_lay.addWidget(self._route_table, 1)
         right_lay.addWidget(self._loop_table, 1)
+        right_lay.addWidget(self._mixed_table, 1)
 
         body.addWidget(right)
         body.setStretchFactor(1, 1)
@@ -837,15 +989,53 @@ class TradeHubWindow(SCWindow):
         self._update_mc_btns()
         self._refresh_display()
 
+    # ── Freight mode ──
+
+    def _update_freight_mode_btns(self):
+        active_ss = f"QPushButton {{ background: {P.accent}; color: #ffffff; border: none; font-family: Consolas; font-size: 9pt; font-weight: bold; padding: 3px; }}"
+        inactive_ss = f"QPushButton {{ background: {P.bg_card}; color: {P.fg_dim}; border: none; font-family: Consolas; font-size: 9pt; font-weight: bold; padding: 3px; }} QPushButton:hover {{ color: {P.fg}; }}"
+        self._btn_bulk.setStyleSheet(active_ss if self._freight_mode == "BULK" else inactive_ss)
+        self._btn_mixed.setStyleSheet(inactive_ss if self._freight_mode == "BULK" else active_ss)
+
+    def _set_freight_mode(self, mode: str):
+        self._freight_mode = mode
+        self._update_freight_mode_btns()
+        self._sync_table_visibility()
+        self._save_settings()
+        self._refresh_display()
+
+    def _sync_table_visibility(self):
+        self._route_table.hide()
+        self._loop_table.hide()
+        self._mixed_table.hide()
+        if self._freight_mode == "MIXED":
+            self._mixed_table.show()
+        elif self._view_mode == "LOOPS":
+            self._loop_table.show()
+        else:
+            self._route_table.show()
+
+    # ── Illegal cargo ──
+
+    def _update_illegal_btns(self):
+        active_ss = f"QPushButton {{ background: {P.accent}; color: #ffffff; border: none; font-family: Consolas; font-size: 9pt; font-weight: bold; padding: 3px; }}"
+        inactive_ss = f"QPushButton {{ background: {P.bg_card}; color: {P.fg_dim}; border: none; font-family: Consolas; font-size: 9pt; font-weight: bold; padding: 3px; }} QPushButton:hover {{ color: {P.fg}; }}"
+        self._btn_illegal_yes.setStyleSheet(active_ss if self._allow_illegal else inactive_ss)
+        self._btn_illegal_no.setStyleSheet(inactive_ss if self._allow_illegal else active_ss)
+
+    def _set_allow_illegal(self, allow: bool):
+        self._allow_illegal = allow
+        self._update_illegal_btns()
+        self._save_settings()
+        self._refresh_display()
+
+    def _save_settings(self):
+        save_config({"ship_name": self._ship_name, "hotkey": self._hotkey, "freight_mode": self._freight_mode, "allow_illegal_cargo": self._allow_illegal})
+
     def _set_view_mode(self, mode: str):
         self._view_mode = mode
         self._update_view_mode_btns()
-        if mode == "ROUTES":
-            self._route_table.show()
-            self._loop_table.hide()
-        else:
-            self._route_table.hide()
-            self._loop_table.show()
+        self._sync_table_visibility()
         self._refresh_display()
 
     # ── Data loading ──
@@ -917,6 +1107,41 @@ class TradeHubWindow(SCWindow):
 
     def _refresh_display(self):
         f = self._read_filters()
+        f.allow_illegal = self._allow_illegal
+
+        if self._freight_mode == "MIXED":
+            from mixed_freight import find_mixed_routes, sort_mixed_routes, calc_mixed_route_profit, calc_slot_profit, calc_mixed_leg_profit
+            pool = apply_filters(self._all_routes, f) if self._all_routes else []
+            # When multi-hop / max-profit mode is active, allow more legs
+            mode_id = get_calc_mode().get("id", "standard")
+            max_rt = 5 if mode_id == "multi_hop" else 3
+            max_lp = 7
+            mixed = find_mixed_routes(
+                pool, self._ship_scu,
+                allow_illegal=self._allow_illegal,
+                min_fill_pct=70,
+                stop_penalty_pct=5,
+                max_stops_route=max_lp,   # solver builds all chain lengths
+                max_stops_loop=max_lp,
+            ) if pool and self._ship_scu > 0 else []
+
+            # Split results by view mode:
+            #   ROUTES = single-leg mixed loads (point-to-point, up to max_rt legs)
+            #   LOOPS  = multi-leg chains (2+ legs)
+            if self._view_mode == "ROUTES":
+                mixed = [m for m in mixed if m.num_legs() <= max_rt]
+            else:
+                mixed = [m for m in mixed if m.num_legs() >= 2]
+
+            q = self._search.text().strip().lower()
+            if q:
+                mixed = [m for m in mixed if any(q in x.lower() for x in [
+                    m.start_terminal, m.start_system, m.commodity_summary()])]
+            mixed = sort_mixed_routes(mixed, self._mixed_sort_col, self._mixed_sort_reverse)
+            self._filtered_mixed = mixed[:self._max_routes]
+            self._populate_mixed_table()
+            self._update_status()
+            return
 
         if self._view_mode == "LOOPS":
             loops = self._filter_loops(self._all_loops, f)
@@ -990,6 +1215,22 @@ class TradeHubWindow(SCWindow):
             })
         self._loop_table.set_data(rows)
 
+    def _populate_mixed_table(self):
+        from mixed_freight import calc_mixed_route_profit
+        rows = []
+        for mr in self._filtered_mixed:
+            tp = calc_mixed_route_profit(mr)
+            rows.append({
+                "origin": mr.start_terminal or mr.start_system,
+                "origin_sys": mr.start_system,
+                "legs": mr.num_legs(),
+                "commodities": mr.commodity_summary(),
+                "fill_pct": f"{mr.fill_efficiency():.0f}%",
+                "avail": mr.min_primary_avail(),
+                "total_profit": tp,
+            })
+        self._mixed_table.set_data(rows)
+
     @staticmethod
     def _filter_loops(loops, f):
         result = list(loops)
@@ -1033,7 +1274,7 @@ class TradeHubWindow(SCWindow):
         f.sell_system = self._sell_sys.current_text().strip()
         f.buy_location = self._buy_loc.current_text().strip()
         f.sell_location = self._sell_loc.current_text().strip()
-        f.commodity = self._commodity_combo.currentText().strip()
+        f.commodity = self._commodity_combo.current_text().strip()
         f.search = self._search.text().strip()
         try:
             f.min_margin_scu = float(self._min_profit.text()) if self._min_profit.text() else 0
@@ -1066,13 +1307,15 @@ class TradeHubWindow(SCWindow):
     def _on_ext_mode_change(self, mode: dict) -> None:
         """Callback when extension calculation mode changes."""
         set_calc_mode(dict(mode))  # copy to avoid shared ref issues
-        # Rebuild loops with optimized function when multi-hop mode is active
+        # Rebuild loops with max-profit function when multi-hop mode is active
         if mode.get("id") == "multi_hop" and self._all_routes:
-            self._all_loops = find_multi_routes_optimized(
+            self._all_loops = find_max_profit_routes(
                 self._all_routes, self._ship_scu)
         elif self._all_routes:
             self._all_loops = find_multi_routes(
                 self._all_routes, self._ship_scu)
+        # Mixed freight re-solves on every _refresh_display call using the
+        # updated calc_mode, so just trigger a refresh for all modes.
         QTimer.singleShot(0, self._refresh_display)
 
     def _clear_filters(self):
@@ -1080,7 +1323,7 @@ class TradeHubWindow(SCWindow):
         self._sell_sys.set_text("")
         self._buy_loc.set_text("")
         self._sell_loc.set_text("")
-        self._commodity_combo.setCurrentIndex(0)
+        self._commodity_combo.set_text("")
         self._min_scu.clear()
         self._min_profit.clear()
         self._search.clear()
@@ -1101,19 +1344,20 @@ class TradeHubWindow(SCWindow):
         self._buy_loc.set_items([""] + buy_locs)
         self._sell_loc.set_items([""] + sell_locs)
 
-        curr_comm = self._commodity_combo.currentText()
-        self._commodity_combo.clear()
-        for c in commodities:
-            self._commodity_combo.addItem(c)
-        idx = self._commodity_combo.findText(curr_comm)
-        if idx >= 0:
-            self._commodity_combo.setCurrentIndex(idx)
+        curr_comm = self._commodity_combo.current_text()
+        self._commodity_combo.set_items(commodities)
+        if curr_comm:
+            self._commodity_combo.set_text(curr_comm)
 
     def _update_status(self):
         ship = f" | {self._ship_name} ({self._ship_scu:,} SCU)" if self._ship_scu else ""
         mode = get_calc_mode()
         mode_tag = f" | [{mode.get('name', mode.get('id', 'STD')).upper()}]" if mode.get("id", "standard") != "standard" else ""
-        if self._view_mode == "LOOPS":
+        if self._freight_mode == "MIXED":
+            shown = len(self._filtered_mixed)
+            self._status_label.setText(f"  {shown:,} mixed routes{ship}{mode_tag}")
+            self._count_label.setText(f"{shown:,} mixed")
+        elif self._view_mode == "LOOPS":
             total = len(self._all_loops)
             shown = len(self._filtered_loops)
             self._status_label.setText(f"  {shown:,} / {total:,} {_('loops')}{ship}{mode_tag}")
@@ -1136,7 +1380,7 @@ class TradeHubWindow(SCWindow):
     def _set_ship(self, name: str, scu: int = 0):
         self._ship_name = name
         self._ship_scu = scu if scu > 0 else scu_for_ship(name)
-        save_config({"ship_name": name, "hotkey": self._hotkey})
+        save_config({"ship_name": name, "hotkey": self._hotkey, "freight_mode": self._freight_mode, "allow_illegal_cargo": self._allow_illegal})
         # Rebuild loops with new ship
         scu_val = self._ship_scu
         routes_ref = self._all_routes
@@ -1220,6 +1464,252 @@ class TradeHubWindow(SCWindow):
                 dlg = RouteDetailDialog(self, "ROUTE DETAIL", data)
                 dlg.show()
                 return
+
+    def _on_mixed_select(self, row_data: dict):
+        from mixed_freight import calc_mixed_route_profit, calc_mixed_leg_profit, calc_slot_profit
+        summary = row_data.get("commodities", "")
+        for mr in self._filtered_mixed:
+            if mr.commodity_summary() == summary:
+                ship_lbl = f"{self._ship_name} ({self._ship_scu:,} SCU)" if self._ship_scu else "No ship"
+                total_profit = calc_mixed_route_profit(mr)
+                total_invest = mr.total_investment()
+                roi = (total_profit / total_invest * 100.0) if total_invest > 0 else 0.0
+                data = {
+                    "type": "mixed",
+                    "ship": ship_lbl,
+                    "total_profit": total_profit,
+                    "total_investment": total_invest,
+                    "roi": roi,
+                    "fill_efficiency": mr.fill_efficiency(),
+                    "total_distance": mr.total_distance(),
+                    "legs": [],
+                }
+                for leg in mr.legs:
+                    leg_profit = calc_mixed_leg_profit(leg)
+                    leg_data = {
+                        "buy_terminal": leg.buy_terminal,
+                        "buy_system": leg.buy_system,
+                        "sell_terminal": leg.sell_terminal,
+                        "sell_system": leg.sell_system,
+                        "total_scu": leg.total_scu(),
+                        "fill_pct": leg.fill_pct(self._ship_scu),
+                        "leg_profit": leg_profit,
+                        "distance": leg.total_distance(),
+                        "slots": [],
+                    }
+                    for slot in leg.cargo_slots:
+                        leg_data["slots"].append({
+                            "commodity": slot.commodity,
+                            "scu_loaded": slot.scu_loaded,
+                            "price_buy": slot.price_buy,
+                            "price_sell": slot.price_sell,
+                            "margin": slot.margin,
+                            "profit": calc_slot_profit(slot),
+                            "is_primary": slot.is_primary,
+                            "is_illegal": slot.is_illegal,
+                        })
+                    data["legs"].append(leg_data)
+                dlg = RouteDetailDialog(self, "MIXED FREIGHT", data)
+                dlg.show()
+                return
+
+    # ── Tutorial ──
+
+    def _open_tutorial(self):
+        """Open a tabbed tutorial dialog explaining Trade Hub features."""
+        if hasattr(self, '_tutorial_dlg') and self._tutorial_dlg and self._tutorial_dlg.isVisible():
+            self._tutorial_dlg.raise_()
+            return
+
+        dlg = QDialog(self, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        self._tutorial_dlg = dlg
+        dlg.setAttribute(Qt.WA_TranslucentBackground)
+        dlg.resize(560, 520)
+        dlg.accept = lambda: None  # prevent Enter from closing
+
+        outer = QVBoxLayout(dlg)
+        outer.setContentsMargins(0, 0, 0, 0)
+
+        panel = QFrame()
+        panel.setStyleSheet(f"""
+            QFrame {{
+                background-color: {P.bg_secondary};
+                border: 1px solid {P.border};
+            }}
+        """)
+        panel_lay = QVBoxLayout(panel)
+        panel_lay.setContentsMargins(0, 0, 0, 0)
+        panel_lay.setSpacing(0)
+
+        bar = SCTitleBar(dlg, title="TRADE HUB TUTORIAL", icon_text="\u25c8",
+                         accent_color=P.tool_trade, show_minimize=False)
+        bar.close_clicked.connect(dlg.close)
+        panel_lay.addWidget(bar)
+
+        # Tabbed content
+        tabs = QTabWidget()
+        tabs.setStyleSheet(f"""
+            QTabWidget::pane {{
+                background: {P.bg_primary};
+                border: none;
+                border-top: 1px solid {P.border};
+            }}
+            QTabBar::tab {{
+                background: {P.bg_card};
+                color: {P.fg_dim};
+                border: none;
+                padding: 6px 14px;
+                font-family: Consolas;
+                font-size: 9pt;
+                font-weight: bold;
+            }}
+            QTabBar::tab:selected {{
+                background: {P.bg_primary};
+                color: {P.tool_trade};
+                border-bottom: 2px solid {P.tool_trade};
+            }}
+            QTabBar::tab:hover {{
+                color: {P.fg};
+            }}
+        """)
+
+        lbl_style = f"""
+            font-family: Consolas; font-size: 9pt; color: {P.fg};
+            background: transparent; padding: 16px;
+            line-height: 1.5;
+        """
+        hdr_style = f"font-weight: bold; color: {P.tool_trade}; font-size: 10pt;"
+        accent_style = f"color: {P.accent};"
+        green_style = f"color: {P.green};"
+        yellow_style = f"color: {P.yellow};"
+        red_style = f"color: {P.red};"
+        purple_style = f"color: {P.purple};"
+
+        def _make_tab(html: str) -> QScrollArea:
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setStyleSheet(f"QScrollArea {{ border: none; background: {P.bg_primary}; }}")
+            lbl = QLabel(html)
+            lbl.setWordWrap(True)
+            lbl.setTextFormat(Qt.RichText)
+            lbl.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+            lbl.setStyleSheet(lbl_style)
+            scroll.setWidget(lbl)
+            return scroll
+
+        # Tab 1: Getting Started
+        tabs.addTab(_make_tab(f"""
+            <p style="{hdr_style}">GETTING STARTED</p>
+            <p>Trade Hub shows you the most profitable trade routes in Star Citizen
+            using live data from the UEX Corp API.</p>
+            <p style="{hdr_style}">VEHICLE</p>
+            <p>Select your ship from the <span style="{accent_style}">VEHICLE</span>
+            dropdown. This sets your cargo capacity (SCU) and all profit calculations
+            adjust automatically. Type to fuzzy-search ship names.</p>
+            <p style="{hdr_style}">VIEW MODE</p>
+            <p><span style="{accent_style}">ROUTES</span> shows single-leg
+            point-to-point trades. <span style="{accent_style}">LOOPS</span> shows
+            multi-leg chains where you sell cargo at each stop and buy new cargo
+            for the next leg.</p>
+            <p style="{hdr_style}">ROUTE DETAILS</p>
+            <p>Double-click any row to open a detailed breakdown card showing
+            buy/sell terminals, prices, distances, travel time, and profit.
+            Cards can be pinned to stay open.</p>
+        """), "Basics")
+
+        # Tab 2: Freight Modes
+        tabs.addTab(_make_tab(f"""
+            <p style="{hdr_style}">FREIGHT MODES</p>
+            <p><span style="{accent_style}">BULK</span> fills your entire cargo bay
+            with a single commodity per leg. This is the traditional trading method.</p>
+            <p><span style="{green_style}">MIXED</span> strategically combines
+            multiple commodities per leg to maximize profit. It selects a
+            high-value <span style="{green_style}">Primary</span> commodity as the
+            anchor, then fills remaining bay space with profitable
+            <span style="{purple_style}">Filler</span> commodities heading to the
+            same destination.</p>
+            <p style="{hdr_style}">MIXED FREIGHT DETAILS</p>
+            <p>In Mixed mode, <span style="{accent_style}">ROUTES</span> shows
+            single-stop mixed loads. <span style="{accent_style}">LOOPS</span>
+            shows multi-stop chains where each leg carries a mixed cargo bay.</p>
+            <p>Double-click a mixed route to see the full cargo breakdown:
+            each commodity, SCU loaded, buy/sell prices, and per-item profit
+            color-coded by role.</p>
+        """), "Freight")
+
+        # Tab 3: Filters
+        tabs.addTab(_make_tab(f"""
+            <p style="{hdr_style}">FILTERING ROUTES</p>
+            <p>Use the sidebar filters to narrow results:</p>
+            <p><span style="{accent_style}">SYSTEM: BUY / SELL</span> &mdash;
+            filter by star system on either side of the trade.</p>
+            <p><span style="{accent_style}">BUY / SELL LOCATION</span> &mdash;
+            filter by planet, moon, or outpost name.</p>
+            <p><span style="{accent_style}">COMMODITY</span> &mdash;
+            show only routes for a specific commodity.</p>
+            <p><span style="{accent_style}">MIN SCU</span> &mdash;
+            hide routes with less available stock than this.</p>
+            <p><span style="{accent_style}">MIN PROFIT/SCU</span> &mdash;
+            hide routes below this margin per SCU.</p>
+            <p><span style="{accent_style}">SEARCH</span> &mdash;
+            fuzzy text search across all columns. Results update as you type.</p>
+            <p><span style="{accent_style}">ONLY SYSTEM(S) SELECTED</span> &mdash;
+            when YES, both buy and sell sides must be within the selected systems.</p>
+        """), "Filters")
+
+        # Tab 4: Illegal Cargo & Market
+        tabs.addTab(_make_tab(f"""
+            <p style="{hdr_style}">ALLOW ILLEGAL CARGO</p>
+            <p>Default: <span style="{red_style}">NO</span>. Illegal commodities
+            (drugs, contraband) are hidden from all calculations and displays.</p>
+            <p>Set to <span style="{green_style}">YES</span> to include illegal
+            cargo in both Bulk and Mixed freight. Illegal items are marked with
+            <span style="{red_style}">\u26a0 ILLEGAL</span> in detail cards.</p>
+            <p style="{hdr_style}">MARKET CALCULATIONS</p>
+            <p><span style="{accent_style}">Reported Demand</span> (default) caps
+            your loadable SCU by both available supply AND reported demand at
+            the sell terminal. Conservative but realistic.</p>
+            <p><span style="{accent_style}">Max Profit</span> ignores demand caps
+            and only limits by supply and ship capacity. Use this for optimistic
+            estimates when demand data may be stale.</p>
+            <p style="{hdr_style}">PROFIT CALCULATOR</p>
+            <p>Click <span style="{yellow_style}">$ PROFIT CALC</span> to open a
+            quick calculator. Enter your starting and ending aUEC balance to see
+            your session profit at a glance.</p>
+        """), "Settings")
+
+        # Tab 5: Advanced
+        tabs.addTab(_make_tab(f"""
+            <p style="{hdr_style}">COLUMN GUIDE</p>
+            <p><span style="{accent_style}">CS</span> &mdash; Container sizes
+            available at the terminal.</p>
+            <p><span style="{accent_style}">SCU</span> &mdash; Effective SCU you
+            can load (capped by ship, supply, and demand).</p>
+            <p><span style="{accent_style}">SCU-U</span> &mdash; User-reported
+            stock levels from UEX Corp.</p>
+            <p><span style="{accent_style}">Distance</span> &mdash; Quantum travel
+            distance between terminals.</p>
+            <p><span style="{accent_style}">ETA</span> &mdash; Estimated travel
+            time at standard quantum speed.</p>
+            <p><span style="{accent_style}">ROI</span> &mdash; Return on
+            investment: profit as a percentage of purchase cost.</p>
+            <p style="{hdr_style}">TIPS</p>
+            <p>\u2022 Press <span style="{accent_style}">Ctrl+Shift+T</span> to
+            toggle Trade Hub visibility from anywhere.</p>
+            <p>\u2022 Click column headers to sort. Click again to reverse.</p>
+            <p>\u2022 Hit <span style="{accent_style}">REFRESH</span> to pull
+            fresh data from the UEX API. Data auto-refreshes every 5 minutes.</p>
+            <p>\u2022 Mixed freight shines with mid-size ships (64\u2013700 SCU)
+            where single commodities rarely fill the bay.</p>
+        """), "Advanced")
+
+        panel_lay.addWidget(tabs, 1)
+        outer.addWidget(panel)
+
+        # Position near center of screen
+        screen = QApplication.primaryScreen().geometry()
+        dlg.move((screen.width() - 560) // 2, (screen.height() - 520) // 2)
+        dlg.show()
 
     # ── Profit Calculator ──
 
@@ -1443,9 +1933,7 @@ class TradeHubWindow(SCWindow):
             self._set_ship(cmd.get("ship_name", ""), cmd.get("ship_scu", 0))
         elif t == "filter":
             if cmd.get("commodity"):
-                idx = self._commodity_combo.findText(cmd["commodity"])
-                if idx >= 0:
-                    self._commodity_combo.setCurrentIndex(idx)
+                self._commodity_combo.set_text(cmd["commodity"])
             if cmd.get("min_profit_scu"):
                 self._min_profit.setText(str(cmd["min_profit_scu"]))
             self._apply_search()
@@ -1462,6 +1950,12 @@ class TradeHubWindow(SCWindow):
         elif t == "opacity":
             val = max(0.3, min(1.0, float(cmd.get("value", 0.95))))
             self.set_opacity(val)
+        elif t == "set_freight_mode":
+            mode = cmd.get("mode", "BULK")
+            if mode in ("BULK", "MIXED"):
+                self._set_freight_mode(mode)
+        elif t == "set_illegal_cargo":
+            self._set_allow_illegal(bool(cmd.get("allow", False)))
 
     def closeEvent(self, event) -> None:
         if hasattr(self, '_ipc'):
@@ -1488,7 +1982,7 @@ if __name__ == "__main__":
         win_x = _safe_arg(0, 80, int)
         win_y = _safe_arg(1, 80, int)
         win_w = _safe_arg(2, 1400, int)
-        win_h = _safe_arg(3, 900, int)
+        win_h = _safe_arg(3, 1200, int)
         refresh_interval = _safe_arg(4, 300.0, float)
         max_routes = _safe_arg(5, 500, int)
         opacity = _safe_arg(6, 0.95, float)

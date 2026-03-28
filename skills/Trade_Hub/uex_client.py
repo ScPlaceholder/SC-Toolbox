@@ -40,6 +40,7 @@ class RouteData:
     margin: float = 0.0        # Per-SCU profit
     margin_pct: float = 0.0
     score: float = 0.0
+    is_illegal: bool = False
 
     def effective_scu(self, ship_scu: int = 0) -> int:
         if self.scu_available <= 0:

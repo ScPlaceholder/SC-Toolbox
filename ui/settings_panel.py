@@ -1,15 +1,18 @@
 """
-Collapsible settings panel — PySide6 MobiGlas implementation.
+Settings popup bubble — PySide6 MobiGlas implementation.
 
-Keybind editing, language selection, with animated slide-in/out.
+Floating popup with three tabs: Tools (enable/disable + keybinds),
+Grid Layout (customizable NxM grid), and Language selection.
 """
 import logging
 from typing import Callable, Dict, List, Optional
 
-from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve
+from PySide6.QtCore import Qt, QPoint, QTimer, Signal
+from PySide6.QtGui import QIntValidator
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QFrame,
-    QSizePolicy, QComboBox,
+    QSizePolicy, QComboBox, QPushButton, QCheckBox, QGridLayout,
+    QScrollArea, QSpinBox,
 )
 
 from shared.config_models import SkillConfig
@@ -37,13 +40,85 @@ _LANG_NAMES: dict[str, str] = {
 
 
 def _lang_display(code: str) -> str:
-    """Return a display name for a language code."""
     return _LANG_NAMES.get(code, code.upper())
+
+
+# ── Shared QSS helpers ────────────────────────────────────────────────────────
+
+_TOGGLE_QSS = f"""
+    QCheckBox {{
+        spacing: 6px;
+        color: {P.fg};
+        background: transparent;
+        font-family: Consolas; font-size: 9pt;
+    }}
+    QCheckBox::indicator {{
+        width: 36px; height: 18px;
+        border-radius: 9px;
+        border: 1px solid {P.border};
+        background-color: {P.bg_input};
+    }}
+    QCheckBox::indicator:checked {{
+        background-color: {P.green};
+        border-color: {P.green};
+    }}
+"""
+
+_SPIN_QSS = f"""
+    QSpinBox {{
+        background-color: {P.bg_input};
+        color: {P.fg};
+        border: 1px solid {P.border};
+        font-family: Consolas; font-size: 9pt;
+        padding: 2px 6px;
+        min-width: 50px;
+    }}
+    QSpinBox::up-button, QSpinBox::down-button {{
+        background-color: {P.bg_card};
+        border: 1px solid {P.border};
+        width: 16px;
+    }}
+    QSpinBox::up-button:hover, QSpinBox::down-button:hover {{
+        background-color: {P.bg_input};
+    }}
+"""
+
+_COMBO_QSS = f"""
+    QComboBox {{
+        background-color: {P.bg_input};
+        color: {P.fg};
+        border: 1px solid {P.border};
+        font-family: Consolas; font-size: 8pt;
+        padding: 2px 4px;
+    }}
+    QComboBox:hover {{
+        border-color: {P.accent};
+    }}
+    QComboBox QAbstractItemView {{
+        background-color: {P.bg_card};
+        color: {P.fg};
+        border: 1px solid {P.border};
+        selection-background-color: {P.bg_input};
+        selection-color: {P.fg_bright};
+    }}
+"""
+
+_LINE_EDIT_QSS = f"""
+    QLineEdit {{
+        background-color: {P.bg_input};
+        color: {P.fg};
+        border: 1px solid {P.border};
+        font-family: Consolas; font-size: 9pt;
+        padding: 2px 6px;
+    }}
+    QLineEdit:focus {{
+        border-color: {P.accent};
+    }}
+"""
 
 
 def _btn_qss(bg: str, bg_hover: str, color: str, color_hover: str = P.fg_bright,
              font_size: str = "9pt", padding: str = "8px 12px") -> str:
-    """Generate a QPushButton stylesheet with normal and hover states."""
     return f"""
         QPushButton {{
             background-color: {bg};
@@ -59,244 +134,596 @@ def _btn_qss(bg: str, bg_hover: str, color: str, color_hover: str = P.fg_bright,
     """
 
 
-class SettingsPanel(QWidget):
-    """Collapsible settings panel with language selection and keybind editing."""
+# ══════════════════════════════════════════════════════════════════════════════
+# Settings Popup
+# ══════════════════════════════════════════════════════════════════════════════
+
+class SettingsPopup(QWidget):
+    """Floating settings popup bubble with tabbed content."""
+
+    applied = Signal(dict)  # emits full settings dict on Apply
 
     def __init__(
         self,
-        parent: QWidget,
+        parent_window: QWidget,
         skills: List[SkillConfig],
         launcher_hotkey: str,
-        on_apply: Callable[[str, Dict[str, str]], None],
+        disabled_skills: List[str],
+        grid_rows: int,
+        grid_cols: int,
+        grid_layout: Dict[str, str],
         current_language: str = "en",
         available_languages: Optional[List[str]] = None,
-        on_language_change: Optional[Callable[[str], None]] = None,
+        on_apply: Optional[Callable[[dict], None]] = None,
+        opacity: float = 0.95,
     ) -> None:
-        super().__init__(parent)
+        super().__init__(None, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        self.setObjectName("settingsPopup")
+        self.setWindowOpacity(opacity)
+        self.setStyleSheet(f"QWidget#settingsPopup {{ background-color: {P.bg_header}; }}")
+        self.setFixedSize(520, 560)
+
+        self._parent_window = parent_window
         self._skills = skills
         self._on_apply = on_apply
-        self._on_language_change = on_language_change
-        self._visible = False
         self._available_langs = available_languages or ["en"]
+        self._current_tab = 0
+        self._tab_btns: list[QPushButton] = []
 
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
+        # ── Working copies of settings ──
+        self._launcher_hotkey = launcher_hotkey
+        self._skill_hotkeys: Dict[str, str] = {s.id: s.hotkey for s in skills}
+        self._disabled: set[str] = set(disabled_skills)
+        self._grid_rows = grid_rows
+        self._grid_cols = grid_cols
+        self._grid_layout: Dict[str, str] = dict(grid_layout)
+        self._language = current_language
 
-        # ── Content frame (hidden initially) ──
-        self._content = QFrame(self)
-        self._content.setStyleSheet(f"background-color: {P.bg_secondary};")
-        self._content.setMaximumHeight(0)
-        self._content.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        c_layout = QVBoxLayout(self._content)
-        c_layout.setContentsMargins(12, 8, 12, 8)
-        c_layout.setSpacing(2)
+        self._build_ui()
+        self._select_tab(0)
+        self._position_near_parent()
 
-        # ── Keybinds section ──
-        hdr = QLabel(_t("KEYBINDS"), self._content)
-        hdr.setStyleSheet(f"""
+    # ── Positioning ───────────────────────────────────────────────────────
+
+    def _position_near_parent(self):
+        pw = self._parent_window
+        pos = pw.pos()
+        size = pw.size()
+        cx = pos.x() + (size.width() - self.width()) // 2
+        cy = pos.y() + (size.height() - self.height()) // 2
+        self.move(cx, cy)
+
+    # ── Build UI ──────────────────────────────────────────────────────────
+
+    def _build_ui(self):
+        main_lay = QVBoxLayout(self)
+        main_lay.setContentsMargins(0, 0, 0, 0)
+        main_lay.setSpacing(0)
+
+        # ── Title bar (draggable) ─────────────────────────────────────────
+        bar = QWidget()
+        bar.setObjectName("settingsBar")
+        bar.setFixedHeight(36)
+        bar.setStyleSheet(f"QWidget#settingsBar {{ background-color: {P.bg_header}; }}")
+        bar_lay = QHBoxLayout(bar)
+        bar_lay.setContentsMargins(8, 0, 6, 0)
+        bar_lay.setSpacing(4)
+
+        bar._drag_pos = QPoint()
+
+        def drag_press(e):
+            if e.button() == Qt.LeftButton:
+                bar._drag_pos = e.globalPosition().toPoint() - self.pos()
+                e.accept()
+
+        def drag_move(e):
+            if e.buttons() & Qt.LeftButton:
+                self.move(e.globalPosition().toPoint() - bar._drag_pos)
+                e.accept()
+
+        bar.mousePressEvent = drag_press
+        bar.mouseMoveEvent = drag_move
+
+        title_lbl = QLabel("\u2699  " + _t("SETTINGS"))
+        title_lbl.setStyleSheet(f"""
             font-family: Electrolize, Consolas, monospace;
-            font-size: 9pt; font-weight: bold;
+            font-size: 10pt; font-weight: bold;
             color: {P.accent}; background: transparent;
             letter-spacing: 2px;
         """)
-        c_layout.addWidget(hdr)
+        bar_lay.addWidget(title_lbl)
+        bar_lay.addStretch(1)
 
-        hint = QLabel(_t("Format: <shift>+1  <ctrl>+F2  <alt>+q  F5"), self._content)
+        close_btn = QPushButton("x")
+        close_btn.setObjectName("settingsClose")
+        close_btn.setFixedSize(28, 28)
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.setStyleSheet(f"""
+            QPushButton#settingsClose {{
+                background: rgba(255, 60, 60, 0.15);
+                color: #cc6666;
+                border: none;
+                font-family: Consolas; font-size: 13pt; font-weight: bold;
+                border-radius: 3px; padding: 0px; margin: 2px; min-height: 0px;
+            }}
+            QPushButton#settingsClose:hover {{
+                background-color: rgba(220, 50, 50, 0.85);
+                color: #ffffff;
+            }}
+        """)
+        close_btn.clicked.connect(self.close)
+        bar_lay.addWidget(close_btn)
+
+        main_lay.addWidget(bar)
+
+        # ── Accent line ──────────────────────────────────────────────────
+        accent = QFrame()
+        accent.setFixedHeight(1)
+        accent.setStyleSheet(f"background-color: {P.accent};")
+        main_lay.addWidget(accent)
+
+        # ── Tab bar ──────────────────────────────────────────────────────
+        tab_bar = QWidget()
+        tab_bar.setObjectName("settingsTabBar")
+        tab_bar.setStyleSheet(f"QWidget#settingsTabBar {{ background-color: {P.bg_secondary}; }}")
+        tab_lay = QHBoxLayout(tab_bar)
+        tab_lay.setContentsMargins(6, 4, 6, 4)
+        tab_lay.setSpacing(4)
+
+        for i, label in enumerate([_t("Tools"), _t("Grid Layout"), _t("Language")]):
+            btn = QPushButton(label)
+            btn.setObjectName(f"settingsTab_{i}")
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setFixedHeight(26)
+            btn.clicked.connect(lambda checked=False, idx=i: self._select_tab(idx))
+            tab_lay.addWidget(btn)
+            self._tab_btns.append(btn)
+
+        tab_lay.addStretch(1)
+        main_lay.addWidget(tab_bar)
+
+        # ── Content stack ────────────────────────────────────────────────
+        self._tab_pages: list[QWidget] = []
+
+        self._tools_page = self._build_tools_tab()
+        self._tab_pages.append(self._tools_page)
+
+        self._grid_page = self._build_grid_tab()
+        self._tab_pages.append(self._grid_page)
+
+        self._lang_page = self._build_language_tab()
+        self._tab_pages.append(self._lang_page)
+
+        for page in self._tab_pages:
+            main_lay.addWidget(page)
+
+        # ── Bottom bar ───────────────────────────────────────────────────
+        sep = QFrame()
+        sep.setFixedHeight(1)
+        sep.setStyleSheet(f"background-color: {P.border};")
+        main_lay.addWidget(sep)
+
+        bottom = QWidget()
+        bottom.setObjectName("settingsBottom")
+        bottom.setFixedHeight(44)
+        bottom.setStyleSheet(f"QWidget#settingsBottom {{ background-color: {P.bg_secondary}; }}")
+        b_lay = QHBoxLayout(bottom)
+        b_lay.setContentsMargins(10, 6, 10, 6)
+        b_lay.setSpacing(8)
+
+        self._status_label = QLabel("")
+        self._status_label.setStyleSheet(f"""
+            font-family: Consolas; font-size: 8pt;
+            color: {P.fg_dim}; background: transparent;
+        """)
+        b_lay.addWidget(self._status_label, stretch=1)
+
+        cancel_btn = SCButton(_t("Cancel"), bottom, glow_color=P.red)
+        cancel_btn.setStyleSheet(_btn_qss(
+            "#2a1a18", "#3a2a28", P.fg_dim, font_size="8pt", padding="5px 14px",
+        ))
+        cancel_btn.clicked.connect(self.close)
+        b_lay.addWidget(cancel_btn)
+
+        apply_btn = SCButton(_t("Apply & Restart"), bottom, glow_color=P.green)
+        apply_btn.setStyleSheet(_btn_qss(
+            "#1a3020", "#1f3a28", P.green, font_size="8pt", padding="5px 14px",
+        ))
+        apply_btn.clicked.connect(self._on_apply_clicked)
+        b_lay.addWidget(apply_btn)
+
+        main_lay.addWidget(bottom)
+
+    # ── Tab switching ─────────────────────────────────────────────────────
+
+    def _select_tab(self, idx: int):
+        self._current_tab = idx
+        for i, btn in enumerate(self._tab_btns):
+            obj = f"settingsTab_{i}"
+            if i == idx:
+                btn.setStyleSheet(f"""
+                    QPushButton#{obj} {{
+                        background-color: {P.bg_input};
+                        color: {P.accent};
+                        border: 1px solid {P.accent};
+                        border-radius: 3px;
+                        font-family: Consolas; font-size: 8pt; font-weight: bold;
+                        padding: 2px 8px;
+                    }}
+                """)
+            else:
+                btn.setStyleSheet(f"""
+                    QPushButton#{obj} {{
+                        background-color: {P.bg_card};
+                        color: {P.fg_dim};
+                        border: 1px solid {P.border};
+                        border-radius: 3px;
+                        font-family: Consolas; font-size: 8pt;
+                        padding: 2px 8px;
+                    }}
+                    QPushButton#{obj}:hover {{
+                        background-color: {P.bg_input};
+                        color: {P.fg_bright};
+                        border-color: {P.fg_dim};
+                    }}
+                """)
+        for i, page in enumerate(self._tab_pages):
+            page.setVisible(i == idx)
+
+    # ── Tab 1: Tools ──────────────────────────────────────────────────────
+
+    def _build_tools_tab(self) -> QWidget:
+        page = QWidget()
+        page.setObjectName("toolsPage")
+        page.setStyleSheet(f"QWidget#toolsPage {{ background-color: {P.bg_secondary}; }}")
+
+        scroll = QScrollArea(page)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet(f"""
+            QScrollArea {{ background: transparent; border: none; }}
+            QScrollBar:vertical {{
+                background: {P.bg_primary}; width: 8px; border: none;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {P.border}; min-height: 20px; border-radius: 4px;
+            }}
+        """)
+
+        content = QWidget()
+        content.setStyleSheet("background: transparent;")
+        c_lay = QVBoxLayout(content)
+        c_lay.setContentsMargins(12, 8, 12, 8)
+        c_lay.setSpacing(2)
+
+        # Hint
+        hint = QLabel(_t("Format: <shift>+1  <ctrl>+F2  <alt>+q  F5"))
         hint.setStyleSheet(f"""
             font-family: Consolas; font-size: 7pt;
             color: {P.fg_disabled}; background: transparent;
         """)
-        c_layout.addWidget(hint)
+        c_lay.addWidget(hint)
 
-        # Keybind entries
-        self._entries: Dict[str, QLineEdit] = {}
-        self._add_row(c_layout, "launcher", "SC_Toolbox", launcher_hotkey)
-        for skill in skills:
-            label = f"{skill.icon} {skill.name}"
-            self._add_row(c_layout, skill.id, label, skill.hotkey)
+        # Launcher hotkey row
+        self._hotkey_entries: Dict[str, QLineEdit] = {}
+        self._toggle_checks: Dict[str, QCheckBox] = {}
 
-        # Apply button + status
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(8)
+        launcher_row = self._make_tool_row(c_lay, "launcher", "SC_Toolbox", self._launcher_hotkey, show_toggle=False)
 
-        self._status_label = QLabel("", self._content)
-        self._status_label.setStyleSheet(f"""
-            font-family: Consolas; font-size: 8pt;
-            color: {P.green}; background: transparent;
-        """)
-        btn_row.addWidget(self._status_label, stretch=1)
-
-        apply_btn = SCButton(_t("Apply Hotkeys"), self._content, glow_color=P.accent)
-        apply_btn.setStyleSheet(_btn_qss(
-            "#1a3020", "#1f3a28", P.accent, font_size="8pt", padding="5px 12px",
-        ))
-        apply_btn.clicked.connect(self._on_apply_clicked)
-        btn_row.addWidget(apply_btn)
-
-        c_layout.addLayout(btn_row)
-
-        # Separator
-        sep = QFrame(self._content)
+        sep = QFrame()
         sep.setFixedHeight(1)
         sep.setStyleSheet(f"background-color: {P.border};")
-        c_layout.addWidget(sep)
+        c_lay.addWidget(sep)
 
-        note = QLabel(_t("Window positions are stored per-skill in settings."), self._content)
-        note.setStyleSheet(f"""
-            font-family: Consolas; font-size: 7pt;
-            color: {P.fg_disabled}; background: transparent;
-        """)
-        c_layout.addWidget(note)
+        # Skill rows
+        for skill in self._skills:
+            label = f"{skill.icon} {skill.name}"
+            enabled = skill.id not in self._disabled
+            self._make_tool_row(c_lay, skill.id, label, self._skill_hotkeys.get(skill.id, skill.hotkey), show_toggle=True, enabled=enabled)
 
-        # ── Language section ──
-        lang_sep = QFrame(self._content)
-        lang_sep.setFixedHeight(1)
-        lang_sep.setStyleSheet(f"background-color: {P.border};")
-        c_layout.addWidget(lang_sep)
+        c_lay.addStretch(1)
+        scroll.setWidget(content)
 
-        lang_hdr = QLabel(_t("LANGUAGE"), self._content)
-        lang_hdr.setStyleSheet(f"""
-            font-family: Electrolize, Consolas, monospace;
-            font-size: 9pt; font-weight: bold;
-            color: {P.accent}; background: transparent;
-            letter-spacing: 2px;
-        """)
-        c_layout.addWidget(lang_hdr)
+        outer = QVBoxLayout(page)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(scroll)
+        return page
 
-        lang_row = QWidget(self._content)
-        lang_row.setFixedHeight(32)
-        lang_row.setStyleSheet("background: transparent;")
-        lr = QHBoxLayout(lang_row)
-        lr.setSpacing(8)
-        lr.setContentsMargins(0, 0, 0, 0)
-
-        self._lang_combo = QComboBox(lang_row)
-        for code in self._available_langs:
-            self._lang_combo.addItem(_lang_display(code), code)
-        idx = self._lang_combo.findData(current_language)
-        if idx >= 0:
-            self._lang_combo.setCurrentIndex(idx)
-        self._lang_combo.currentIndexChanged.connect(self._on_lang_changed)
-        self._lang_combo.setMinimumWidth(160)
-        self._lang_combo.setFixedHeight(24)
-        lr.addWidget(self._lang_combo)
-
-        self._lang_status = QLabel("", lang_row)
-        self._lang_status.setStyleSheet(f"""
-            font-family: Consolas; font-size: 7pt;
-            color: {P.fg_dim}; background: transparent;
-        """)
-        lr.addWidget(self._lang_status, stretch=1)
-
-        c_layout.addWidget(lang_row)
-
-        main_layout.addWidget(self._content)
-
-        # ── Toggle button ──
-        self._toggle_btn = SCButton("\u2699 " + _t("Settings & Keybinds"), self, glow_color=P.accent)
-        self._toggle_btn.setStyleSheet(_btn_qss("#1a2538", "#223050", P.accent))
-        self._toggle_btn.clicked.connect(self.toggle)
-        main_layout.addWidget(self._toggle_btn)
-
-        # Animation
-        self._anim = QPropertyAnimation(self._content, b"maximumHeight", self)
-        self._anim.setDuration(200)
-        self._anim.setEasingCurve(QEasingCurve.InOutQuad)
-
-        # Calculate expanded height: lang header + lang row + sep + keybind header + hint + rows + button row + sep + note + padding
-        num_rows = 1 + len(skills)  # launcher + each skill
-        self._expanded_height = 40 + 38 + 10 + 40 + 20 + (num_rows * 38) + 40 + 10 + 20 + 30
-
-    def _add_row(self, layout: QVBoxLayout, key: str, label: str, value: str) -> None:
-        row_widget = QWidget(self._content)
-        row_widget.setFixedHeight(32)
+    def _make_tool_row(self, layout: QVBoxLayout, key: str, label: str, hotkey: str,
+                       show_toggle: bool = True, enabled: bool = True) -> None:
+        row_widget = QWidget()
+        row_widget.setFixedHeight(36)
         row_widget.setStyleSheet("background: transparent;")
         row = QHBoxLayout(row_widget)
         row.setSpacing(8)
         row.setContentsMargins(0, 0, 0, 0)
 
-        lbl = QLabel(label, row_widget)
-        lbl.setMinimumWidth(160)
+        # Tool name
+        lbl = QLabel(label)
+        lbl.setMinimumWidth(150)
         lbl.setStyleSheet(f"""
             font-family: Consolas; font-size: 9pt;
             color: {P.fg}; background: transparent;
         """)
         row.addWidget(lbl)
 
-        hk_label = QLabel(_t("Hotkey:"), row_widget)
+        # Toggle
+        if show_toggle:
+            toggle = QCheckBox()
+            toggle.setChecked(enabled)
+            toggle.setStyleSheet(_TOGGLE_QSS)
+            toggle.setToolTip(_t("Enable") if enabled else _t("Disable"))
+            row.addWidget(toggle)
+            self._toggle_checks[key] = toggle
+
+            # Enabled/Disabled label
+            state_lbl = QLabel(_t("Enabled") if enabled else _t("Disabled"))
+            state_lbl.setFixedWidth(60)
+            state_lbl.setStyleSheet(f"""
+                font-family: Consolas; font-size: 7pt;
+                color: {P.green if enabled else P.red}; background: transparent;
+            """)
+            def _on_toggle(checked, sl=state_lbl):
+                sl.setText(_t("Enabled") if checked else _t("Disabled"))
+                color = P.green if checked else P.red
+                sl.setStyleSheet(f"""
+                    font-family: Consolas; font-size: 7pt;
+                    color: {color}; background: transparent;
+                """)
+            toggle.toggled.connect(_on_toggle)
+            row.addWidget(state_lbl)
+        else:
+            row.addStretch(0)
+
+        # Keybind
+        hk_label = QLabel(_t("Hotkey:"))
         hk_label.setStyleSheet(f"""
             font-family: Consolas; font-size: 8pt;
             color: {P.fg_dim}; background: transparent;
         """)
         row.addWidget(hk_label)
 
-        entry = QLineEdit(value, row_widget)
-        entry.setMinimumWidth(130)
+        entry = QLineEdit(hotkey)
+        entry.setMinimumWidth(120)
         entry.setFixedHeight(24)
+        entry.setStyleSheet(_LINE_EDIT_QSS)
         row.addWidget(entry, 1)
 
         layout.addWidget(row_widget)
-        self._entries[key] = entry
-        layout.addLayout(row)
+        self._hotkey_entries[key] = entry
 
-    def _on_lang_changed(self, index: int) -> None:
-        code = self._lang_combo.itemData(index)
-        if code and self._on_language_change:
-            self._on_language_change(code)
-            self._lang_status.setText(_t("Restart tools to apply"))
-            self._lang_status.setStyleSheet(f"""
-                font-family: Consolas; font-size: 7pt;
-                color: {P.orange}; background: transparent;
-            """)
-            QTimer.singleShot(5000, lambda: self._lang_status.setText(""))
+    # ── Tab 2: Grid Layout ────────────────────────────────────────────────
 
-    def _on_apply_clicked(self) -> None:
-        new_launcher = self._entries["launcher"].text().strip()
-        new_skills: Dict[str, str] = {}
+    def _build_grid_tab(self) -> QWidget:
+        page = QWidget()
+        page.setObjectName("gridPage")
+        page.setStyleSheet(f"QWidget#gridPage {{ background-color: {P.bg_secondary}; }}")
+
+        outer = QVBoxLayout(page)
+        outer.setContentsMargins(12, 8, 12, 8)
+        outer.setSpacing(8)
+
+        # Row/column controls
+        ctrl_row = QHBoxLayout()
+        ctrl_row.setSpacing(12)
+
+        rows_lbl = QLabel(_t("Number of rows"))
+        rows_lbl.setStyleSheet(f"""
+            font-family: Consolas; font-size: 9pt;
+            color: {P.fg}; background: transparent;
+        """)
+        ctrl_row.addWidget(rows_lbl)
+
+        self._rows_spin = QSpinBox()
+        self._rows_spin.setRange(1, 10)
+        self._rows_spin.setValue(self._grid_rows)
+        self._rows_spin.setStyleSheet(_SPIN_QSS)
+        self._rows_spin.valueChanged.connect(self._rebuild_grid_preview)
+        ctrl_row.addWidget(self._rows_spin)
+
+        ctrl_row.addSpacing(16)
+
+        cols_lbl = QLabel(_t("Number of columns"))
+        cols_lbl.setStyleSheet(f"""
+            font-family: Consolas; font-size: 9pt;
+            color: {P.fg}; background: transparent;
+        """)
+        ctrl_row.addWidget(cols_lbl)
+
+        self._cols_spin = QSpinBox()
+        self._cols_spin.setRange(1, 10)
+        self._cols_spin.setValue(self._grid_cols)
+        self._cols_spin.setStyleSheet(_SPIN_QSS)
+        self._cols_spin.valueChanged.connect(self._rebuild_grid_preview)
+        ctrl_row.addWidget(self._cols_spin)
+
+        ctrl_row.addStretch(1)
+        outer.addLayout(ctrl_row)
+
+        # Grid preview area (scrollable)
+        sep = QFrame()
+        sep.setFixedHeight(1)
+        sep.setStyleSheet(f"background-color: {P.border};")
+        outer.addWidget(sep)
+
+        grid_hint = QLabel(_t("Click a cell to assign a tool to that grid position."))
+        grid_hint.setStyleSheet(f"""
+            font-family: Consolas; font-size: 7pt;
+            color: {P.fg_disabled}; background: transparent;
+        """)
+        outer.addWidget(grid_hint)
+
+        self._grid_scroll = QScrollArea()
+        self._grid_scroll.setWidgetResizable(True)
+        self._grid_scroll.setFrameShape(QFrame.NoFrame)
+        self._grid_scroll.setStyleSheet(f"""
+            QScrollArea {{ background: transparent; border: none; }}
+            QScrollBar:vertical {{
+                background: {P.bg_primary}; width: 8px; border: none;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {P.border}; min-height: 20px; border-radius: 4px;
+            }}
+            QScrollBar:horizontal {{
+                background: {P.bg_primary}; height: 8px; border: none;
+            }}
+            QScrollBar::handle:horizontal {{
+                background: {P.border}; min-width: 20px; border-radius: 4px;
+            }}
+        """)
+        outer.addWidget(self._grid_scroll, stretch=1)
+
+        self._grid_combos: Dict[str, QComboBox] = {}
+        self._rebuild_grid_preview()
+        return page
+
+    def _rebuild_grid_preview(self):
+        rows = self._rows_spin.value()
+        cols = self._cols_spin.value()
+
+        container = QWidget()
+        container.setStyleSheet("background: transparent;")
+        grid = QGridLayout(container)
+        grid.setSpacing(4)
+
+        self._grid_combos.clear()
+
+        # Build skill choices: "(Empty)" + each skill
+        skill_choices = [("", _t("(Empty)"))]
+        for s in self._skills:
+            skill_choices.append((s.id, f"{s.icon} {s.name}"))
+
+        for r in range(rows):
+            for c in range(cols):
+                cell_key = f"{r},{c}"
+                combo = QComboBox()
+                combo.setStyleSheet(_COMBO_QSS)
+                combo.setFixedHeight(28)
+                combo.setMinimumWidth(60)
+
+                for sid, display in skill_choices:
+                    combo.addItem(display, sid)
+
+                # Restore saved assignment
+                saved_sid = self._grid_layout.get(cell_key, "")
+                if saved_sid:
+                    idx = combo.findData(saved_sid)
+                    if idx >= 0:
+                        combo.setCurrentIndex(idx)
+
+                grid.addWidget(combo, r, c)
+                self._grid_combos[cell_key] = combo
+
+        # Equal stretch
+        for c in range(cols):
+            grid.setColumnStretch(c, 1)
+        for r in range(rows):
+            grid.setRowStretch(r, 0)
+
+        self._grid_scroll.setWidget(container)
+
+    # ── Tab 3: Language ───────────────────────────────────────────────────
+
+    def _build_language_tab(self) -> QWidget:
+        page = QWidget()
+        page.setObjectName("langPage")
+        page.setStyleSheet(f"QWidget#langPage {{ background-color: {P.bg_secondary}; }}")
+
+        outer = QVBoxLayout(page)
+        outer.setContentsMargins(12, 12, 12, 12)
+        outer.setSpacing(8)
+
+        lang_hdr = QLabel(_t("LANGUAGE"))
+        lang_hdr.setStyleSheet(f"""
+            font-family: Electrolize, Consolas, monospace;
+            font-size: 9pt; font-weight: bold;
+            color: {P.accent}; background: transparent;
+            letter-spacing: 2px;
+        """)
+        outer.addWidget(lang_hdr)
+
+        desc = QLabel(_t("Select the display language for all tools."))
+        desc.setStyleSheet(f"""
+            font-family: Consolas; font-size: 8pt;
+            color: {P.fg_dim}; background: transparent;
+        """)
+        outer.addWidget(desc)
+
+        lang_row = QHBoxLayout()
+        lang_row.setSpacing(8)
+
+        self._lang_combo = QComboBox()
+        self._lang_combo.setStyleSheet(_COMBO_QSS)
+        self._lang_combo.setMinimumWidth(180)
+        self._lang_combo.setFixedHeight(28)
+        for code in self._available_langs:
+            self._lang_combo.addItem(_lang_display(code), code)
+        idx = self._lang_combo.findData(self._language)
+        if idx >= 0:
+            self._lang_combo.setCurrentIndex(idx)
+        lang_row.addWidget(self._lang_combo)
+        lang_row.addStretch(1)
+
+        outer.addLayout(lang_row)
+        outer.addStretch(1)
+        return page
+
+    # ── Apply ─────────────────────────────────────────────────────────────
+
+    def _on_apply_clicked(self):
+        # Gather all settings
+        result: dict = {}
+
+        # Launcher hotkey
+        result["hotkey_launcher"] = self._hotkey_entries.get("launcher", QLineEdit()).text().strip()
+
+        # Skill hotkeys
+        skill_hotkeys: Dict[str, str] = {}
         for skill in self._skills:
-            new_skills[skill.id] = self._entries[skill.id].text().strip()
+            entry = self._hotkey_entries.get(skill.id)
+            if entry:
+                skill_hotkeys[skill.id] = entry.text().strip()
+        result["skill_hotkeys"] = skill_hotkeys
 
-        # Validate
-        for key, val in [("launcher", new_launcher)] + list(new_skills.items()):
+        # Disabled skills
+        disabled: list[str] = []
+        for skill in self._skills:
+            toggle = self._toggle_checks.get(skill.id)
+            if toggle and not toggle.isChecked():
+                disabled.append(skill.id)
+        result["disabled_skills"] = disabled
+
+        # Grid settings
+        result["grid_rows"] = self._rows_spin.value()
+        result["grid_cols"] = self._cols_spin.value()
+
+        grid_layout: Dict[str, str] = {}
+        for cell_key, combo in self._grid_combos.items():
+            sid = combo.currentData()
+            if sid:
+                grid_layout[cell_key] = sid
+        result["grid_layout"] = grid_layout
+
+        # Language
+        result["language"] = self._lang_combo.currentData() or "en"
+
+        # Validate hotkeys
+        for key, val in [("launcher", result["hotkey_launcher"])] + [(k, v) for k, v in skill_hotkeys.items()]:
             if val and not any(c.isalnum() or c in "`~!@#$%^&*" for c in val):
-                self._show_status(f"\u2717 {_t('Invalid hotkey')}: {val}", P.red, 3000)
+                self._show_status(f"\u2717 {_t('Invalid hotkey')}: {val}", P.red)
                 return
 
-        try:
-            self._on_apply(new_launcher, new_skills)
-            self._show_status(f"\u2713 {_t('Hotkeys applied')}", P.green, 2000)
-        except Exception as exc:  # broad catch intentional: external callback may raise anything
-            log.error("settings_panel: apply failed: %s", exc)
-            self._show_status(f"\u2717 {_t('Error')}: {exc}", P.red, 3000)
+        self._show_status(f"\u2713 {_t('Applying settings and restarting...')}", P.green)
 
-    def _show_status(self, msg: str, color: str, clear_ms: int) -> None:
+        if self._on_apply:
+            self._on_apply(result)
+
+        self.applied.emit(result)
+        QTimer.singleShot(300, self.close)
+
+    def _show_status(self, msg: str, color: str):
         self._status_label.setText(msg)
         self._status_label.setStyleSheet(f"""
             font-family: Consolas; font-size: 8pt;
             color: {color}; background: transparent;
         """)
-        QTimer.singleShot(clear_ms, lambda: self._status_label.setText(""))
-
-    def toggle(self) -> None:
-        if self._visible:
-            # Collapse
-            self._anim.stop()
-            self._anim.setStartValue(self._content.maximumHeight())
-            self._anim.setEndValue(0)
-            self._anim.start()
-            self._visible = False
-            self._toggle_btn.setText("\u2699 " + _t("Settings & Keybinds"))
-            self._toggle_btn.setStyleSheet(_btn_qss("#1a2538", "#223050", P.accent))
-        else:
-            # Expand
-            self._anim.stop()
-            self._anim.setStartValue(0)
-            self._anim.setEndValue(self._expanded_height)
-            self._anim.start()
-            self._visible = True
-            self._toggle_btn.setText("\u25b2 " + _t("Close Settings"))
-            self._toggle_btn.setStyleSheet(_btn_qss("#2a1a18", "#3a2a28", P.orange))
-
-    def get_entries(self) -> Dict[str, str]:
-        return {k: e.text().strip() for k, e in self._entries.items()}

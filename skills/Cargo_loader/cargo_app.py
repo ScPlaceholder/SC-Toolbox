@@ -426,6 +426,46 @@ class ShipDataLoader:
             log.warning("Cache save failed: %s", exc)
 
 
+# ── Brush-aware QGraphicsView ────────────────────────────────────────────────
+
+class _BrushView(QGraphicsView):
+    """QGraphicsView that keeps a brush cursor alive through ScrollHandDrag.
+
+    ScrollHandDrag resets the viewport cursor on every mouse event (press,
+    release, move).  We intercept all three and re-apply the brush cursor
+    after Qt's own handling so it never disappears mid-paint.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._brush_cursor = None
+
+    def set_brush_cursor(self, cursor) -> None:
+        self._brush_cursor = cursor
+        if cursor is not None:
+            self.viewport().setCursor(cursor)
+
+    def clear_brush_cursor(self) -> None:
+        self._brush_cursor = None
+        self.viewport().unsetCursor()
+
+    def _restore(self) -> None:
+        if self._brush_cursor is not None:
+            self.viewport().setCursor(self._brush_cursor)
+
+    def mousePressEvent(self, event):
+        super().mousePressEvent(event)
+        self._restore()
+
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+        self._restore()
+
+    def mouseMoveEvent(self, event):
+        super().mouseMoveEvent(event)
+        self._restore()
+
+
 # ── Clickable box group ──────────────────────────────────────────────────────
 
 class _CargoBoxGroup(QGraphicsItemGroup):
@@ -472,6 +512,13 @@ class _CargoBoxGroup(QGraphicsItemGroup):
         if self._label_item:
             c_lft = colors[0] if colors else base_color
             self._label_item.setDefaultTextColor(QColor(label_color(c_lft)))
+
+    def shape(self):
+        """Return the full bounding rect as hit area so any click on the box fires."""
+        from PySide6.QtGui import QPainterPath
+        path = QPainterPath()
+        path.addRect(self.childrenBoundingRect())
+        return path
 
     def mousePressEvent(self, event) -> None:
         if self._click_callback:
@@ -962,6 +1009,248 @@ class _CargoFilterDialog(QDialog):
         return dict(self._visibility)
 
 
+# ── Tutorial Dialog ────────────────────────────────────────────────────────────
+
+class _CargoTutorialDialog(QDialog):
+    """Tabbed tutorial bubble for the Cargo Loader tool."""
+
+    _TABS = [
+        ("Overview",     "\U0001f6f8"),
+        ("Ship & View",  "\U0001f4e1"),
+        ("Cargo Config", "\U0001f4e6"),
+        ("Planning",     "\U0001f58c"),
+    ]
+
+    _CONTENT = [
+        # ── Overview ──────────────────────────────────────────────────────────
+        """
+<h3 style="color:#33ccdd;margin-top:0">Welcome to Cargo Loader</h3>
+<p>Cargo Loader lets you plan and optimise how containers are loaded
+onto your Star Citizen ship before you undock.</p>
+
+<b style="color:#c8d4e8">Quick-start steps:</b>
+<ol>
+  <li>Select your ship from the dropdown in the header.</li>
+  <li>The isometric view shows your ship's cargo grid.</li>
+  <li>Use <b>Cargo Configuration</b> (right panel) to choose how many
+      containers of each size you want to carry.</li>
+  <li>Hit <b style="color:#44aaff">▶ Optimize</b> to auto-fill the grid,
+      or enter counts manually.</li>
+  <li>Switch to <b>Planning Mode</b> (below Cargo Config) to paint
+      commodities onto individual boxes.</li>
+</ol>
+
+<p style="color:#5a6480;font-size:8pt">Data sourced from sc-cargo.space — click ⟳ in the header to refresh.</p>
+""",
+        # ── Ship & View ───────────────────────────────────────────────────────
+        """
+<h3 style="color:#33ccdd;margin-top:0">Ship Selection &amp; Isometric View</h3>
+
+<b style="color:#c8d4e8">Ship selector (header)</b>
+<ul>
+  <li>Type any part of the ship name — results filter as you type.</li>
+  <li>Click <b>▼</b> to browse the full list without typing.</li>
+  <li>Click <b style="color:#5a6480">⟳</b> to fetch the latest ship &amp; capacity data.</li>
+</ul>
+
+<b style="color:#c8d4e8">Isometric View</b>
+<ul>
+  <li><b>Scroll wheel</b> — zoom in/out.</li>
+  <li><b>Click &amp; drag</b> — pan the view.</li>
+  <li><b>◁ ▷ buttons</b> (toolbar) — rotate the camera 90° to see all sides.</li>
+  <li>Container colours match the size legend at the bottom of the view.</li>
+  <li>When a commodity brush is active, <b>click any box</b> to paint it.</li>
+</ul>
+
+<b style="color:#c8d4e8">Assignments overlay</b>
+<p>The translucent panel in the <b>top-left</b> of the iso view shows a live
+summary of which commodities are painted and how many boxes each has,
+coloured to match the commodity.</p>
+""",
+        # ── Cargo Config ──────────────────────────────────────────────────────
+        """
+<h3 style="color:#33ccdd;margin-top:0">Cargo Configuration</h3>
+
+<b style="color:#c8d4e8">Capacity bar</b>
+<p>Shows <i>used / total SCU</i>. Turns <b style="color:#ff5533">red</b>
+if you exceed the ship's capacity.</p>
+
+<b style="color:#c8d4e8">Container rows</b>
+<ul>
+  <li>Each row is a container size (1 SCU → 32 SCU).</li>
+  <li>The coloured swatch matches the isometric view colour for that size.</li>
+  <li>Spinbox shows the <b>count</b>; the right column shows the total SCU
+      contributed by that size.</li>
+  <li>The spinbox <b>maximum</b> is capped automatically to:
+    <ul>
+      <li>The physical slot limit for that size on the selected ship.</li>
+      <li>The remaining total capacity after other sizes are accounted for.</li>
+    </ul>
+  </li>
+</ul>
+
+<b style="color:#c8d4e8">Buttons</b>
+<ul>
+  <li><b style="color:#44aaff">▶ Optimize</b> — greedy-fills the grid with
+      the best container mix for maximum SCU usage.</li>
+  <li><b style="color:#ff5533">✕ Clear</b> — zeroes all container counts.</li>
+  <li><b style="color:#ffaa22">↺ Reset</b> — restores the last saved/optimised
+      layout for ships with a known reference loadout.</li>
+</ul>
+""",
+        # ── Planning Mode ─────────────────────────────────────────────────────
+        """
+<h3 style="color:#33ccdd;margin-top:0">Planning Mode</h3>
+
+<b style="color:#c8d4e8">Commodity Brush</b>
+<ul>
+  <li>Select a commodity from the <b>COMMODITY BRUSH</b> dropdown (type to search).</li>
+  <li>Once selected, the cursor in the iso view becomes a <b>paint brush</b>
+      tinted in the commodity's colour.</li>
+  <li>Click any container box in the iso view to assign that commodity to it.</li>
+  <li>Click the same box again with a different brush to reassign it.</li>
+  <li>Click with <b>no brush</b> active to clear a box's assignment.</li>
+  <li>Hit <b>Clear Brush</b> to deactivate the brush without clearing assignments.</li>
+</ul>
+
+<b style="color:#c8d4e8">Assignments overlay</b>
+<p>Top-left of the iso view — updates live as you paint boxes, showing
+commodity totals colour-coded to their commodity colour.</p>
+
+<b style="color:#c8d4e8">Filter</b>
+<ul>
+  <li>Opens a dialog listing every assigned commodity.</li>
+  <li>Uncheck a commodity to <b>hide</b> those boxes in the iso view
+      (useful for planning complex multi-commodity loads).</li>
+  <li>Use <b>Check All / Uncheck All</b> to toggle visibility in bulk.</li>
+</ul>
+""",
+    ]
+
+    def __init__(self, anchor: QWidget, parent=None) -> None:
+        super().__init__(parent, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self._anchor = anchor  # widget to position near (refresh button)
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+
+        # Outer card
+        card = QFrame(self)
+        card.setObjectName("tutCard")
+        card.setStyleSheet(f"""
+            QFrame#tutCard {{
+                background-color: {BG2};
+                border: 1px solid {P.tool_cargo};
+                border-radius: 4px;
+            }}
+        """)
+        card_lay = QVBoxLayout(card)
+        card_lay.setContentsMargins(0, 0, 0, 0)
+        card_lay.setSpacing(0)
+
+        # ── Header strip ──────────────────────────────────────────────────────
+        hdr = QWidget(card)
+        hdr.setFixedHeight(32)
+        hdr.setStyleSheet(f"background-color: {BG3}; border-bottom: 1px solid {P.tool_cargo};")
+        hdr_lay = QHBoxLayout(hdr)
+        hdr_lay.setContentsMargins(10, 0, 6, 0)
+        hdr_lay.setSpacing(6)
+
+        icon_lbl = QLabel("\u2b21", hdr)
+        icon_lbl.setStyleSheet(f"color: {P.tool_cargo}; font-size: 11pt; background: transparent;")
+        hdr_lay.addWidget(icon_lbl)
+
+        title_lbl = QLabel("CARGO LOADER  —  TUTORIAL", hdr)
+        title_lbl.setStyleSheet(
+            f"color: {P.tool_cargo}; font-family: Electrolize, Consolas; "
+            f"font-size: 9pt; font-weight: bold; letter-spacing: 2px; background: transparent;"
+        )
+        hdr_lay.addWidget(title_lbl)
+        hdr_lay.addStretch(1)
+
+        btn_close = QPushButton("✕", hdr)
+        btn_close.setFixedSize(26, 22)
+        btn_close.setCursor(Qt.PointingHandCursor)
+        btn_close.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; color: {FG_DIM};
+                border: none; font-family: Consolas; font-size: 10pt;
+            }}
+            QPushButton:hover {{ color: {RED}; }}
+        """)
+        btn_close.clicked.connect(self.close)
+        hdr_lay.addWidget(btn_close)
+
+        card_lay.addWidget(hdr)
+
+        # ── Tabs ──────────────────────────────────────────────────────────────
+        tabs = QTabWidget(card)
+        tabs.setStyleSheet(f"""
+            QTabBar::tab {{
+                background: {BG3}; color: {FG_DIM};
+                border: none; border-bottom: 2px solid transparent;
+                padding: 5px 14px;
+                font-family: Consolas; font-size: 8pt; font-weight: bold;
+            }}
+            QTabBar::tab:hover {{ color: {FG}; background: {BORDER}; }}
+            QTabBar::tab:selected {{
+                color: {P.tool_cargo}; border-bottom-color: {P.tool_cargo};
+                background: {BG2};
+            }}
+            QTabWidget::pane {{
+                background: {BG2}; border: none;
+            }}
+        """)
+
+        for (label, _icon), content in zip(self._TABS, self._CONTENT):
+            page = QWidget()
+            page_lay = QVBoxLayout(page)
+            page_lay.setContentsMargins(0, 0, 0, 0)
+
+            scroll = QScrollArea(page)
+            scroll.setWidgetResizable(True)
+            scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+
+            inner = QWidget()
+            inner.setStyleSheet(f"background-color: {BG2};")
+            inner_lay = QVBoxLayout(inner)
+            inner_lay.setContentsMargins(16, 12, 16, 12)
+
+            lbl = QLabel(content.strip(), inner)
+            lbl.setWordWrap(True)
+            lbl.setTextFormat(Qt.RichText)
+            lbl.setStyleSheet(
+                f"color: {FG}; font-family: Consolas; font-size: 8pt; "
+                f"background: transparent; line-height: 150%;"
+            )
+            lbl.setOpenExternalLinks(False)
+            inner_lay.addWidget(lbl)
+            inner_lay.addStretch(1)
+
+            scroll.setWidget(inner)
+            page_lay.addWidget(scroll)
+            tabs.addTab(page, f"{_icon}  {label}")
+
+        card_lay.addWidget(tabs)
+        lay.addWidget(card)
+
+    def show_near(self) -> None:
+        """Position the dialog just below the anchor widget and show it."""
+        self.adjustSize()
+        if self._anchor and self._anchor.isVisible():
+            gp = self._anchor.mapToGlobal(QPoint(0, self._anchor.height() + 4))
+            # Nudge left so it doesn't run off-screen
+            screen = QApplication.primaryScreen().availableGeometry()
+            x = min(gp.x(), screen.right() - self.width() - 8)
+            self.move(x, gp.y())
+        self.show()
+        self.raise_()
+
+
 # ── Main App ───────────────────────────────────────────────────────────────────
 
 class CargoApp(SCWindow):
@@ -1024,6 +1313,7 @@ class CargoApp(SCWindow):
             self, title="CARGO LOADER",
             icon_text="\u2b21", accent_color=P.tool_cargo,
             show_minimize=False,
+            extra_buttons=[("Tutorial", self._show_tutorial)],
         )
         title_bar.close_clicked.connect(self.hide)
         layout.addWidget(title_bar)
@@ -1043,7 +1333,8 @@ class CargoApp(SCWindow):
         self._ship_combo.item_selected.connect(self._load_ship)
         hdr_lay.addWidget(self._ship_combo)
 
-        btn_refresh = QPushButton("\u27f3", hdr)
+        self._btn_refresh = QPushButton("\u27f3", hdr)
+        btn_refresh = self._btn_refresh
         btn_refresh.setFixedSize(32, 28)
         btn_refresh.setCursor(Qt.PointingHandCursor)
         btn_refresh.setStyleSheet(f"""
@@ -1150,7 +1441,7 @@ class CargoApp(SCWindow):
 
         # Graphics view
         self._scene = QGraphicsScene(self)
-        self._view = QGraphicsView(self._scene, iso_body)
+        self._view = _BrushView(self._scene, iso_body)
         self._view.setStyleSheet(f"background-color: {BG}; border: none;")
         self._view.setRenderHint(QPainter.Antialiasing)
         self._view.setDragMode(QGraphicsView.ScrollHandDrag)
@@ -1322,20 +1613,59 @@ class CargoApp(SCWindow):
             sb = QSpinBox(row)
             sb.setRange(0, 9999)
             sb.setValue(0)
-            sb.setFixedWidth(60)
+            sb.setFixedWidth(52)
             sb.setStyleSheet(f"""
                 QSpinBox {{
                     background-color: {BG3}; color: {FG};
                     font-family: Consolas; font-size: 9pt;
-                    border: 1px solid {BORDER}; padding: 2px;
+                    border: 1px solid {BORDER};
+                    border-right: none;
+                    padding: 2px 4px;
                 }}
                 QSpinBox::up-button, QSpinBox::down-button {{
-                    background-color: {BG3};
+                    width: 0; height: 0; border: none;
                 }}
             """)
             sb.valueChanged.connect(self._update_fill)
             row_lay.addWidget(sb)
             self._spinboxes[size] = sb
+
+            # Stacked ▲ / ▼ arrow buttons
+            _arrow_btn_style = """
+                QPushButton {{
+                    background-color: {bg}; color: {fg};
+                    border: 1px solid {border};
+                    font-family: Consolas; font-size: 6pt;
+                    padding: 0px; margin: 0px;
+                }}
+                QPushButton:hover {{ background-color: {hover}; color: {accent}; }}
+                QPushButton:pressed {{ background-color: {accent}; color: {dark}; }}
+            """
+            arrow_wrap = QWidget(row)
+            arrow_wrap.setFixedWidth(18)
+            arrow_v = QVBoxLayout(arrow_wrap)
+            arrow_v.setContentsMargins(0, 0, 0, 0)
+            arrow_v.setSpacing(0)
+
+            btn_up = QPushButton("\u25b2", arrow_wrap)
+            btn_up.setCursor(Qt.PointingHandCursor)
+            btn_up.setFixedHeight(14)
+            btn_up.setStyleSheet(_arrow_btn_style.format(
+                bg=BG3, fg=FG_DIM, border=BORDER, hover=BORDER, accent=ACCENT, dark=BG
+            ) + f"QPushButton {{ border-bottom: none; }}")
+            btn_up.clicked.connect(lambda _, s=sb: s.setValue(s.value() + 1))
+            arrow_v.addWidget(btn_up)
+
+            btn_dn = QPushButton("\u25bc", arrow_wrap)
+            btn_dn.setCursor(Qt.PointingHandCursor)
+            btn_dn.setFixedHeight(14)
+            btn_dn.setStyleSheet(_arrow_btn_style.format(
+                bg=BG3, fg=FG_DIM, border=BORDER, hover=BORDER, accent=ACCENT, dark=BG
+            ))
+            btn_dn.clicked.connect(lambda _, s=sb: s.setValue(max(0, s.value() - 1)))
+            arrow_v.addWidget(btn_dn)
+
+            row_lay.addWidget(arrow_wrap)
 
             eq_lbl = QLabel("=   0", row)
             eq_lbl.setFixedWidth(55)
@@ -1555,7 +1885,7 @@ class CargoApp(SCWindow):
         self._renderer._assignments.clear()
         self._commodity_visibility.clear()
         self._selected_commodity = None
-        self._view.viewport().setCursor(Qt.ArrowCursor)
+        self._view.clear_brush_cursor()
 
         self._update_spinbox_limits()
 
@@ -1578,6 +1908,18 @@ class CargoApp(SCWindow):
         )
         self._status_lbl.setText(f"{ship['name']}  \u2014  {cap:,} SCU")
         self._update_assignment_summary()
+
+    def _show_tutorial(self) -> None:
+        """Show (or raise) the tutorial popup anchored to the refresh button."""
+        if not hasattr(self, "_tutorial_dlg") or self._tutorial_dlg is None:
+            self._tutorial_dlg = _CargoTutorialDialog(
+                anchor=self._btn_refresh, parent=self
+            )
+            self._tutorial_dlg.setFixedSize(460, 420)
+            self._tutorial_dlg.finished.connect(
+                lambda: setattr(self, "_tutorial_dlg", None)
+            )
+        self._tutorial_dlg.show_near()
 
     def _refresh(self) -> None:
         self._status_lbl.setText("Refreshing data\u2026")
@@ -1663,7 +2005,7 @@ class CargoApp(SCWindow):
         self._brush_name_lbl.setStyleSheet(
             f"color: {FG}; font-family: Consolas; font-size: 8pt; background: transparent;"
         )
-        self._view.viewport().setCursor(self._make_brush_cursor(color))
+        self._view.set_brush_cursor(self._make_brush_cursor(color))
 
     def _clear_brush(self) -> None:
         self._selected_commodity = None
@@ -1674,7 +2016,7 @@ class CargoApp(SCWindow):
         self._brush_name_lbl.setStyleSheet(
             f"color: {FG_DIM}; font-family: Consolas; font-size: 8pt; background: transparent;"
         )
-        self._view.viewport().setCursor(Qt.ArrowCursor)
+        self._view.clear_brush_cursor()
 
     def _on_box_clicked(self, group: _CargoBoxGroup) -> None:
         """Handle a box click in planning mode."""

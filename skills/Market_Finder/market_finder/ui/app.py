@@ -132,12 +132,27 @@ class MarketFinderApp(SCWindow):
         gear_btn.setCursor(Qt.PointingHandCursor)
         gear_btn.mousePressEvent = lambda _: self._toggle_settings()
 
+        tutorial_btn = QLabel("? Tutorial")
+        tutorial_btn.setStyleSheet(f"""
+            font-family: Consolas;
+            font-size: 8pt;
+            font-weight: bold;
+            color: {P.tool_market};
+            background: transparent;
+            border: 1px solid {P.tool_market};
+            border-radius: 3px;
+            padding: 2px 8px;
+        """)
+        tutorial_btn.setCursor(Qt.PointingHandCursor)
+        tutorial_btn.mousePressEvent = lambda _: self._show_tutorial()
+
         # Insert before window controls (before the stretch)
         for i in range(tb_layout.count()):
             item = tb_layout.itemAt(i)
             if item.spacerItem() is not None:
                 tb_layout.insertWidget(i + 1, self._status_lbl)
                 tb_layout.insertWidget(i + 2, gear_btn)
+                tb_layout.insertWidget(i + 3, tutorial_btn)
                 break
 
         layout.addWidget(title_bar)
@@ -299,6 +314,10 @@ class MarketFinderApp(SCWindow):
         f_lay.addWidget(row3)
 
     # -- Settings callbacks --------------------------------------------------
+
+    def _show_tutorial(self) -> None:
+        from .tutorial import TutorialBubble
+        TutorialBubble(self)
 
     def _toggle_settings(self) -> None:
         if self._settings_visible:

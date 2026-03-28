@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import queue
+import subprocess
 import sys
 import threading
 import time
@@ -140,6 +141,7 @@ class SCToolboxApp:
                 )
 
         # ── Build UI ──
+        self._geometry = geometry
         self._window = LauncherWindow(
             geometry=geometry,
             skills=self._skills,
@@ -147,11 +149,14 @@ class SCToolboxApp:
             launcher_hotkey=self._launcher_hotkey,
             python_info=self._python_info,
             on_toggle_skill=self._toggle_skill,
-            on_apply_hotkeys=self._apply_hotkeys,
+            on_apply_settings=self._apply_settings,
             on_shutdown=self._shutdown,
             current_language=self._settings.language,
             available_languages=i18n.available_languages(_skill_dir),
-            on_language_change=self._apply_language,
+            disabled_skills=self._settings.disabled_skills,
+            grid_rows=self._settings.grid_rows,
+            grid_cols=self._settings.grid_cols,
+            grid_layout=self._settings.grid_layout,
         )
 
         # ── Thread-safe dispatch queue ──
@@ -167,6 +172,9 @@ class SCToolboxApp:
         # ── Hotkeys ──
         self._hotkey_listener = None
         self._start_hotkeys()
+
+        # ── Auto-check for updates (2s after launch) ──
+        QTimer.singleShot(2000, self._window.check_for_updates_at_startup)
 
         # ── IPC command watcher ──
         self._start_cmd_watcher()
@@ -228,10 +236,13 @@ class SCToolboxApp:
 
     def _build_hotkey_bindings(self) -> dict:
         bindings = {}
+        disabled = set(self._settings.disabled_skills)
         if self._launcher_hotkey:
             bindings[self._launcher_hotkey] = lambda: self._enqueue(
                 self._window.toggle_visibility)
         for skill in self._skills:
+            if skill.id in disabled:
+                continue
             hk = skill.hotkey
             sid = skill.id
             if hk:
@@ -239,48 +250,85 @@ class SCToolboxApp:
                     lambda s=s: self._toggle_skill(s))
         return bindings
 
-    def _apply_hotkeys(self, new_launcher: str, new_skills: Dict[str, str]) -> None:
-        """Called by the settings panel when Apply is clicked."""
-        self._stop_hotkeys()
+    def _apply_settings(self, settings_dict: dict) -> None:
+        """Called by the settings popup when Apply & Restart is clicked.
 
-        self._launcher_hotkey = new_launcher
-        for skill in self._skills:
-            if skill.id in new_skills:
-                skill.hotkey = new_skills[skill.id]
+        Saves all settings to disk and relaunches the launcher process.
+        """
+        # Update hotkeys
+        new_launcher = settings_dict.get("hotkey_launcher", self._launcher_hotkey)
+        new_skill_hotkeys = settings_dict.get("skill_hotkeys", {})
 
-        self._start_hotkeys()
-
-        # Persist
         self._settings.hotkey_launcher = new_launcher
         for skill in self._skills:
-            self._settings.skill_hotkeys[skill.id] = skill.hotkey
-            if skill.settings_key:
-                self._settings.raw[skill.settings_key] = skill.hotkey
+            if skill.id in new_skill_hotkeys:
+                skill.hotkey = new_skill_hotkeys[skill.id]
+                self._settings.skill_hotkeys[skill.id] = skill.hotkey
+                if skill.settings_key:
+                    self._settings.raw[skill.settings_key] = skill.hotkey
         self._settings.raw["hotkey_launcher"] = new_launcher
-        _save_settings_raw(self._settings.to_dict())
 
-        # Update badge displays
-        self._window.update_hotkey_badges(
-            new_launcher,
-            {s.id: s.hotkey for s in self._skills},
-        )
+        # Update grid settings
+        self._settings.grid_rows = settings_dict.get("grid_rows", self._settings.grid_rows)
+        self._settings.grid_cols = settings_dict.get("grid_cols", self._settings.grid_cols)
+        self._settings.grid_layout = settings_dict.get("grid_layout", self._settings.grid_layout)
 
-    # ── Language management ─────────────────────────────────────────────
+        # Update disabled skills
+        self._settings.disabled_skills = settings_dict.get("disabled_skills", [])
 
-    def _apply_language(self, new_lang: str) -> None:
-        """Called by the settings panel when the language is changed."""
+        # Update language
+        new_lang = settings_dict.get("language", self._settings.language)
         self._settings.language = new_lang
         self._settings.raw["language"] = new_lang
+
+        # Save to disk
         _save_settings_raw(self._settings.to_dict())
 
-        # Re-init i18n for the launcher process
-        i18n.init(new_lang, os.path.join(_skill_dir, "locales"))
+        # Relaunch
+        self._relaunch()
 
-        # Update env for future subprocess launches
-        lang_env = {"SC_TOOLBOX_LANG": new_lang}
-        for mp in [self._pm.get(s.id) for s in self._skills]:
-            if mp:
-                mp._env = lang_env
+    def _relaunch(self) -> None:
+        """Stop everything and spawn a fresh launcher process, then quit."""
+        logger.info("Relaunching launcher...")
+
+        # Capture current window geometry for the new process
+        pos = self._window.pos()
+        size = self._window.size()
+        opacity = self._window.windowOpacity()
+
+        # Stop child processes and hotkeys
+        self._stop_hotkeys()
+        self._pm.stop_all()
+
+        # Build the command to relaunch
+        args = [
+            sys.executable,
+            os.path.abspath(__file__),
+            str(pos.x()), str(pos.y()),
+            str(size.width()), str(size.height()),
+            str(opacity),
+            self.cmd_file,
+        ]
+
+        # Spawn the new process detached
+        try:
+            subprocess.Popen(
+                args,
+                cwd=_skill_dir,
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS,
+                close_fds=True,
+            )
+        except OSError as exc:
+            logger.error("Failed to relaunch: %s", exc)
+            return
+
+        # Quit the current process
+        self._running.clear()
+        self._queue_timer.stop()
+        self._window.close()
+        app = QApplication.instance()
+        if app:
+            app.quit()
 
     # ── IPC command watcher ──────────────────────────────────────────────
 

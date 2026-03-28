@@ -178,8 +178,17 @@ def build_tile_grid(
     availability: Dict[str, bool],
     on_toggle: Callable[[str], None],
     columns: int = 2,
+    grid_layout: Dict[str, str] | None = None,
 ) -> Dict[str, SkillTile]:
-    """Create the full grid of tiles and return a dict keyed by skill ID."""
+    """Create the full grid of tiles and return a dict keyed by skill ID.
+
+    Parameters
+    ----------
+    grid_layout:
+        Optional mapping of ``"row,col"`` → ``skill_id`` for explicit
+        cell placement.  Skills not assigned to a cell are placed in
+        the remaining empty slots in order.
+    """
     grid = QGridLayout()
     grid.setSpacing(8)
 
@@ -190,17 +199,56 @@ def build_tile_grid(
         layout.setContentsMargins(0, 0, 0, 0)
     layout.addLayout(grid)
 
+    skill_by_id = {s.id: s for s in skills}
     tiles: Dict[str, SkillTile] = {}
-    for idx, skill in enumerate(skills):
-        row = idx // columns
-        col = idx % columns
+
+    # Phase 1: place explicitly assigned skills
+    placed_ids: set[str] = set()
+    occupied_cells: set[tuple[int, int]] = set()
+
+    if grid_layout:
+        for cell_key, sid in grid_layout.items():
+            if sid not in skill_by_id:
+                continue
+            parts = cell_key.split(",")
+            if len(parts) != 2:
+                continue
+            try:
+                r, c = int(parts[0]), int(parts[1])
+            except ValueError:
+                continue
+            if c >= columns:
+                continue
+            skill = skill_by_id[sid]
+            tile = SkillTile(
+                skill=skill,
+                available=availability.get(skill.id, False),
+                on_toggle=on_toggle,
+                parent=parent,
+            )
+            grid.addWidget(tile, r, c)
+            tiles[skill.id] = tile
+            placed_ids.add(sid)
+            occupied_cells.add((r, c))
+
+    # Phase 2: auto-fill remaining skills into empty cells
+    remaining = [s for s in skills if s.id not in placed_ids]
+    cell_idx = 0
+    for skill in remaining:
+        # Find next empty cell
+        while True:
+            r = cell_idx // columns
+            c = cell_idx % columns
+            cell_idx += 1
+            if (r, c) not in occupied_cells:
+                break
         tile = SkillTile(
             skill=skill,
             available=availability.get(skill.id, False),
             on_toggle=on_toggle,
             parent=parent,
         )
-        grid.addWidget(tile, row, col)
+        grid.addWidget(tile, r, c)
         tiles[skill.id] = tile
 
     # Make columns stretch equally

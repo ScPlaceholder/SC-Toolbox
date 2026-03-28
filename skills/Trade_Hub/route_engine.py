@@ -39,6 +39,7 @@ class FilterState:
     search: str = ""
     min_margin_scu: float = 0.0
     same_system_only: bool = False
+    allow_illegal: bool = True
 
 
 ## scu_for_ship is imported from shared.ships
@@ -47,6 +48,9 @@ class FilterState:
 def apply_filters(routes: List[RouteData], filters: FilterState) -> List[RouteData]:
     """Return routes that satisfy all active filter criteria."""
     result = routes
+
+    if not filters.allow_illegal:
+        result = [r for r in result if not getattr(r, 'is_illegal', False)]
 
     if filters.system:
         s = filters.system.lower()

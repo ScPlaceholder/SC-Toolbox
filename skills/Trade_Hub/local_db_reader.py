@@ -101,6 +101,7 @@ def _row_to_route(r: sqlite3.Row) -> Optional[RouteData]:
             rd.margin_pct = (rd.margin / rd.price_buy) * 100
 
         rd.score = float(_col(r, "score") or 0)
+        rd.is_illegal = bool(int(_col(r, "commodity_is_illegal") or _col(r, "is_illegal") or 0))
 
         if rd.commodity and rd.margin > 0:
             return rd

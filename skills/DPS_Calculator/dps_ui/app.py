@@ -9,6 +9,7 @@ import threading
 from typing import Optional
 
 import requests
+import webbrowser
 
 from PySide6.QtCore import Qt, QTimer, Signal, Slot, QObject
 from PySide6.QtGui import QColor, QFont
@@ -171,6 +172,10 @@ class DpsCalcApp(SCWindow):
             self, title=_("#DPS CALCULATOR"),
             icon_text="\u2694", accent_color=P.tool_dps,
             show_minimize=False,
+            extra_buttons=[
+                ("? Tutorial", self._show_tutorial),
+                ("Erkul's Patreon", lambda: webbrowser.open("https://www.erkul.games/live/calculator")),
+            ],
         )
         title_bar.close_clicked.connect(self.hide)
         layout.addWidget(title_bar)
@@ -1221,6 +1226,11 @@ class DpsCalcApp(SCWindow):
         if self._ship_name:
             self._load_ship(self._ship_name)
 
+    def _show_tutorial(self) -> None:
+        from dps_ui.tutorial_popup import TutorialPopup
+        popup = TutorialPopup(self)
+        popup.show_relative_to(self)
+
     def _do_refresh(self) -> None:
         self._status_lbl.setText(_("Refreshing from erkul.games\u2026"))
         try:
@@ -1346,6 +1356,7 @@ class DpsCalcApp(SCWindow):
         elif t == "show":
             self.show()
             self.raise_()
+            self.activateWindow()
         elif t == "hide":
             self.hide()
         elif t == "set_ship":

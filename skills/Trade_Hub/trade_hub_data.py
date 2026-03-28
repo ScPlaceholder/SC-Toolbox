@@ -68,6 +68,17 @@ LOOP_COLUMNS: List[Tuple[str, str, int, str]] = [
 
 LOOP_COLUMN_KEYS = tuple(c[0] for c in LOOP_COLUMNS)
 
+MIXED_COLUMNS: List[Tuple[str, str, int, str]] = [
+    ("origin",       _("Origin Terminal"),  160, "w"),
+    ("origin_sys",   _("Sys"),               65, "w"),
+    ("legs",         _("Legs"),              42, "e"),
+    ("commodities",  _("Commodity Mix"),    280, "w"),
+    ("fill_pct",     _("Fill %"),            65, "e"),
+    ("avail",        _("Min Avail SCU"),     80, "e"),
+    ("total_profit", _("Est. Total Profit"),145, "e"),
+]
+MIXED_COLUMN_KEYS = tuple(c[0] for c in MIXED_COLUMNS)
+
 
 # ── Route data ────────────────────────────────────────────────────────────────
 
@@ -96,6 +107,7 @@ class Route:
     scu_user_destination: int = 0
     id_terminal_buy:  int = 0
     id_terminal_sell: int = 0
+    is_illegal:    bool  = False
 
     def effective_scu(self, ship_scu: int) -> int:
         if ship_scu <= 0:
@@ -188,10 +200,13 @@ class FilterState:
     sell_terminal:  str   = ""
     min_scu:        int   = 0
     only_selected_systems: bool = False
+    allow_illegal: bool = True  # When False, filter out illegal routes
 
 
 def apply_filters(routes: List[Route], f: FilterState) -> List[Route]:
     result = routes
+    if not f.allow_illegal:
+        result = [r for r in result if not r.is_illegal]
     if f.system:
         s = f.system.lower()
         result = [r for r in result if s in r.buy_system.lower() or s in r.sell_system.lower()]
@@ -307,51 +322,118 @@ def find_multi_routes(routes: List[Route], ship_scu: int = 0,
     return candidates[:top_k]
 
 
-def find_multi_routes_optimized(routes: List[Route], ship_scu: int = 0,
-                                max_steps: int = 3, top_k: int = 300) -> List[MultiRoute]:
-    """Build multi-hop routes optimized by profit-per-SCU per distance (rotating cargo)."""
+def find_max_profit_routes(routes: List[Route], ship_scu: int = 0,
+                           max_steps: int = 5, top_k: int = 300) -> List[MultiRoute]:
+    """Find trade chains that maximise absolute profit via exhaustive search.
+
+    Unlike the greedy ``find_multi_routes`` this function explores ALL viable
+    chains up to *max_steps* legs using a bounded DFS with aggressive pruning.
+
+    Key optimisations
+    -----------------
+    * **Best-first per terminal** — outgoing routes are pre-sorted by
+      ``calc_profit`` so the first option explored is the highest-value one.
+    * **Upper-bound pruning** — if the best possible remaining profit
+      (assuming every future leg earns the global-max single-leg profit)
+      cannot beat an already-found solution, the branch is abandoned.
+    * **Top-N per terminal cap** — only the top 10 outgoing routes per
+      terminal are explored, keeping branching factor manageable.
+    * **Profit-per-distance scoring** — final ranking divides total profit
+      by total distance so short, high-profit chains rank above long
+      mediocre ones.  Zero-distance legs are treated as near-instant.
+    """
     if not routes:
         return []
+
+    # ── Build adjacency ──────────────────────────────────────────────
     adj: Dict[str, List[Route]] = {}
     for r in routes:
         if r.buy_terminal and r.sell_terminal and r.margin > 0:
             adj.setdefault(r.buy_terminal, []).append(r)
-    # Sort by profit-per-SCU / distance (favor short, high-margin hops)
+
+    # Pre-sort by ship-aware profit; cap branching factor per terminal
+    BRANCH_CAP = 10
     for t in adj:
-        adj[t].sort(
-            key=lambda r: r.margin / max(r.distance, 0.1) if r.distance > 0 else r.margin * 10000,
-            reverse=True,
-        )
+        if ship_scu > 0:
+            adj[t].sort(key=lambda r: calc_profit(r, ship_scu), reverse=True)
+        else:
+            adj[t].sort(key=lambda r: r.margin * min(r.scu_available, 5000), reverse=True)
+        adj[t] = adj[t][:BRANCH_CAP]
 
+    # Global upper bound: the best single-leg profit achievable anywhere
+    max_single = 0.0
+    for bucket in adj.values():
+        if bucket:
+            p = calc_profit(bucket[0], ship_scu) if ship_scu > 0 else bucket[0].margin * min(bucket[0].scu_available, 5000)
+            if p > max_single:
+                max_single = p
+
+    # ── DFS with pruning ─────────────────────────────────────────────
     seen_sigs: set = set()
-    candidates: List[MultiRoute] = []
-    for start_terminal, outgoing in adj.items():
-        for start_route in outgoing[:8]:
-            path = [start_route.buy_terminal, start_route.sell_terminal]
-            legs: List[Route] = [start_route]
-            current = start_route.sell_terminal
-            for _ in range(max_steps - 1):
-                options = adj.get(current, [])
-                intermediates = set(path[1:])
-                options = [r for r in options
-                           if r.sell_terminal not in intermediates
-                           and r.sell_terminal != current]
-                if not options:
-                    break
-                best = options[0]  # already sorted by profit-per-distance
-                legs.append(best)
-                path.append(best.sell_terminal)
-                current = best.sell_terminal
-            if len(legs) < 2:
-                continue
-            sig = "->".join(f"{r.buy_terminal}:{r.commodity}" for r in legs)
-            if sig in seen_sigs:
-                continue
-            seen_sigs.add(sig)
-            candidates.append(MultiRoute(legs=list(legs)))
+    # (total_profit, distance, MultiRoute)
+    best_routes: List[Tuple[float, float, MultiRoute]] = []
+    # Track the profit threshold to beat (Kth best so far)
+    profit_floor = 0.0
 
-    candidates.sort(key=lambda m: m.profit_per_distance(ship_scu), reverse=True)
-    return candidates[:top_k]
+    def _dfs(legs: List[Route], visited: set, current: str, cumulative_profit: float,
+             cumulative_distance: float) -> None:
+        nonlocal profit_floor
+
+        # Record every valid chain (≥ 1 leg)
+        sig = "->".join(f"{r.buy_terminal}:{r.commodity}" for r in legs)
+        if sig not in seen_sigs:
+            seen_sigs.add(sig)
+            mr = MultiRoute(legs=list(legs))
+            dist = cumulative_distance if cumulative_distance > 0 else 1.0
+            best_routes.append((cumulative_profit, dist, mr))
+
+            # Update floor if we have enough candidates
+            if len(best_routes) > top_k * 2:
+                best_routes.sort(key=lambda t: t[0], reverse=True)
+                del best_routes[top_k:]
+                profit_floor = best_routes[-1][0] if best_routes else 0.0
+
+        # Pruning: can remaining legs possibly beat what we have?
+        remaining_steps = max_steps - len(legs)
+        if remaining_steps <= 0:
+            return
+        upper_bound = cumulative_profit + remaining_steps * max_single
+        if upper_bound <= profit_floor:
+            return
+
+        # Explore next hops
+        for r in adj.get(current, []):
+            dest = r.sell_terminal
+            if dest in visited or dest == current:
+                continue
+            leg_profit = calc_profit(r, ship_scu) if ship_scu > 0 else r.margin * min(r.scu_available, 5000)
+            new_profit = cumulative_profit + leg_profit
+            new_dist = cumulative_distance + max(r.distance, 0.0)
+
+            visited.add(dest)
+            legs.append(r)
+            _dfs(legs, visited, dest, new_profit, new_dist)
+            legs.pop()
+            visited.discard(dest)
+
+    # Launch DFS from every terminal
+    for start_terminal, outgoing in adj.items():
+        for start_route in outgoing[:BRANCH_CAP]:
+            dest = start_route.sell_terminal
+            if dest == start_terminal:
+                continue
+            leg_profit = calc_profit(start_route, ship_scu) if ship_scu > 0 else start_route.margin * min(start_route.scu_available, 5000)
+            visited = {start_terminal, dest}
+            _dfs(
+                [start_route], visited, dest,
+                leg_profit, max(start_route.distance, 0.0),
+            )
+
+    # ── Rank by profit (primary), profit-per-distance (secondary) ─────
+    # Primary sort: absolute profit descending
+    # Secondary: profit-per-distance for tiebreaking
+    best_routes.sort(key=lambda t: (t[0], t[0] / max(t[1], 1.0)), reverse=True)
+    return [mr for _, _, mr in best_routes[:top_k]]
 
 
 def sort_multi_routes(multi: List[MultiRoute], col: str, reverse: bool,
@@ -495,7 +577,7 @@ def _best_loc_api(r: dict, suffix: str) -> str:
     return ""
 
 
-def route_from_api(r: dict) -> Optional[Route]:
+def route_from_api(r: dict, is_illegal: bool = False) -> Optional[Route]:
     margin = float(r.get("profit_margin", 0) or r.get("margin", 0) or 0)
     buy    = float(r.get("price_origin",  0) or r.get("price_buy",  0) or 0)
     sell   = float(r.get("price_destination", 0) or r.get("price_sell", 0) or 0)
@@ -528,6 +610,7 @@ def route_from_api(r: dict) -> Optional[Route]:
         container_sizes_destination = str(cs_dest) if cs_dest else "",
         scu_user_origin      = int(r.get("scu_origin_users", 0) or 0),
         scu_user_destination = int(r.get("scu_destination_users", 0) or 0),
+        is_illegal   = is_illegal,
     )
 
 
@@ -762,6 +845,7 @@ class DataFetcher:
                         scu_user_destination=int(sell.get("scu_sell_users", 0) or 0),
                         id_terminal_buy=bt_id,
                         id_terminal_sell=st_id,
+                        is_illegal=bool(int(comm.get("is_illegal", 0) or 0)),
                     )
                     routes.append(r)
 

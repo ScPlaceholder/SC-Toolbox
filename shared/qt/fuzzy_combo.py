@@ -92,17 +92,15 @@ class SCFuzzyCombo(QWidget):
         """)
         row.addWidget(self._arrow_btn)
 
-        # Popup list — top-level tool window so it floats above everything.
-        # WindowDoesNotAcceptFocus + WA_ShowWithoutActivating prevent the
-        # popup from stealing activation, which would cause FocusOut on the
-        # input and immediately trigger _maybe_hide.
+        # Popup list — created lazily in _ensure_list_parented() so it
+        # can be parented to the top-level window (which inherits topmost).
         self._list = QListWidget()
         self._list.setWindowFlags(
             Qt.Tool | Qt.FramelessWindowHint
-            | Qt.WindowStaysOnTopHint
             | Qt.WindowDoesNotAcceptFocus
         )
         self._list.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        self._list_reparented = False
         self._list.setFocusPolicy(Qt.NoFocus)
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._list.hide()
@@ -197,32 +195,64 @@ class SCFuzzyCombo(QWidget):
 
     def eventFilter(self, obj, event):
         if obj is self._input:
-            if event.type() == QEvent.FocusIn:
+            t = event.type()
+            if t == QEvent.MouseButtonPress:
+                self._win32_foreground()
+                self._input.setFocus(Qt.MouseFocusReason)
+            elif t == QEvent.FocusIn:
                 QTimer.singleShot(0, lambda: self._show_list(self._input.text().strip()))
-            elif event.type() == QEvent.FocusOut:
-                # Longer delay so the popup doesn't vanish before a click
-                # registers on it (the popup is WindowDoesNotAcceptFocus).
-                QTimer.singleShot(300, self._maybe_hide)
-            elif event.type() == QEvent.KeyPress:
-                # Re-grab focus in case the always-on-top popup stole it
-                if not self._input.hasFocus():
-                    self._input.setFocus()
+            elif t == QEvent.FocusOut:
+                QTimer.singleShot(150, self._maybe_hide)
         return super().eventFilter(obj, event)
 
     def _maybe_hide(self):
-        # Check if the input still has focus OR the cursor is over the
-        # popup list (user is about to click an item).
         if self._input.hasFocus():
             return
         if self._list.isVisible() and self._list.underMouse():
             return
         self._list.hide()
 
+    def _win32_foreground(self):
+        """Force OS-level foreground activation (bypasses Windows focus-stealing prevention)."""
+        w = self.window()
+        if not w:
+            return
+        try:
+            import ctypes
+            ctypes.windll.user32.SetForegroundWindow(int(w.winId()))
+        except Exception:
+            pass
+        w.activateWindow()
+        w.raise_()
+
+    def _activate_and_focus(self):
+        """Activate parent window and give focus to the input (toggle button only)."""
+        self._win32_foreground()
+        self._input.setFocus(Qt.MouseFocusReason)
+
+    def _ensure_list_parented(self):
+        """Re-parent the popup list to the top-level window (once).
+
+        A Qt.Tool parented to a WindowStaysOnTopHint window automatically
+        appears above it, solving the z-order problem without Win32 hacks.
+        """
+        if self._list_reparented:
+            return
+        w = self.window()
+        if w and w is not self._list.parent():
+            self._list.setParent(w)
+            self._list.setWindowFlags(
+                Qt.Tool | Qt.FramelessWindowHint
+                | Qt.WindowDoesNotAcceptFocus
+            )
+            self._list.setAttribute(Qt.WA_ShowWithoutActivating, True)
+            self._list_reparented = True
+
     def _toggle(self):
         if self._list.isVisible():
             self._list.hide()
         else:
-            self._input.setFocus()
+            self._activate_and_focus()
             self._show_list(self._input.text().strip())
 
     def hideEvent(self, event):
@@ -232,14 +262,11 @@ class SCFuzzyCombo(QWidget):
     # ── Popup ─────────────────────────────────────────────────────────────
 
     def _show_list(self, query: str) -> None:
-        log.warning("[FuzzyCombo] _show_list: query=%r, items=%d, hasFocus=%s",
-                    query, len(self._all_items), self._input.hasFocus())
         matches = (
             [i for i in self._all_items if _fuzzy_match(query, i)]
             if query else list(self._all_items)
         )
         if not matches:
-            log.warning("[FuzzyCombo] no matches, hiding")
             self._list.hide()
             return
 
@@ -247,20 +274,15 @@ class SCFuzzyCombo(QWidget):
         for m in matches[:self._max_visible]:
             self._list.addItem(m)
 
-        # Position in global (screen) coordinates — the list is a top-level
-        # tool window, so no z-order fights with sibling widgets.
+        # Position in global screen coordinates — the list is a top-level
+        # Qt.Tool window so it has no z-order fights with sibling widgets.
         row_h = 28
         h = min(len(matches), self._max_visible) * row_h + 4
         pos = self.mapToGlobal(QPoint(0, self.height()))
-        log.warning("[FuzzyCombo] showing %d matches at (%d, %d) size=(%d, %d)",
-                    len(matches), pos.x(), pos.y(), self.width(), h)
+        self._ensure_list_parented()
         self._list.setGeometry(pos.x(), pos.y(), self.width(), h)
         self._list.show()
-        # Re-grab focus after showing the popup — on Windows, showing a
-        # top-level Tool window can steal activation even with
-        # WindowDoesNotAcceptFocus set.
-        if not self._input.hasFocus():
-            self._input.setFocus()
+        self._list.raise_()
 
     # ── Selection ─────────────────────────────────────────────────────────
 

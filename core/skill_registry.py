@@ -55,6 +55,12 @@ _BUILTIN_SKILLS: list[dict] = [
         "settings_key": "hotkey_trade",
         "custom_args": ["300", "500"],
     },
+    {
+        "id": "craft_db", "name": N_("Craft Database"), "icon": "\U0001f3ed",
+        "color": "#44ccbb", "folder": "Craft_Database",
+        "script": "craft_db_app.py", "hotkey": "<shift>+7",
+        "settings_key": "hotkey_craft_db",
+    },
 ]
 
 _BUILTIN_INDEX: dict[str, dict] = {s["id"]: s for s in _BUILTIN_SKILLS}

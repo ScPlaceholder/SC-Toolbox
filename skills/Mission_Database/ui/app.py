@@ -75,6 +75,7 @@ class MissionDBApp(SCWindow):
             self, title=_("SCMDB // MISSION DATABASE"),
             icon_text="SC", accent_color=P.tool_mission,
             show_minimize=False,
+            extra_buttons=[("? Tutorial", self._show_tutorial)],
         )
         self._title_bar.close_clicked.connect(self.close)
         layout.addWidget(self._title_bar)
@@ -348,6 +349,10 @@ class MissionDBApp(SCWindow):
                 QPushButton {{ background: #1a2040; color: {P.yellow}; border: none;
                               font-family: Consolas; font-size: 8pt; font-weight: bold; padding: 1px 8px; }}
             """)
+
+    def _show_tutorial(self):
+        from ui.modals.tutorial import TutorialModal
+        TutorialModal(self)
 
     def _switch_version(self, channel: str):
         if channel == self._active_channel or self._data.loading:

@@ -47,6 +47,7 @@ class SCToolbox(Skill):
         "mining": "mining", "mining loadout": "mining",
         "market": "market", "market finder": "market",
         "trade": "trade", "trade hub": "trade",
+        "craft": "craft_db", "craft database": "craft_db", "crafting": "craft_db",
     }
 
     def __init__(

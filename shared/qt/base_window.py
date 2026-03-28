@@ -141,7 +141,7 @@ class SCWindow(QMainWindow):
     ):
         super().__init__(parent)
 
-        flags = Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus
+        flags = Qt.FramelessWindowHint
         if always_on_top:
             flags |= Qt.WindowStaysOnTopHint
         self.setWindowFlags(flags)

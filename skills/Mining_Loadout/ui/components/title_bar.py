@@ -15,6 +15,7 @@ def build_title_bar(
     window: QWidget,
     on_close,
     on_refresh,
+    on_tutorial=None,
 ) -> dict:
     """Build the mining loadout title bar.
 
@@ -58,6 +59,18 @@ def build_title_bar(
     refresh_btn.setCursor(Qt.PointingHandCursor)
     refresh_btn.mousePressEvent = lambda _: on_refresh()
 
+    tutorial_btn = QLabel("  ?  TUTORIAL  ", title_bar)
+    tutorial_btn.setStyleSheet(f"""
+        font-family: Consolas;
+        font-size: 8pt;
+        font-weight: bold;
+        color: {P.tool_mining};
+        background: transparent;
+    """)
+    tutorial_btn.setCursor(Qt.PointingHandCursor)
+    if on_tutorial:
+        tutorial_btn.mousePressEvent = lambda _: on_tutorial()
+
     # Insert before the stretch (index varies, insert near end before window controls)
     # The layout is: [stripe, icon, title, stretch, minimize_btn, close_btn]
     # We want to insert before the stretch
@@ -72,6 +85,7 @@ def build_title_bar(
         layout.insertWidget(stretch_idx + 1, src_label)
         layout.insertWidget(stretch_idx + 1, upd_label)
         layout.insertWidget(stretch_idx + 1, refresh_btn)
+        layout.insertWidget(stretch_idx + 1, tutorial_btn)
 
     return {
         "title_bar": title_bar,

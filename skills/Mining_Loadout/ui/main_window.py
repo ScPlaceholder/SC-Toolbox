@@ -43,6 +43,7 @@ from ui.components.sidebar import build_sidebar
 from ui.components.stats_panel import build_stats_panel
 from ui.components.turret_panel import build_turret_panel
 from ui.components.detail_card import DetailCardManager
+from ui.components.tutorial_bubble import TutorialBubble
 
 log = logging.getLogger("MiningLoadout")
 
@@ -116,6 +117,7 @@ class MiningLoadoutWindow(SCWindow):
         self._module_combos: List[List[SCComboBox]] = []
         self._ship_btns: Dict[str, Any] = {}
         self._card_manager: Optional[DetailCardManager] = None
+        self._tutorial_bubble: Optional[TutorialBubble] = None
 
         # Thread-safe signals for data loading
         self._data_signals = _DataSignals(self)
@@ -188,6 +190,7 @@ class MiningLoadoutWindow(SCWindow):
             window=self,
             on_close=lambda: self.hide(),
             on_refresh=self._do_refresh,
+            on_tutorial=self._show_tutorial,
         )
         layout.addWidget(bar_refs["title_bar"])
         self._upd_label = bar_refs["upd_label"]
@@ -627,6 +630,20 @@ class MiningLoadoutWindow(SCWindow):
             clipboard.setText("\n".join(lines))
         except RuntimeError:
             log.debug("Clipboard copy failed: %s", traceback.format_exc())
+
+    # ── Tutorial ──────────────────────────────────────────────────────────────
+
+    def _show_tutorial(self) -> None:
+        if self._tutorial_bubble is not None:
+            try:
+                if self._tutorial_bubble.isVisible():
+                    self._tutorial_bubble.raise_()
+                    self._tutorial_bubble.activateWindow()
+                    return
+            except RuntimeError:
+                self._tutorial_bubble = None
+        self._tutorial_bubble = TutorialBubble(self, self.windowOpacity())
+        self._tutorial_bubble.show()
 
     # ── Data loading ──────────────────────────────────────────────────────────
 
