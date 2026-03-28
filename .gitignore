@@ -32,6 +32,17 @@ desktop.ini
 skill_launcher_settings.json
 nul.lock
 
+# Runtime caches
+*.cache.json
+*_cache.json
+*_cache_*.json
+.api_cache/
+.coverage
+
+# Runtime logs
+*.log
+*.log.*
+
 # Claude Code (session-specific, not shared)
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
