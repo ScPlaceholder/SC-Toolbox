@@ -4,7 +4,12 @@ __pycache__/
 *.egg-info/
 *.egg
 dist/
-build/
+
+# Build artifacts (keep build scripts, ignore generated files)
+build/staging/
+build/Output/
+build/*.zip
+build/get-pip.py
 
 # Virtual environments
 .venv/

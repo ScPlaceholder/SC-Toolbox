@@ -94,6 +94,20 @@ class ManagedProcess:
         return self._proc.pid if self._proc else None
 
     @property
+    def unexpectedly_died(self) -> bool:
+        """True when the process has exited but we never asked it to stop.
+
+        This is the signal that a crash has occurred — the process is dead
+        (``_proc.poll() is not None``) but ``_stop_unlocked`` hasn't been
+        called (``_proc`` is not yet ``None`` and ``_stopping`` is False).
+        """
+        return (
+            self._proc is not None
+            and self._proc.poll() is not None
+            and not self._stopping
+        )
+
+    @property
     def cmd_file(self) -> str | None:
         return self._cmd_file
 

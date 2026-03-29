@@ -115,6 +115,20 @@ def init_crash_logging(skill_name: str) -> logging.Logger:
             "UNHANDLED EXCEPTION on main thread",
             exc_info=(exc_type, exc_value, exc_tb),
         )
+        # Flush handlers so the traceback is on disk before showing the dialog
+        for h in logging.getLogger().handlers:
+            try:
+                h.flush()
+            except Exception:
+                pass
+        # Best-effort: show crash dialog if Qt is still available
+        try:
+            from PySide6.QtWidgets import QApplication
+            if QApplication.instance():
+                from shared.qt.crash_dialog import show_crash_dialog
+                show_crash_dialog(log_path, skill_name=skill_name, blocking=True)
+        except Exception:
+            pass  # never let the crash dialog crash the crash handler
 
     sys.excepthook = _excepthook
 

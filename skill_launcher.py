@@ -47,6 +47,20 @@ _skill_dir = os.path.dirname(os.path.abspath(__file__))
 SETTINGS_FILE = os.path.join(_skill_dir, "skill_launcher_settings.json")
 
 
+def _find_skill_log(skill_id: str) -> str | None:
+    """Return the most informative log path for *skill_id*, or None."""
+    log_dir = os.path.join(_skill_dir, "logs")
+    # crash.log has tracebacks; prefer it when non-empty
+    for stem in (f"{skill_id}.crash", skill_id):
+        path = os.path.join(log_dir, f"{stem}.log")
+        try:
+            if os.path.isfile(path) and os.path.getsize(path) > 0:
+                return path
+        except OSError:
+            pass
+    return None
+
+
 # ── Settings persistence ────────────────────────────────────────────────────
 
 def _load_settings_raw() -> dict:
@@ -187,6 +201,16 @@ class SCToolboxApp:
         # ── Auto-check for updates (2s after launch) ──
         QTimer.singleShot(2000, self._window.check_for_updates_at_startup)
 
+        # ── Skill crash monitor ──
+        # Tracks the last PID for which we already showed a crash dialog so
+        # we don't spam the user if the poll fires multiple times before the
+        # process is restarted.
+        self._last_crash_pid: Dict[str, int] = {}
+        self._health_timer = QTimer()
+        self._health_timer.setInterval(5000)  # check every 5 s
+        self._health_timer.timeout.connect(self._check_skill_health)
+        self._health_timer.start()
+
         # ── IPC command watcher ──
         self._start_cmd_watcher()
 
@@ -207,6 +231,25 @@ class SCToolboxApp:
                 fn()
             except Exception as exc:  # broad catch intentional: arbitrary queued callables
                 logger.error("Dispatch queue error: %s", exc)
+
+    # ── Skill crash monitor ──────────────────────────────────────────────
+
+    def _check_skill_health(self) -> None:
+        """Detect skills that died without being asked to stop and show their log."""
+        for skill in self._skills:
+            mp = self._pm.get(skill.id)
+            if not mp or not mp.unexpectedly_died:
+                continue
+            pid = mp.pid
+            if pid is None or self._last_crash_pid.get(skill.id) == pid:
+                continue  # already shown dialog for this particular process death
+            self._last_crash_pid[skill.id] = pid
+            logger.warning("skill crash detected: %s (PID %d)", skill.id, pid)
+            self._window.update_tile(skill.id, False, False)
+            log_path = _find_skill_log(skill.id)
+            if log_path:
+                from shared.qt.crash_dialog import show_crash_dialog
+                show_crash_dialog(log_path, skill_name=skill.name, parent=self._window)
 
     # ── Skill toggle ─────────────────────────────────────────────────────
 
@@ -387,7 +430,8 @@ class SCToolboxApp:
         size = self._window.size()
         opacity = self._window.windowOpacity()
 
-        # Stop child processes and hotkeys
+        # Stop child processes, hotkeys, and timers
+        self._health_timer.stop()
         self._stop_hotkeys()
         self._pm.stop_all()
 
@@ -486,6 +530,7 @@ class SCToolboxApp:
         self._save_launcher_opacity()
         self._running.clear()
         self._queue_timer.stop()
+        self._health_timer.stop()
         self._stop_hotkeys()
         self._pm.stop_all()
         self._window.close()
@@ -505,6 +550,30 @@ def main() -> None:
     from shared.platform_utils import set_dpi_awareness
     set_dpi_awareness()
     setup_logging(name="skill_launcher")
+
+    # ── Launcher self-crash dialog ──
+    # If an unhandled exception escapes to the top level, show the log before
+    # Python exits so the user can copy and report it.
+    _launcher_log = os.path.join(_skill_dir, "logs", "skill_launcher.log")
+    _orig_excepthook = sys.excepthook
+
+    def _launcher_excepthook(exc_type, exc_value, exc_tb):
+        _orig_excepthook(exc_type, exc_value, exc_tb)
+        if issubclass(exc_type, (SystemExit, KeyboardInterrupt)):
+            return
+        try:
+            from PySide6.QtWidgets import QApplication
+            if QApplication.instance():
+                from shared.qt.crash_dialog import show_crash_dialog
+                show_crash_dialog(
+                    _launcher_log,
+                    skill_name="SC Toolbox Launcher",
+                    blocking=True,
+                )
+        except Exception:
+            pass  # never let the crash dialog crash the crash handler
+
+    sys.excepthook = _launcher_excepthook
 
     args = sys.argv[1:]
 

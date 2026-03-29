@@ -1,6 +1,7 @@
 """
-Unified Python discovery — single source of truth for finding a system Python
-with tkinter support.  Caches the result so repeated calls are free.
+Unified Python discovery — single source of truth for finding a Python
+with PySide6 support.  Checks bundled python/ first, then system installs.
+Caches the result so repeated calls are free.
 """
 import logging
 import os
@@ -19,24 +20,30 @@ _VERSIONS_SHORT = ("314", "313", "312", "311", "310", "39", "38")
 _VERSIONS_DOT = ("3.14", "3.13", "3.12", "3.11", "3.10", "3.9", "3.8")
 
 
-def _has_tkinter(exe: str, timeout: float = 8.0) -> bool:
-    """Return True if *exe* can import tkinter."""
+def _has_pyside6(exe: str, timeout: float = 8.0) -> bool:
+    """Return True if *exe* can import PySide6 (the actual UI framework)."""
     try:
         result = subprocess.run(
-            [exe, "-c", "import tkinter; print('ok')"],
+            [exe, "-c", "import PySide6; print('ok')"],
             capture_output=True,
             timeout=timeout,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         return result.returncode == 0 and b"ok" in result.stdout
     except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired) as exc:
-        log.debug("tkinter probe failed for %s: %s", exe, exc)
+        log.debug("PySide6 probe failed for %s: %s", exe, exc)
         return False
 
 
 def _candidate_paths() -> list[str]:
     """Build an ordered list of candidate Python executables."""
     candidates: list[str] = []
+
+    # Bundled Python (installer version ships python/ next to skill_launcher.py)
+    _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    bundled = os.path.join(_project_root, "python", "python.exe")
+    if os.path.isfile(bundled):
+        candidates.append(bundled)
 
     local = os.environ.get("LOCALAPPDATA", "")
     if local:
@@ -85,8 +92,9 @@ def _candidate_paths() -> list[str]:
 
 
 def find_python(*, force_refresh: bool = False) -> Optional[str]:
-    """Return a path to a system Python with tkinter, or None.
+    """Return a path to a Python with PySide6, or None.
 
+    Checks bundled python/ first, then system installs.
     The result is cached after the first successful (or unsuccessful) probe.
     Pass *force_refresh=True* to re-scan.
     """
@@ -100,13 +108,13 @@ def find_python(*, force_refresh: bool = False) -> Optional[str]:
             continue
         if not os.path.isfile(exe):
             continue
-        if _has_tkinter(exe):
+        if _has_pyside6(exe):
             log.info("Python discovery: using %s", exe)
             _cached_python = exe
             _cache_checked = True
             return exe
 
-    log.warning("Python discovery: no suitable Python with tkinter found")
+    log.warning("Python discovery: no suitable Python with PySide6 found")
     _cached_python = None
     _cache_checked = True
     return None
