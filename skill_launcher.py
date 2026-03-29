@@ -29,13 +29,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import shared.path_setup  # noqa: E402  # centralised path config
 
 from PySide6.QtWidgets import QApplication
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, QPoint
 
 from shared.config_models import LauncherSettings, SkillConfig, WindowGeometry
 from shared.ipc import ipc_read_and_clear
 from shared.logging_config import setup_logging
 from shared.python_discovery import find_python
 from shared.qt.theme import apply_theme
+from shared.qt.base_window import load_window_state
 from shared import i18n
 from core.process_manager import ProcessManager
 from core.skill_registry import discover_skills, resolve_script_path, resolve_skill_path
@@ -141,6 +142,8 @@ class SCToolboxApp:
         }
         if self._settings.ui_scale != 1.0:
             lang_env["QT_SCALE_FACTOR"] = str(self._settings.ui_scale)
+        if self._settings.hide_on_tool_active:
+            lang_env["SC_TOOLBOX_EXIT_ON_CLOSE"] = "1"
         for skill in self._skills:
             script_path = resolve_script_path(skill, _skill_dir)
             available = script_path is not None
@@ -150,6 +153,20 @@ class SCToolboxApp:
                 folder = resolve_skill_path(skill, _skill_dir)
                 geom = self._settings.skill_windows.get(
                     skill.id, WindowGeometry())
+
+                # Override with the geometry the skill last saved on close
+                # (position, size, and opacity all persisted automatically)
+                script_stem = os.path.splitext(os.path.basename(script_path))[0]
+                saved = load_window_state(script_stem)
+                if saved:
+                    geom = WindowGeometry(
+                        x=int(saved.get("x", geom.x)),
+                        y=int(saved.get("y", geom.y)),
+                        w=int(saved.get("w", geom.w)),
+                        h=int(saved.get("h", geom.h)),
+                        opacity=float(saved.get("opacity", geom.opacity)),
+                    )
+
                 args = [str(geom.x), str(geom.y), str(geom.w), str(geom.h)]
                 args.extend(skill.custom_args)
                 args.append(str(geom.opacity))
@@ -162,6 +179,11 @@ class SCToolboxApp:
                     base_dir=_skill_dir,
                     env=lang_env,
                 )
+                # Register exit-watcher so the launcher re-shows instantly
+                # when a skill closes (instead of waiting for polling).
+                mp = self._pm.get(skill.id)
+                if mp:
+                    mp.set_on_exit(lambda: self._enqueue(self._auto_hide_check))
 
         # ── Build UI ──
         self._geometry = geometry
@@ -182,6 +204,7 @@ class SCToolboxApp:
             grid_layout=self._settings.grid_layout,
             scroll_on_hover=self._settings.scroll_on_hover,
             ui_scale=self._settings.ui_scale,
+            hide_on_tool_active=self._settings.hide_on_tool_active,
         )
 
         # ── Thread-safe dispatch queue ──
@@ -210,6 +233,12 @@ class SCToolboxApp:
         self._health_timer.setInterval(5000)  # check every 5 s
         self._health_timer.timeout.connect(self._check_skill_health)
         self._health_timer.start()
+
+        # ── Auto-hide state ──
+        self._autohide_timer: Optional[QTimer] = None
+        self._autohide_stashed = False
+        self._autohide_pos = self._window.pos()
+        self._sync_autohide_timer()
 
         # ── IPC command watcher ──
         self._start_cmd_watcher()
@@ -244,12 +273,17 @@ class SCToolboxApp:
             if pid is None or self._last_crash_pid.get(skill.id) == pid:
                 continue  # already shown dialog for this particular process death
             self._last_crash_pid[skill.id] = pid
-            logger.warning("skill crash detected: %s (PID %d)", skill.id, pid)
             self._window.update_tile(skill.id, False, False)
+            # When hide_on_tool_active is enabled, skills exit intentionally
+            # via user_close() — that's not a crash, so skip the dialog.
+            if self._settings.hide_on_tool_active:
+                continue
+            logger.warning("skill crash detected: %s (PID %d)", skill.id, pid)
             log_path = _find_skill_log(skill.id)
             if log_path:
                 from shared.qt.crash_dialog import show_crash_dialog
                 show_crash_dialog(log_path, skill_name=skill.name, parent=self._window)
+        self._auto_hide_check()
 
     # ── Skill toggle ─────────────────────────────────────────────────────
 
@@ -259,6 +293,47 @@ class SCToolboxApp:
             return
         mp.toggle()
         self._window.update_tile(skill_id, mp.running, mp.visible)
+        self._auto_hide_check()
+
+    def _sync_autohide_timer(self) -> None:
+        """Start or stop the auto-hide poll based on the setting.
+
+        Fires every 500ms so the launcher reappears almost instantly
+        when the user closes a skill window from within the tool itself.
+        """
+        if self._settings.hide_on_tool_active:
+            if self._autohide_timer is None:
+                self._autohide_timer = QTimer()
+                self._autohide_timer.setInterval(500)
+                self._autohide_timer.timeout.connect(self._auto_hide_check)
+            if not self._autohide_timer.isActive():
+                self._autohide_timer.start()
+        else:
+            if self._autohide_timer is not None and self._autohide_timer.isActive():
+                self._autohide_timer.stop()
+
+    def _auto_hide_check(self) -> None:
+        """Hide the launcher when any tool is visible, re-show when none are."""
+        if not self._settings.hide_on_tool_active:
+            return
+        any_visible = False
+        for skill in self._skills:
+            mp = self._pm.get(skill.id)
+            if not mp:
+                continue
+            if mp.visible and mp.running:
+                any_visible = True
+            elif mp.visible and not mp.running:
+                self._window.update_tile(skill.id, False, False)
+        if any_visible and not self._autohide_stashed:
+            self._autohide_stashed = True
+            self._autohide_pos = self._window.pos()
+            self._window.move(-32000, -32000)
+        elif not any_visible and self._autohide_stashed:
+            self._autohide_stashed = False
+            self._window.move(self._autohide_pos)
+            self._window.raise_()
+            self._window.activateWindow()
 
     # ── Hotkey management ────────────────────────────────────────────────
 
@@ -345,6 +420,11 @@ class SCToolboxApp:
         self._settings.language = new_lang
         self._settings.raw["language"] = new_lang
 
+        # Update auto-hide
+        self._settings.hide_on_tool_active = settings_dict.get("hide_on_tool_active", self._settings.hide_on_tool_active)
+        self._autohide_stashed = False
+        self._sync_autohide_timer()
+
         # Update UI scale
         old_scale = self._settings.ui_scale
         self._settings.ui_scale = settings_dict.get("ui_scale", self._settings.ui_scale)
@@ -366,8 +446,12 @@ class SCToolboxApp:
     def _rebuild_ui(self) -> None:
         """Tear down and recreate the window + hotkeys without spawning a new
         process.  This is nearly instant compared to a full relaunch."""
-        # Remember position / size / opacity of the current window
-        pos = self._window.pos()
+        # If auto-hidden, use the stashed position instead of the off-screen one
+        if self._autohide_stashed:
+            pos = self._autohide_pos
+            self._autohide_stashed = False
+        else:
+            pos = self._window.pos()
         size = self._window.size()
         opacity = self._window.windowOpacity()
 
@@ -408,6 +492,7 @@ class SCToolboxApp:
             grid_layout=self._settings.grid_layout,
             scroll_on_hover=self._settings.scroll_on_hover,
             ui_scale=self._settings.ui_scale,
+            hide_on_tool_active=self._settings.hide_on_tool_active,
         )
 
         # Restore tile states for any skills that are already running
@@ -515,12 +600,14 @@ class SCToolboxApp:
             if mp:
                 mp.show()
                 self._window.update_tile(sid, mp.running, mp.visible)
+                self._auto_hide_check()
         elif t == "stop_skill":
             sid = cmd.get("skill_id", "")
             mp = self._pm.get(sid)
             if mp:
                 mp.stop()
                 self._window.update_tile(sid, mp.running, mp.visible)
+                self._auto_hide_check()
         else:
             logger.warning("Unknown IPC command type: %r", t)
 

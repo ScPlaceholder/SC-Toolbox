@@ -163,6 +163,7 @@ class LauncherWindow(SCWindow):
         grid_layout: Optional[Dict[str, str]] = None,
         scroll_on_hover: bool = False,
         ui_scale: float = 1.0,
+        hide_on_tool_active: bool = False,
     ) -> None:
         super().__init__(
             title="SC_Toolbox",
@@ -184,6 +185,7 @@ class LauncherWindow(SCWindow):
         self._grid_layout = grid_layout or {}
         self._scroll_on_hover = scroll_on_hover
         self._ui_scale = ui_scale
+        self._hide_on_tool_active = hide_on_tool_active
         self._settings_popup: Optional[SettingsPopup] = None
         self._update_bubble: Optional[UpdateBubble] = None
 
@@ -207,7 +209,7 @@ class LauncherWindow(SCWindow):
         self.content_layout.addWidget(self._title_bar)
 
         # ── Header info bar ──
-        header = QWidget(self)
+        self._header = header = QWidget(self)
         header.setFixedHeight(28)
         header.setStyleSheet(f"background-color: {P.bg_header};")
         h_layout = QHBoxLayout(header)
@@ -273,7 +275,7 @@ class LauncherWindow(SCWindow):
         self.content_layout.addWidget(header)
 
         # ── Separator ──
-        sep = QFrame(self)
+        self._sep = sep = QFrame(self)
         sep.setFixedHeight(1)
         sep.setStyleSheet(f"background-color: {P.border};")
         self.content_layout.addWidget(sep)
@@ -281,7 +283,7 @@ class LauncherWindow(SCWindow):
         # ── Tile grid ──
         # Filter out disabled skills
         enabled_skills = [s for s in skills if s.id not in self._disabled_skills]
-        tiles_container = QWidget(self)
+        self._tiles_container = tiles_container = QWidget(self)
         tiles_container.setStyleSheet(f"background-color: {P.bg_primary};")
         tiles_layout = QVBoxLayout(tiles_container)
         tiles_layout.setContentsMargins(10, 10, 10, 10)
@@ -304,10 +306,10 @@ class LauncherWindow(SCWindow):
 
         # ── Settings button ──
         from ui.settings_panel import _btn_qss
-        settings_btn = SCButton("\u2699 " + _t("Settings"), self, glow_color=P.accent)
-        settings_btn.setStyleSheet(_btn_qss("#1a2538", "#223050", P.accent))
-        settings_btn.clicked.connect(self._open_settings)
-        self.content_layout.addWidget(settings_btn)
+        self._settings_btn = SCButton("\u2699 " + _t("Settings"), self, glow_color=P.accent)
+        self._settings_btn.setStyleSheet(_btn_qss("#1a2538", "#223050", P.accent))
+        self._settings_btn.clicked.connect(self._open_settings)
+        self.content_layout.addWidget(self._settings_btn)
 
     # ── Public API ──
 
@@ -367,6 +369,7 @@ class LauncherWindow(SCWindow):
             on_apply=self._on_apply_settings,
             scroll_on_hover=self._scroll_on_hover,
             ui_scale=self._ui_scale,
+            hide_on_tool_active=self._hide_on_tool_active,
         )
         self._settings_popup.show()
 

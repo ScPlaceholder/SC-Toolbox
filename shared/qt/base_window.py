@@ -7,7 +7,10 @@ over the game.
 """
 
 from __future__ import annotations
+import json
 import logging
+import os
+import sys
 from typing import Optional
 
 from PySide6.QtCore import Qt, QPoint, QSize, QTimer
@@ -19,6 +22,48 @@ from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout
 from shared.qt.theme import P
 
 log = logging.getLogger(__name__)
+
+# ── Per-window geometry persistence ──────────────────────────────────────────
+# Each SCWindow saves its geometry (x, y, w, h, opacity) to a small JSON file
+# in the project's logs/ directory when it closes.  The launcher reads this
+# file on the next launch so the user's position, size, and opacity are
+# restored automatically.
+#
+# Key convention: os.path.splitext(os.path.basename(sys.argv[0]))[0]
+#   launcher  → "skill_launcher"
+#   market_finder → "market_finder_app"   (matches skill.script basename)
+#
+_STATE_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "logs",
+)
+
+
+def load_window_state(script_stem: str) -> dict:
+    """Return the last saved geometry dict for *script_stem*, or ``{}``."""
+    path = os.path.join(_STATE_DIR, f"{script_stem}_window.json")
+    try:
+        if os.path.isfile(path):
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        pass
+    return {}
+
+
+def _save_window_state(window: QMainWindow) -> None:
+    """Write *window*'s current geometry to the per-script state file."""
+    key = os.path.splitext(os.path.basename(sys.argv[0]))[0]
+    try:
+        geom = window.get_geometry_dict()  # type: ignore[attr-defined]
+        os.makedirs(_STATE_DIR, exist_ok=True)
+        path = os.path.join(_STATE_DIR, f"{key}_window.json")
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(geom, f)
+        os.replace(tmp, path)
+    except (OSError, AttributeError):
+        pass
 
 _GRIP = 6
 _EDGE_W = 1            # main border line width
@@ -162,12 +207,56 @@ class SCWindow(QMainWindow):
         self._drag_pos = QPoint()
         self.setMouseTracking(True)
 
+        # ── Collapse state ──
+        self._collapsed = False
+        self._expanded_height = height
+        self._original_min_h = min_h
+
     @property
     def content_layout(self) -> QVBoxLayout:
         return self._layout
 
+    def closeEvent(self, event) -> None:
+        """Persist geometry so it can be restored on the next launch."""
+        _save_window_state(self)
+        super().closeEvent(event)
+
     def set_opacity(self, value: float) -> None:
         self.setWindowOpacity(max(0.3, min(1.0, value)))
+
+    def toggle_collapse(self) -> None:
+        """Collapse the window to just the title bar, or expand it back."""
+        self._collapsed = not self._collapsed
+        # Hide/show every widget in the content layout except the first
+        # (which is always the title bar).
+        for i in range(1, self._layout.count()):
+            item = self._layout.itemAt(i)
+            w = item.widget() if item else None
+            if w:
+                w.setVisible(not self._collapsed)
+        if self._collapsed:
+            self._expanded_height = self.height()
+            self.setMinimumHeight(38)
+            self.resize(self.width(), 38)
+        else:
+            self.setMinimumHeight(self._original_min_h)
+            self.resize(self.width(), self._expanded_height)
+
+    def user_close(self) -> None:
+        """Called when the user clicks X on the title bar.
+
+        If the launcher's 'hide on tool active' setting is enabled (signalled
+        via the SC_TOOLBOX_EXIT_ON_CLOSE env var), quit the process so the
+        launcher can detect it and re-show itself.  Otherwise just hide.
+        """
+        if os.environ.get("SC_TOOLBOX_EXIT_ON_CLOSE") == "1":
+            _save_window_state(self)
+            from PySide6.QtWidgets import QApplication
+            app = QApplication.instance()
+            if app:
+                app.quit()
+        else:
+            self.hide()
 
     def toggle_visibility(self) -> None:
         if self.isVisible():

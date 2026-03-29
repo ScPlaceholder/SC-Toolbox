@@ -233,6 +233,7 @@ class SettingsPopup(QWidget):
         on_apply: Optional[Callable[[dict], None]] = None,
         scroll_on_hover: bool = False,
         ui_scale: float = 1.0,
+        hide_on_tool_active: bool = False,
         opacity: float = 0.95,
     ) -> None:
         super().__init__(None, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
@@ -257,6 +258,7 @@ class SettingsPopup(QWidget):
         self._grid_layout: Dict[str, str] = dict(grid_layout)
         self._scroll_on_hover = scroll_on_hover
         self._ui_scale = ui_scale
+        self._hide_on_tool_active = hide_on_tool_active
         self._language = current_language
 
         # Scroll-on-hover event filter (app-level)
@@ -587,6 +589,40 @@ class SettingsPopup(QWidget):
 
         c_lay.addWidget(scale_row)
 
+        # ── Auto-hide launcher ────────────────────────────────────────────
+        hide_sep = QFrame()
+        hide_sep.setFixedHeight(1)
+        hide_sep.setStyleSheet(f"background-color: {P.border};")
+        c_lay.addWidget(hide_sep)
+
+        hide_row = QWidget()
+        hide_row.setFixedHeight(32)
+        hide_row.setStyleSheet("background: transparent;")
+        hide_lay = QHBoxLayout(hide_row)
+        hide_lay.setSpacing(8)
+        hide_lay.setContentsMargins(0, 0, 0, 0)
+
+        hide_lbl = QLabel(_t("Hide launcher when tool is active"))
+        hide_lbl.setStyleSheet(f"""
+            font-family: Consolas; font-size: 9pt;
+            color: {P.fg}; background: transparent;
+        """)
+        hide_lay.addWidget(hide_lbl)
+
+        hide_desc = QLabel(_t("Auto-hide while any tool window is open"))
+        hide_desc.setStyleSheet(f"""
+            font-family: Consolas; font-size: 7pt;
+            color: {P.fg_disabled}; background: transparent;
+        """)
+        hide_lay.addWidget(hide_desc, stretch=1)
+
+        self._hide_on_tool_check = QCheckBox()
+        self._hide_on_tool_check.setChecked(self._hide_on_tool_active)
+        self._hide_on_tool_check.setStyleSheet(_TOGGLE_QSS)
+        hide_lay.addWidget(self._hide_on_tool_check)
+
+        c_lay.addWidget(hide_row)
+
         c_lay.addStretch(1)
         scroll.setWidget(content)
 
@@ -878,6 +914,9 @@ class SettingsPopup(QWidget):
 
         # UI Scale
         result["ui_scale"] = self._scale_combo.currentData() or 1.0
+
+        # Auto-hide launcher
+        result["hide_on_tool_active"] = self._hide_on_tool_check.isChecked()
 
         # Validate hotkeys
         for key, val in [("launcher", result["hotkey_launcher"])] + [(k, v) for k, v in skill_hotkeys.items()]:

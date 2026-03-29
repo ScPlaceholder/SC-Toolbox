@@ -178,6 +178,8 @@ class MissionDetailModal(ModalBase):
         scroll, lay = self._make_scroll_page()
         c = self._contract
         faction = self._data.get_faction(c.get("factionGuid", ""))
+        if not isinstance(faction, dict):
+            faction = {}
 
         self._info(lay, faction.get("name", "Unknown"), P.fg)
 

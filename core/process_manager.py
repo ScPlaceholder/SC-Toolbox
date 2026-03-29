@@ -107,15 +107,17 @@ class ManagedProcess:
 
     @property
     def unexpectedly_died(self) -> bool:
-        """True when the process has exited but we never asked it to stop.
+        """True when the process has exited abnormally without being asked to stop.
 
-        This is the signal that a crash has occurred — the process is dead
-        (``_proc.poll() is not None``) but ``_stop_unlocked`` hasn't been
-        called (``_proc`` is not yet ``None`` and ``_stopping`` is False).
+        A crash is when the process is dead (``_proc.poll() is not None``),
+        we never asked it to stop (``_stopping`` is False), **and** it exited
+        with a non-zero exit code.  Exit code 0 means the user closed the
+        window normally — that is not a crash.
         """
         return (
             self._proc is not None
             and self._proc.poll() is not None
+            and self._proc.returncode != 0
             and not self._stopping
         )
 

@@ -55,6 +55,7 @@ class SCTitleBar(QWidget):
 
     minimize_clicked = Signal()
     close_clicked = Signal()
+    collapse_clicked = Signal()
 
     TITLE_HEIGHT = 36
 
@@ -200,14 +201,40 @@ class SCTitleBar(QWidget):
             layout.addWidget(eb)
 
         # Window controls
+        self._btn_collapse = _TitleButton("\u25b2", "rgba(200, 200, 200, 0.18)", self, is_close=False)
+        self._btn_collapse.setToolTip("Collapse / Expand")
+        self._btn_collapse.clicked.connect(self._on_collapse_btn)
+        layout.addWidget(self._btn_collapse)
+
         if show_minimize:
             btn_min = _TitleButton("-", "rgba(200, 200, 200, 0.18)", self, is_close=False)
             btn_min.clicked.connect(self.minimize_clicked.emit)
             layout.addWidget(btn_min)
 
         btn_close = _TitleButton("x", "rgba(220, 50, 50, 0.85)", self, is_close=True)
-        btn_close.clicked.connect(self.close_clicked.emit)
+        btn_close.clicked.connect(self._on_close_btn)
         layout.addWidget(btn_close)
+
+    def _on_collapse_btn(self) -> None:
+        """Handle collapse button click.  Calls toggle_collapse on the
+        window if available (SCWindow provides it), then updates the
+        arrow direction.  Also emits the signal for any custom handling."""
+        if hasattr(self._window, "toggle_collapse"):
+            self._window.toggle_collapse()
+            collapsed = getattr(self._window, "_collapsed", False)
+            self._btn_collapse.setText("\u25bc" if collapsed else "\u25b2")
+        self.collapse_clicked.emit()
+
+    def _on_close_btn(self) -> None:
+        """Handle close button click.  If SC_TOOLBOX_EXIT_ON_CLOSE is set,
+        quit the process so the launcher can re-show itself.  Otherwise
+        emit the normal signal for the skill to handle."""
+        import os
+        if os.environ.get("SC_TOOLBOX_EXIT_ON_CLOSE") == "1":
+            if hasattr(self._window, "user_close"):
+                self._window.user_close()
+                return
+        self.close_clicked.emit()
 
     def _on_opacity_slider_moved(self, value: int) -> None:
         self._pending_opacity = value / 100.0
@@ -218,6 +245,10 @@ class SCTitleBar(QWidget):
             self._window.set_opacity(self._pending_opacity)
         else:
             self._window.setWindowOpacity(max(0.3, min(1.0, self._pending_opacity)))
+
+    def set_collapsed(self, collapsed: bool) -> None:
+        """Update the collapse button arrow direction."""
+        self._btn_collapse.setText("\u25bc" if collapsed else "\u25b2")
 
     def set_hotkey(self, text: str) -> None:
         if self._hotkey_label:

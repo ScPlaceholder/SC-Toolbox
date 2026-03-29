@@ -127,6 +127,7 @@ class LauncherSettings:
     grid_cols: int = 2
     launcher_opacity: float = 0.95  # persisted across sessions
     ui_scale: float = 1.0  # QT_SCALE_FACTOR for high-DPI monitors (0.75 – 3.0)
+    hide_on_tool_active: bool = False  # auto-hide launcher when any tool is open
     disabled_skills: list[str] = field(default_factory=list)
     grid_layout: dict[str, str] = field(default_factory=dict)  # "row,col" -> skill_id
     skill_hotkeys: dict[str, str] = field(default_factory=dict)
@@ -142,6 +143,7 @@ class LauncherSettings:
         grid_cols = _clamp(_safe_int(data.get("grid_cols", 2), 2), 1, 10)
         launcher_opacity = max(0.3, min(1.0, _safe_float(data.get("launcher_opacity", 0.95), 0.95)))
         ui_scale = max(0.75, min(3.0, _safe_float(data.get("ui_scale", 1.0), 1.0)))
+        hide_on_tool_active = bool(data.get("hide_on_tool_active", False))
         disabled_skills = list(data.get("disabled_skills", []))
         grid_layout = dict(data.get("grid_layout", {}))
 
@@ -162,6 +164,7 @@ class LauncherSettings:
             grid_cols=grid_cols,
             launcher_opacity=launcher_opacity,
             ui_scale=ui_scale,
+            hide_on_tool_active=hide_on_tool_active,
             disabled_skills=disabled_skills,
             grid_layout=grid_layout,
             skill_hotkeys=skill_hotkeys,
@@ -179,6 +182,7 @@ class LauncherSettings:
         out["grid_cols"] = self.grid_cols
         out["launcher_opacity"] = self.launcher_opacity
         out["ui_scale"] = self.ui_scale
+        out["hide_on_tool_active"] = self.hide_on_tool_active
         out["disabled_skills"] = self.disabled_skills
         out["grid_layout"] = self.grid_layout
         for sid, hk in self.skill_hotkeys.items():
