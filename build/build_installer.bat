@@ -118,6 +118,9 @@ copy "%ROOT%\README.txt"                    "%STAGE%\" >nul
 :: Installed-version launcher (uses bundled Python, not system Python)
 copy "%BUILD%SC_Toolbox_Installed.vbs"      "%STAGE%\SC_Toolbox.vbs" >nul
 
+:: App icon
+copy "%ROOT%\assets\sc_toolbox.ico"         "%STAGE%\sc_toolbox.ico" >nul
+
 :: core/
 xcopy "%ROOT%\core\*.py" "%STAGE%\core\" /s /i /q >nul
 :: Remove test files from core

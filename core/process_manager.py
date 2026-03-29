@@ -25,12 +25,17 @@ from shared.logging_config import get_subprocess_log_path
 
 log = logging.getLogger(__name__)
 
-# Windows process-creation flag
-# NOTE: CREATE_NO_WINDOW (0x08000000) causes PySide6 to segfault
-# (exit code 0xC0000005) on Python 3.14+ because Qt requires a valid
-# window station.  We omit it so GUI subprocesses survive; the console
-# window is effectively hidden because stdout/stderr are redirected.
-_CREATE_NO_WINDOW = 0
+# Windows subprocess startup — hide the console window without using
+# CREATE_NO_WINDOW (0x08000000), which causes PySide6 to segfault on
+# Python 3.14+ because Qt requires a valid window station.
+# STARTUPINFO with SW_HIDE hides the console while preserving the
+# window station that Qt needs.
+def _hidden_startupinfo():
+    """Return a STARTUPINFO that hides the console window (Windows only)."""
+    si = subprocess.STARTUPINFO()
+    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    si.wShowWindow = 0  # SW_HIDE
+    return si
 
 
 def _pid_alive(pid: int) -> bool:
@@ -78,8 +83,15 @@ class ManagedProcess:
         self._MAX_COOLDOWN: float = PROCESS_MAX_COOLDOWN
         self._consecutive_crashes: int = 0  # crash counter for backoff
         self._launch_seq: int = 0           # unique IPC file counter
+        self._on_exit: Callable | None = None  # called (on bg thread) when process exits
 
     # ── Properties ───────────────────────────────────────────────────────
+
+    def set_on_exit(self, callback: Callable | None) -> None:
+        """Register a callback invoked (on a background thread) when the
+        process exits for any reason.  The launcher uses this for instant
+        auto-hide detection instead of polling."""
+        self._on_exit = callback
 
     @property
     def running(self) -> bool:
@@ -178,11 +190,31 @@ class ManagedProcess:
                 stderr=self._log_file,
                 cwd=self._cwd,
                 env=proc_env,
-                creationflags=_CREATE_NO_WINDOW,
+                startupinfo=_hidden_startupinfo(),
             )
             self._visible = True
             self._last_start = time.monotonic()
             log.info("process_manager: started %s (PID %d)", self.skill_id, self._proc.pid)
+            # Start a daemon thread that waits for the process to exit,
+            # then fires the on_exit callback so the launcher can react
+            # instantly (e.g. re-show itself for auto-hide).
+            if self._on_exit:
+                proc_ref = self._proc
+                cb = self._on_exit
+                sid = self.skill_id
+                def _wait():
+                    try:
+                        proc_ref.wait()
+                    except OSError:
+                        pass
+                    log.debug("process_manager: %s exit detected by watcher", sid)
+                    try:
+                        cb()
+                    except Exception as exc:
+                        log.error("process_manager: on_exit callback error: %s", exc)
+                t = threading.Thread(target=_wait, daemon=True,
+                                     name=f"ExitWatch-{sid}")
+                t.start()
             return True
         except (OSError, subprocess.SubprocessError) as exc:
             log.error("process_manager: failed to start %s: %s", self.skill_id, exc)
@@ -299,7 +331,7 @@ class ManagedProcess:
                 ["taskkill", "/F", "/T", "/PID", str(self._proc.pid)],
                 capture_output=True,
                 timeout=5,
-                creationflags=_CREATE_NO_WINDOW,
+                startupinfo=_hidden_startupinfo(),
             )
             log.warning("process_manager: force-killed %s (PID %d)", self.skill_id, self._proc.pid)
         except (OSError, subprocess.SubprocessError) as exc:
@@ -406,7 +438,7 @@ class ProcessManager:
                      f"name='python.exe' and commandline like '%{script}%'",
                      "get", "processid"],
                     capture_output=True, text=True, timeout=8,
-                    creationflags=_CREATE_NO_WINDOW,
+                    startupinfo=_hidden_startupinfo(),
                 )
                 for line in result.stdout.strip().splitlines():
                     line = line.strip()
@@ -420,7 +452,7 @@ class ProcessManager:
                         subprocess.run(
                             ["taskkill", "/F", "/PID", str(pid)],
                             capture_output=True, timeout=5,
-                            creationflags=_CREATE_NO_WINDOW,
+                            startupinfo=_hidden_startupinfo(),
                         )
                         count += 1
                     except (OSError, subprocess.SubprocessError):

@@ -20,6 +20,14 @@ _VERSIONS_SHORT = ("314", "313", "312", "311", "310", "39", "38")
 _VERSIONS_DOT = ("3.14", "3.13", "3.12", "3.11", "3.10", "3.9", "3.8")
 
 
+def _hidden_startupinfo():
+    """Return a STARTUPINFO that hides the console window (Windows only)."""
+    si = subprocess.STARTUPINFO()
+    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    si.wShowWindow = 0  # SW_HIDE
+    return si
+
+
 def _has_pyside6(exe: str, timeout: float = 8.0) -> bool:
     """Return True if *exe* can import PySide6 (the actual UI framework)."""
     try:
@@ -27,7 +35,7 @@ def _has_pyside6(exe: str, timeout: float = 8.0) -> bool:
             [exe, "-c", "import PySide6; print('ok')"],
             capture_output=True,
             timeout=timeout,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            startupinfo=_hidden_startupinfo(),
         )
         return result.returncode == 0 and b"ok" in result.stdout
     except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired) as exc:

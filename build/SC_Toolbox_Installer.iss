@@ -30,6 +30,8 @@ WizardStyle=modern
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+SetupIconFile=..\assets\sc_toolbox.ico
+UninstallDisplayIcon={app}\sc_toolbox.ico
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -50,6 +52,9 @@ Source: "staging\README.txt";                   DestDir: "{app}"; Flags: ignorev
 ; Launcher wrapper (hides console window)
 Source: "staging\SC_Toolbox.vbs"; DestDir: "{app}"; Flags: ignoreversion
 
+; App icon
+Source: "staging\sc_toolbox.ico"; DestDir: "{app}"; Flags: ignoreversion
+
 ; Core modules
 Source: "staging\core\*";   DestDir: "{app}\core";   Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "staging\shared\*"; DestDir: "{app}\shared"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -63,11 +68,11 @@ Source: "staging\locales\*"; DestDir: "{app}\locales"; Flags: ignoreversion recu
 
 [Icons]
 ; Start Menu
-Name: "{group}\{#MyAppName}"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\SC_Toolbox.vbs"""; WorkingDir: "{app}"; Comment: "Launch SC Toolbox"
+Name: "{group}\{#MyAppName}"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\SC_Toolbox.vbs"""; WorkingDir: "{app}"; IconFilename: "{app}\sc_toolbox.ico"; Comment: "Launch SC Toolbox"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 
 ; Desktop shortcut
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\SC_Toolbox.vbs"""; WorkingDir: "{app}"; Tasks: desktopicon; Comment: "Launch SC Toolbox"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\SC_Toolbox.vbs"""; WorkingDir: "{app}"; IconFilename: "{app}\sc_toolbox.ico"; Tasks: desktopicon; Comment: "Launch SC Toolbox"
 
 [Run]
 Filename: "{sys}\wscript.exe"; Parameters: """{app}\SC_Toolbox.vbs"""; WorkingDir: "{app}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent
