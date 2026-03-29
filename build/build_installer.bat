@@ -114,6 +114,7 @@ copy "%ROOT%\skill_launcher.py"             "%STAGE%\" >nul
 copy "%ROOT%\skill_launcher_settings.json"  "%STAGE%\" >nul
 copy "%ROOT%\pyproject.toml"                "%STAGE%\" >nul
 copy "%ROOT%\README.txt"                    "%STAGE%\" >nul
+copy "%ROOT%\README.md"                     "%STAGE%\" >nul 2>nul
 
 :: Installed-version launcher (uses bundled Python, not system Python)
 copy "%BUILD%SC_Toolbox_Installed.vbs"      "%STAGE%\SC_Toolbox.vbs" >nul

@@ -1,424 +1,421 @@
 ================================================================
-  SC_TOOLBOX Beta V1 -- Star Citizen Companion Suite
+  SC TOOLBOX v1.2 -- Star Citizen Companion Suite
 ================================================================
 
 OVERVIEW
 --------
-SC_Toolbox is a unified launcher for six interactive Star Citizen
-gameplay tools. It runs as a lightweight desktop overlay with
-global hotkeys, so you can pull up any tool instantly while
-playing without alt-tabbing out of the game. Each tool opens as
-its own always-on-top window that you can position, resize, and
-toggle with a single keypress.
+SC Toolbox is a unified launcher for seven interactive Star Citizen
+gameplay tools. It runs as a lightweight desktop overlay with global
+hotkeys, so you can pull up any tool instantly while playing without
+alt-tabbing out of the game. Each tool opens as its own always-on-top
+window that you can position, resize, and toggle with a single
+keypress.
 
-The toolbox is designed to work alongside WingmanAI (Anthropic's
-voice-controlled assistant for Star Citizen), but it also runs
-fully standalone. Just launch it with the included batch file and
-all six tools are available through the tile launcher or hotkeys.
-
-Data is pulled live from community APIs and cached locally for
-speed. Sources include erkul.games for DPS and loadout data,
-uexcorp.space for market prices, trade routes, and ship info,
-scmdb.net for mission data and blueprints, and fleetyards.net
-for ship hardpoint details.
+The toolbox runs fully standalone or as a WingmanAI voice-activated
+skill. Data is pulled live from community APIs and cached locally
+for speed.
 
 
 INSTALLATION
 ------------
-Option A -- Automatic (recommended):
-  1. Double-click INSTALL_AND_LAUNCH.bat
-  2. If Python is not installed, it will download and install it
-  3. The toolbox launches automatically after setup
+Option A -- Installer (recommended):
+  1. Download SC_Toolbox_Setup.exe from GitHub Releases
+  2. Run the installer -- Python and all dependencies are bundled
+  3. Launch from the desktop shortcut or Start Menu
 
-Option B -- Manual:
-  1. Install Python 3.10 or newer (with tkinter included)
-  2. Install pynput for global hotkeys:
-       pip install pynput
-  3. Install requests (used by DPS Calculator and Cargo Loader):
-       pip install requests
-  4. Double-click LAUNCH.bat
+Option B -- From source (advanced):
+  1. Install Python 3.10 or newer
+  2. Run INSTALL_AND_LAUNCH.bat (auto-installs dependencies)
+  3. Or manually: pip install -r requirements.txt
+     then: python skill_launcher.py
 
 Requirements:
-  - Windows 10 or 11
-  - Python 3.10+ with tkinter (included in standard installer)
+  - Windows 10 or 11 (64-bit)
   - Internet connection (for fetching live game data)
-  - pynput (for global hotkeys -- installed automatically by bat)
 
 
 QUICK START
 -----------
-1. Run INSTALL_AND_LAUNCH.bat (first time) or LAUNCH.bat
-2. The SC_Toolbox launcher window appears with six tool tiles
+1. Launch SC Toolbox from the desktop shortcut
+2. The launcher window appears with seven tool tiles
 3. Click any tile to launch that tool, or use the hotkeys below
-4. Press the launcher hotkey again to hide/show the launcher
+4. Press the launcher hotkey to hide/show the launcher
 
 Default Hotkeys:
-  Shift + `    Toggle SC_Toolbox launcher window
+  Shift + `    Toggle SC Toolbox launcher window
   Shift + 1    DPS Calculator
   Shift + 2    Cargo Loader
   Shift + 3    Mission Database
   Shift + 4    Mining Loadout
   Shift + 5    Market Finder
   Shift + 6    Trade Hub
+  Shift + 7    Craft Database
 
-All hotkeys can be customized in Settings (see below).
+All hotkeys can be customized in Settings.
 
 
 ================================================================
-  SKILL GUIDES
+  TOOL GUIDES
 ================================================================
 
 1. DPS CALCULATOR (Shift+1)
 ----------------------------
-   Data Source: erkul.games API + fleetyards.net API
+   Data: erkul.games API + UEX Corp API (component prices)
 
    WHAT IT DOES:
-   A full ship loadout viewer and DPS calculator, styled after
-   erkul.games. Shows weapons, missiles, shields, power plants,
-   coolers, quantum drives, thrusters, and an overall ship
-   summary. Computes raw DPS, sustained DPS, alpha damage,
-   shield HP, and power consumption for any loadout.
+   A full ship loadout viewer and DPS calculator inspired by
+   erkul.games. Build and compare ship loadouts with weapons,
+   missiles, shields, power plants, coolers, quantum drives,
+   thrusters, and radar. Computes DPS, alpha damage, sustained
+   damage, power consumption, heat output, and signature levels.
+   Component prices are pulled live from UEX Corp.
 
    LAYOUT:
-   The window has three panels side by side:
-   - Left panel: Weapons (guns and turrets) with per-weapon DPS
-   - Center panel: Two sub-tabs:
-       "Defenses / Systems" -- shields, coolers, radars
-       "Power & Propulsion" -- power plants, QD, thrusters
-   - Right panel: Overview summary + Power Allocator simulator
+   Three-panel design:
+   - Left panel: Ship selector and component category list.
+     Click a category to browse available components.
+   - Center panel: Two tabs:
+       "Defenses / Systems" -- shields, coolers, radar, armor
+       "Power & Propulsion" -- power plant, Q-drive, thrusters
+   - Right panel: Weapons and missiles table with DPS columns.
+   - Footer: Totals bar showing alpha damage, DPS, heat, and
+     signature levels across all components.
 
    HOW TO USE:
-   1. Select a ship from the dropdown at the top of the window.
-      Stock weapons, shields, and components auto-populate.
-   2. The left panel shows all gun and turret hardpoints. Each
-      row displays the weapon name, size, DPS (raw), sustained
-      DPS, and damage type breakdown (physical/energy/distortion).
-   3. Click any weapon row to open a swap picker -- browse all
-      weapons that fit that hardpoint size and select a new one.
-   4. Switch to the center panel's "Defenses / Systems" tab to
-      see shields, coolers, and radars. Click any row to swap.
-   5. Switch to "Power & Propulsion" to see power plants,
-      quantum drives, thrusters, and fuel tanks.
-   6. The right panel shows a two-column ship summary with total
-      DPS, burst damage, shield HP, and key stats at a glance.
-
-   POWER ALLOCATOR:
-   Below the overview panel is the Power Allocator simulator.
-   It models the in-game power triangle system.
-   - Each powered component category (weapons, shields, etc.)
-     has a vertical stack of "pip" bars.
-   - Click a pip bar to increase or decrease power to that group.
-     More pips = more power = higher output but more draw.
-   - The consumption bar at the bottom shows total power draw
-     versus your power plant's output capacity.
-   - Toggle between SCM and NAV flight modes:
-       SCM mode: weapons and shields are ON, quantum drive is OFF
-       NAV mode: weapons and shields are OFF, quantum drive is ON
-   - Click the category icon at the top of a pip column to
-     toggle all components in that category on or off.
+   1. Select a ship from the fuzzy-search dropdown at the top.
+      Stock components auto-populate for all hardpoints.
+   2. The weapons table on the right shows each gun and turret
+      hardpoint with name, size, damage per second (by type:
+      physical, energy, distortion, thermal), alpha damage,
+      rate of fire, and ammo count.
+   3. Click any component row to open a swap picker popup.
+      Browse all compatible components, filter by text, and
+      click one to slot it into your loadout.
+   4. Use the "Leave Empty" button in the picker to remove a
+      component from a hardpoint.
+   5. Switch between SCM and NAV flight modes to see how power
+      consumption changes. SCM has weapons and shields active;
+      NAV has quantum drive active.
+   6. Component rows show live pricing bubbles from UEX Corp
+      with buy locations and prices.
 
    TIPS:
-   - Sustained DPS accounts for overheat and ammo regeneration,
-     giving a more realistic damage estimate than raw DPS.
-   - Data is cached for 2 hours. Close and reopen the tool to
-     force a refresh on patch days.
-   - The color stripe on each component row indicates its type
-     (blue for energy, orange for thermal, etc.).
+   - Sustained DPS accounts for overheat and ammo regen, giving
+     a more realistic damage number than raw DPS.
+   - Use the tutorial button in the title bar for a guided
+     walkthrough covering weapons, defenses, and power systems.
 
 
 2. CARGO LOADER (Shift+2)
 --------------------------
-   Data Source: sc-cargo.space (auto-fetched)
+   Data: sc-cargo.space + UEX Corp API
 
    WHAT IT DOES:
-   A 3D isometric cargo grid viewer and container optimizer.
-   Shows every cargo bay slot for a ship and calculates the
-   best container mix to maximize your cargo capacity. Renders
-   containers in an isometric projection so you can visualize
-   exactly how boxes stack in each grid bay.
+   A 3D isometric cargo grid viewer and container packing
+   optimizer. Visualizes every cargo bay slot for a ship and
+   calculates the best container mix to maximize SCU capacity.
+   Supports 30+ ships with pre-made cargo grid layouts.
 
    HOW TO USE:
-   1. Select a ship from the dropdown. The cargo grid layout
-      loads automatically, showing all cargo bay slots.
-   2. The isometric 3D view displays containers color-coded by
+   1. Select a ship from the fuzzy-search dropdown. The cargo
+      grid layout loads automatically.
+   2. The isometric 3D view renders containers color-coded by
       size (1, 2, 4, 8, 16, 24, or 32 SCU).
-   3. Use the container count spinners on the side panel to
-      manually set how many of each container size you want.
-   4. Click "Optimize" to auto-calculate the best container mix
-      that fills the most SCU in the available grid slots.
-   5. Click "Clear" to remove all containers from the grid.
-   6. Click "Reset" to restore the default container loadout
-      for the selected ship.
+   3. Select a commodity from the dropdown to see color-coded
+      cargo types based on UEX commodity data.
+   4. Click in the canvas to place containers. Drag to pan,
+      scroll to zoom.
+   5. Stats panel shows total SCU, packing efficiency, and
+      price summary.
 
-   CUSTOM SHIP LAYOUTS:
-   If your ship's cargo layout is not in the built-in database,
-   you can create a custom layout using the cargo_grid_editor.html
-   file (located in the Cargo_loader folder). Open it in a browser,
-   design your grid, export the JSON, and add it to the app's
-   reference loadouts.
+   SHIPS SUPPORTED:
+   400i, 890 Jump, A2/C2/M2 Hercules, Carrack, Caterpillar,
+   Clipper, Constellation (all variants), Cutlass (all variants),
+   Freelancer (all variants), Hammerhead, Hermes, Idris M/P,
+   Mercury Star Runner, MOTH, Polaris, Raft, Reclaimer,
+   Retaliator, SRV, Starfarer (both), Zeus CL, and more.
 
    TIPS:
-   - Ships with known authoritative container mixes (e.g.,
-     Caterpillar, C2 Hercules, Constellation Taurus) use their
-     verified loadouts automatically.
    - Container sizes follow the in-game standard: 1, 2, 4, 8,
      16, 24, and 32 SCU.
-   - 4 SCU containers are flat crates and cannot be rotated to
-     stand on end.
+   - Reference loadouts for popular haulers (Caterpillar, C2,
+     Taurus) are verified and loaded automatically.
 
 
 3. MISSION DATABASE (Shift+3)
 ------------------------------
-   Data Source: scmdb.net
+   Data: scmdb.net (LIVE + PTU)
 
    WHAT IT DOES:
    A browsable database of all Star Citizen missions, crafting
-   blueprints, and mining resource locations. Three separate
-   pages cover different aspects of the game's PvE content.
+   blueprints, and mining resource locations. Three pages cover
+   different aspects of PvE content, with separate data for
+   LIVE and PTU servers.
 
    LAYOUT:
-   Three page tabs along the top:
+   Three tabs along the top:
      Missions    -- browse and filter all in-game missions
      Fabricator  -- crafting blueprints and material requirements
      Resources   -- mining resource locations by planet/moon
 
-   LIVE vs PTU TOGGLE:
-   A toggle in the top bar lets you switch between LIVE server
-   data and PTU (Public Test Universe) data. Some content
-   (especially Fabricator blueprints) may only be available on
-   PTU. The app auto-switches to PTU if you open the Fabricator
-   page and no LIVE crafting data is available.
+   LIVE vs PTU:
+   Toggle buttons in the title bar switch between LIVE and PTU
+   data. The app auto-switches to PTU if no LIVE data is
+   available for the current page.
 
    MISSIONS PAGE:
    1. Browse mission cards in a scrollable grid. Each card shows
-      the mission name, faction badge, type tags (Delivery,
-      Combat, Bounty Hunt, etc.), and reward in aUEC.
-   2. Filter missions using the sidebar controls:
-      - Category: career, story
-      - System: Stanton, Pyro, Nyx, Multi
-      - Type: Delivery, Combat, Salvage, Investigation, etc.
-      - Faction: filter by the mission-giving faction
-      - Legality: Legal or Illegal
-      - Chain/Once: repeatable vs one-time missions
-   3. Click any mission card to open a detail view showing the
-      full description, objectives, payout tiers, and a
-      calculator for estimating earnings based on completion
-      time and multipliers.
+      the mission name, faction badge, type tags, and reward.
+   2. Filter using the sidebar:
+      - Search bar: filter by mission name
+      - Category buttons: Trading, Combat, Transport, etc.
+      - System buttons: Stanton, Pyro, Nyx, etc.
+      - Type dropdown: Delivery, Bounty Hunt, Salvage, etc.
+      - Faction dropdown: filter by mission giver
+      - Rank slider: filter by mission rank (0-5)
+      - Reward range: set min/max aUEC payout
+      - Clear All button: reset all filters
+   3. Click a mission card to open a detail view with full
+      description, objectives, payout tiers, and an earnings
+      calculator.
 
    FABRICATOR PAGE:
    1. Browse crafting blueprints in a scrollable grid.
-   2. Filter by category, search by name.
-   3. Click a blueprint to see required materials, quantities,
-      and crafting details.
-   4. Note: Fabricator data is primarily available on PTU.
+   2. Filter by type (Armor, Shield, Weapon, Component, Ammo),
+      manufacturer, material, armor slot, and subtype.
+   3. Click a blueprint card to see required ingredients,
+      quantities, rarity, crafting time, and output details.
 
    RESOURCES PAGE:
-   1. Browse mining resource locations in a filterable table.
-   2. Filter by resource name using the checkbox dropdown.
-   3. Each entry shows the resource, planet/moon, and location.
+   Browse mining and harvesting node data with location info.
 
    TIPS:
-   - Use the search bar to quickly find missions by name.
-   - Mission rewards shown are base values; actual payouts may
-     vary with reputation and other in-game modifiers.
-   - The faction badge shows 2-letter initials for quick
-     identification.
+   - Use the search bar for quick name lookups across all pages.
+   - Fabricator data is often PTU-only; switch to PTU if the
+     page appears empty.
 
 
 4. MINING LOADOUT (Shift+4)
 -----------------------------
-   Data Source: uexcorp.space API v2
+   Data: UEX Corp API v2
 
    WHAT IT DOES:
-   A mining equipment optimizer for configuring mining lasers,
-   modules, and gadgets on the Prospector, MOLE, and Golem.
-   Shows stat breakdowns for power, resistance, instability,
-   inert material reduction, charge rate, and charge window.
+   A mining equipment optimizer for configuring lasers, modules,
+   and gadgets on mining ships. Shows live stat calculations for
+   DPS, charges, extraction efficiency, power draw, and total
+   equipment cost with pricing breakdown.
+
+   LAYOUT:
+   - Left sidebar: Ship quick-select buttons
+   - Center: Turret panels with laser and module dropdowns
+   - Right: Stats panel and detail cards
 
    HOW TO USE:
-   1. Select your ship at the top: Prospector (1 turret, size 1
-      laser), MOLE (3 turrets, size 2 lasers), or Golem (1
-      turret, size 1 laser).
-   2. Each turret shows a laser dropdown and module slot
-      dropdowns. Select your mining laser from the list.
-   3. Assign up to 2 modules per turret (active or passive).
-      Active modules have limited uses and a duration timer;
-      passive modules are always on.
-   4. Select a mining gadget from the gadget dropdown (gadgets
-      apply to the whole ship, not per-turret).
-   5. The stats panel on the right updates live, showing:
-      - Mining laser power (min/max/extraction)
-      - Resistance modifier
-      - Instability modifier
-      - Inert material modifier
-      - Charge rate and charge window modifiers
-      - Total loadout price (combined cost of all equipment)
-   6. Price details and buy locations are shown below the stats.
+   1. Click a ship button on the left sidebar: MOLE (3 turrets),
+      Prospector (1 turret), Expanse, or others as they appear.
+   2. Each turret panel shows a laser dropdown and two module
+      slot dropdowns. Select your mining laser from the list.
+   3. Assign up to 2 modules per turret. Active modules have
+      limited uses and a duration timer; passive modules are
+      always active.
+   4. Select a gadget from the gadget dropdown (applies to the
+      whole ship, not per-turret).
+   5. The stats panel updates live showing:
+      - Mining laser power and extraction efficiency
+      - Resistance, instability, and charge modifiers
+      - Total loadout price with pricing breakdown
+   6. Detail cards below the stats show pricing sources and
+      buy locations. Cards are expandable and lockable.
 
    TIPS:
    - Stock lasers are pre-selected when you switch ships.
-   - Module effects stack -- two instability-reducing modules
-     give a larger total reduction.
-   - Active modules (like the Stampede) give big boosts but
-     have limited uses per mining session.
-   - Gadgets affect the charge window and instability globally.
+   - Module effects stack -- two instability reducers give a
+     larger total reduction.
+   - Active modules like the Stampede give big boosts but have
+     limited uses per session.
+   - Use the tutorial button for ship-specific loadout tips.
 
 
 5. MARKET FINDER (Shift+5)
 ----------------------------
-   Data Source: uexcorp.space API v2
+   Data: UEX Corp API v2
 
    WHAT IT DOES:
-   A searchable catalog of all purchasable items in Star Citizen,
-   including armor, weapons, clothing, ship components, food,
-   drinks, and ships. Shows where to buy and sell each item,
-   with prices and terminal locations.
+   A searchable commodity browser for all tradeable items in
+   Star Citizen. Shows where to buy and sell each commodity,
+   with live prices, stock levels, and profit margins. Includes
+   ship presets for quick cargo capacity calculations.
 
    LAYOUT:
-   Category tabs along the top:
-     All            -- every item in the database
-     Armor          -- helmets, chest plates, legs, arms
-     Weapons        -- personal FPS weapons
-     Ship Weapons   -- vehicle-mounted guns
-     Missiles       -- missile racks and missiles
-     Clothing       -- undersuits, jackets, pants
-     Ship Components-- power plants, coolers, shields, QDs
-     Utility        -- tractor beams, multitools, attachments
-     Sustenance     -- food and drinks
-     Misc           -- liveries, commodities, miscellaneous
-     Ships          -- flyable ships with purchase locations
-     Rentals        -- ship rental locations and prices
+   - Tab bar: category tabs (All, Ore, Metals, Minerals,
+     Resources, Ships, Consumables, Armor, etc.)
+   - Search bar with live filtering
+   - Commodity table: scrollable list with columns for buy/sell
+     terminals, systems, available SCU, demand, margin, and
+     estimated profit
+   - Detail panel (right side): expanded pricing, stock levels,
+     and profit calculations
 
    HOW TO USE:
-   1. Click a category tab to filter by item type, or stay on
-      "All" to see everything.
-   2. Type in the search bar to filter items by name. Results
-      update as you type.
-   3. The item list shows name, category, and base price.
-   4. Click any item to open the detail panel on the right,
-      which shows:
-      - Item description and stats
-      - Buy locations: which terminals sell it and at what price
-      - Sell locations: where you can sell it and for how much
-   5. On the Ships tab, each entry includes cargo capacity,
-      crew size, and purchase price. Click a ship to see all
-      terminals where it can be bought.
-   6. On the Rentals tab, see ship rental prices and which
-      terminals offer rentals.
+   1. Click a category tab to filter by commodity type, or stay
+      on "All" to see everything.
+   2. Type in the search bar to filter by name. Results update
+      as you type.
+   3. Click any row to expand the detail panel showing:
+      - All buy terminals with prices and stock
+      - All sell terminals with prices and demand
+      - Profit margin per SCU
+   4. Select a ship preset to auto-calculate profit based on
+      your cargo capacity.
+
+   SETTINGS (gear icon):
+   - Auto-refresh toggle with configurable interval (5-60 min)
+   - Data cache TTL selector (1h, 4h, 12h, 24h)
 
    TIPS:
-   - Data refreshes automatically every hour. Prices reflect
-     the latest data from uexcorp.space.
-   - The cache file is stored locally; delete .uex_cache.json
-     in the Market_Finder folder to force a fresh fetch.
+   - Sort columns by clicking headers to find the best margins.
+   - Use the ship preset dropdown for quick profit estimates.
+   - Data refreshes automatically; use the gear icon to adjust
+     the refresh interval.
 
 
 6. TRADE HUB (Shift+6)
 ------------------------
-   Data Source: uexcorp.space API v2
+   Data: UEX Corp API v2
 
    WHAT IT DOES:
    A trade route calculator that finds profitable single-hop
-   and multi-leg trade routes. Filters by star system, location,
-   terminal, commodity, and ship cargo capacity. Shows estimated
-   profit, ROI, investment cost, and travel distance for each
-   route.
+   and loop trade routes. Filters by location, commodity, and
+   ship cargo capacity. Shows profit per run, margin per SCU,
+   available stock, and demand at each terminal.
 
    LAYOUT:
-   Two sections in the main view:
-   - Single Routes table: one-hop buy-here-sell-there routes
-   - Loop Routes table: multi-leg chains where the sell terminal
-     of one leg is the buy terminal of the next
-
-   Sidebar filters on the left let you narrow results.
+   - Header: location filters, commodity filter, min profit
+     input, refresh button, and status display
+   - Center: Route table with sortable columns
+   - Right: Ship selector with cargo capacity display
+   - Routes are color-coded: green (high profit), yellow
+     (medium), red (low)
 
    HOW TO USE:
-   1. Select your ship from the quick-ship dropdown at the top
-      to cap routes by your cargo capacity (SCU). Or leave it
-      on "No Ship Cap" to see all routes.
-   2. Use the sidebar filters to narrow results:
-      - Buy System / Sell System: filter origin or destination
-        by star system (Stanton, Pyro, etc.)
-      - Buy Location / Sell Location: filter by planet or station
-      - Buy Terminal / Sell Terminal: filter by specific terminal
+   1. Select your ship from the dropdown to cap routes by your
+      cargo capacity. Leave on "No Ship Cap" to see all routes.
+   2. Use the header filters to narrow results:
+      - Buy Location: filter by origin terminal or system
+      - Sell Location: filter by destination
       - Commodity: show only routes for a specific commodity
-   3. The single routes table columns are:
-      Item       -- commodity being traded
-      Buy At     -- terminal where you purchase
-      CS         -- crime stat risk at origin
-      Invest     -- investment cost (price x SCU)
-      SCU        -- available supply at origin
-      SCU-U      -- user-reported supply
-      Sell At    -- terminal where you sell
-      CS         -- crime stat risk at destination
-      Invest     -- sell value
-      SCU-C      -- demand capacity at destination
-      SCU-U      -- user-reported demand
-      Distance   -- travel distance between terminals
-      ETA        -- estimated travel time
-      ROI        -- return on investment percentage
-      Income     -- estimated profit per run
-   4. Click a column header to sort by that column.
-   5. The loop routes table shows multi-leg chains with:
-      Origin Terminal, System, number of Legs, Commodity Chain,
-      minimum available SCU, and total estimated profit.
-   6. Click a loop route to expand and see each individual leg.
+      - Min Profit/SCU: set a minimum profit threshold
+   3. Route table columns:
+      Commodity, Buy Terminal, System, Sell Terminal, System,
+      Available SCU, Demand SCU, Margin/SCU, Est. Profit
+   4. Click column headers to sort (by profit, margin, etc.).
+   5. Auto-refresh keeps routes current (configurable interval).
+
+   SETTINGS (gear icon):
+   - Max routes displayed (100-500)
+   - Refresh interval (5-300 seconds)
+   - Text search filter
 
    TIPS:
-   - Set your ship to get routes capped to your actual cargo
-     capacity for realistic profit estimates.
-   - Sort by Income for highest absolute profit, or by ROI for
-     best return on investment.
-   - Multi-leg loops often beat single routes for profit per
-     hour if you are already at the sell terminal.
-   - Use system filters to restrict routes to your current star
-     system and avoid quantum travel between systems.
+   - Sort by Est. Profit for highest absolute earnings, or by
+     Margin/SCU for best return on investment.
+   - Use location filters to restrict routes to your current
+     star system and avoid long quantum travel.
+   - The auto-refresh timer shows when the next update occurs.
+
+
+7. CRAFT DATABASE (Shift+7)
+-----------------------------
+   Data: scmdb.net
+
+   WHAT IT DOES:
+   A crafting blueprint browser for the Star Citizen Fabricator
+   system. Search and filter blueprints by type, manufacturer,
+   material, and slot. View detailed ingredient lists with
+   quantities and rarity.
+
+   LAYOUT:
+   - Stats bar: blueprint count, ingredient count, data version
+   - Left sidebar: filter panel with search and toggle buttons
+   - Center: blueprint card grid with pagination
+   - Detail popup: overlay showing full recipe details
+
+   HOW TO USE:
+   1. Browse blueprint cards in the paginated grid.
+   2. Use the filter panel on the left to narrow results:
+      - Search bar: filter by blueprint name
+      - Type buttons: Armor, Shield, Weapon, Component, Ammo
+      - Access type: toggle buttons with color coding
+      - Manufacturer, Material, Armor Slot, Subtype: multi-
+        select dropdowns (dynamically populated)
+   3. Click a blueprint card to open the detail popup showing:
+      - Blueprint name and icon
+      - Crafting time
+      - Ingredient table with item names, quantities, and rarity
+      - Output details and requirements
+   4. Use pagination controls (prev/next, page numbers) to
+      navigate through large result sets.
+
+   TIPS:
+   - The stats bar shows how many blueprints match your current
+     filters out of the total database.
+   - Crafting data comes from scmdb.net and may be PTU-only for
+     newly added recipes.
 
 
 ================================================================
-  SETTINGS & CUSTOMIZATION
+  LAUNCHER SETTINGS
 ================================================================
-Opening Settings:
-  Click the "Settings & Keybinds" button at the bottom of the
-  SC_Toolbox launcher window to expand the settings panel.
+Open Settings by clicking the gear icon on the launcher window.
+Settings are organized into three tabs:
 
-Changing Hotkeys:
-  1. Expand the settings panel.
-  2. Each tool has a hotkey entry field showing its current
-     binding (e.g., <shift>+1).
-  3. Type the new hotkey using pynput format:
-       <shift>+1    <ctrl>+F2    <alt>+q    F5
-  4. Click "Apply Hotkeys" to save and activate.
-  5. The hotkey badges on each tile update to show the new keys.
+TOOLS TAB:
+  - Enable/disable individual tools (disabled tools are hidden
+    from the launcher and their hotkeys are unbound)
+  - Customize the hotkey for each tool
+  - Set the launcher toggle hotkey
 
-Window Positions:
+GRID LAYOUT TAB:
+  - Rows and columns for the tile grid
+  - Layout type: grid or list view
+  - UI scale slider (0.75x to 3.0x)
+
+LANGUAGE TAB:
+  Select from 12 languages: English, Deutsch, Francais,
+  Espanol, Portugues, Italiano, Nederlands, Polski, Russkij,
+  Zhongwen, Nihongo, Hangugeo.
+
+ADDITIONAL SETTINGS:
+  - Opacity slider: adjust window transparency
+  - Auto-hide: launcher hides when a tool is active
+
+WINDOW POSITIONS:
   Each tool remembers its last window position and size.
-  Drag a tool window to reposition it, and the location is saved
+  Drag any tool window to reposition it. The position is saved
   automatically for the next launch.
 
-Settings File:
-  All settings are stored in skill_launcher_settings.json in the
-  SC_Toolbox_Beta_V1 folder. You can edit this file manually if
-  needed, but use the Settings panel for hotkey changes.
+SETTINGS FILE:
+  All settings are stored in skill_launcher_settings.json.
+  You can edit this file manually, but prefer the Settings panel.
 
 
 ================================================================
   TROUBLESHOOTING
 ================================================================
-Python not found:
-  Run INSTALL_AND_LAUNCH.bat to auto-install Python. If you
-  already have Python installed, make sure it is 3.10 or newer
-  and includes tkinter (the standard Windows installer does).
+App does not launch:
+  If you installed via the installer, try running it as
+  administrator. If running from source, make sure Python 3.10+
+  is installed and run INSTALL_AND_LAUNCH.bat.
 
 Hotkeys not working:
-  Install pynput: pip install pynput
-  If hotkeys still do not respond, check that no other program
-  is capturing the same key combination (e.g., Discord, OBS).
+  Check that no other program is capturing the same key
+  combination (Discord overlay, OBS, etc.). Try rebinding to
+  a different key in Settings.
 
 Tool window does not appear:
   The tool may have launched off-screen. Delete the settings
   file (skill_launcher_settings.json) to reset all window
-  positions to defaults, then relaunch.
+  positions, then relaunch.
 
 API timeout or no data:
   Check your internet connection. The APIs (erkul.games,
@@ -426,19 +423,19 @@ API timeout or no data:
   that specific tool will show an error but others will work.
 
 Stale data after a game patch:
-  Delete the cache files to force a fresh fetch:
-    DPS Calculator:  skills/DPS_Calculator/.erkul_cache.json
-    DPS Calculator:  skills/DPS_Calculator/.fy_hardpoints_cache.json
-    Cargo Loader:    skills/Cargo_loader/.cargo_cache.json
-    Mission Database:skills/Mission_Database/.scmdb_cache.json
-    Market Finder:   skills/Market_Finder/.uex_cache.json
-  Trade Hub and Mining Loadout store config files but fetch
-  data live each session.
+  Data caches refresh automatically based on their TTL. To
+  force an immediate refresh, delete the cache files in the
+  skills/ subdirectories (files starting with a dot, e.g.,
+  .erkul_cache.json, .uex_cache.json, .scmdb_cache.json).
+
+Crash dialog appears:
+  If a tool crashes, SC Toolbox shows a dialog with the crash
+  log. Copy the log contents and report the issue on Discord.
 
 Reporting bugs:
-  Join the Discord (link below) and describe the issue with
-  your Python version and any error messages from the tool's
-  log files (trade_hub.log, mining_loadout.log, etc.).
+  Join the Discord and describe the issue. Include your Windows
+  version and any error messages from the crash dialog or log
+  files in the logs/ directory.
 
 
 ================================================================
@@ -447,19 +444,36 @@ Reporting bugs:
 erkul.games      -- DPS calculator data, weapon stats, loadouts
                     Support: patreon.com/erkul
 uexcorp.space    -- Market prices, trade routes, ship data,
-                    mining equipment stats
+                    mining equipment, component prices
 scmdb.net        -- Mission database, crafting blueprints,
                     mining resource locations
-fleetyards.net   -- Ship hardpoint data (power plants, QDs,
-                    thrusters, fuel tanks)
+fleetyards.net   -- Ship hardpoint data
+sc-cargo.space   -- Cargo grid layouts and container data
 
 Discord: https://discord.gg/A7JDCxmC
+GitHub:  https://github.com/ScPlaceholder/SC-Toolbox-Beta-V1.2
 
 
 ================================================================
   VERSION HISTORY
 ================================================================
-Beta V1 -- March 2026 -- Initial Release
+v1.2.0 -- March 2026
+  New:
+    - Standalone Windows installer (no Python required)
+    - Craft Database tool (Shift+7) for Fabricator blueprints
+    - Crash detection with error dialog for all tools
+    - Update checker with GitHub release link
+    - App icon (desktop shortcut, start menu, installer)
+    - 12-language UI translation support
+  Improved:
+    - UI scale slider (0.75x to 3.0x)
+    - Opacity slider for window transparency
+    - Auto-hide launcher when tools are active
+    - Grid layout customization (rows, columns, list mode)
+    - DPS Calculator: UEX market price bubbles on components
+    - Settings reorganized into tabbed panel
+
+v1.0.0 -- March 2026 -- Initial Release
   Included tools:
     - DPS Calculator (erkul.games + fleetyards.net)
     - Cargo Loader (sc-cargo.space)
