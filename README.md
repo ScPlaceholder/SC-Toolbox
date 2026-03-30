@@ -1,4 +1,14 @@
 <p align="center">
+  <a href="https://robertsspaceindustries.com/community-hub/post/sc-toolbox-v2-is-released-42-testers-and-counting-aUYFfLH5ecHkh">
+    <img src="assets/cig_staff_pick.png" alt="CIG Staff Pick" width="600">
+  </a>
+</p>
+
+<p align="center">
+  <strong>We got featured by CIG!!! Thank you everyone! We wouldn't be here if it wasn't for your testing, feedback and support!!!</strong>
+</p>
+
+<p align="center">
   <img src="assets/sc_toolbox_logo.png" alt="SC Toolbox" width="128">
 </p>
 
