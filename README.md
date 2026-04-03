@@ -58,6 +58,40 @@ Press **Shift + `** to toggle the launcher window.
 
 ---
 
+## Screenshots
+
+<p align="center">
+  <img src="assets/screenshots/launcher.png" alt="SC Toolbox Launcher" width="320"><br>
+  <em>The main launcher — click any tile or use the hotkey to open a tool</em>
+</p>
+
+<p align="center">
+  <img src="assets/screenshots/dps_calculator.png" alt="DPS Calculator" width="800"><br>
+  <em>DPS Calculator — live ship loadout viewer with weapon DPS, sustained fire, shield, hull, and power data for the Perseus</em>
+</p>
+
+<p align="center">
+  <img src="assets/screenshots/market_finder.png" alt="Market Finder" width="800"><br>
+  <em>Market Finder — browse 272 ships and items with buy prices, crew, cargo, and rental locations</em>
+</p>
+
+<p align="center">
+  <img src="assets/screenshots/battle_buddy.png" alt="Battle Buddy" width="800"><br>
+  <em>Battle Buddy — real-time in-game HUD showing your equipped weapons, ammo counts, and consumables parsed live from game logs</em>
+</p>
+
+<p align="center">
+  <img src="assets/screenshots/mining_signals.png" alt="Mining Signals" width="800"><br>
+  <em>Mining Signals — OCR overlay that identifies ore types and signal strengths from your ship's scanner while you mine</em>
+</p>
+
+<p align="center">
+  <img src="assets/screenshots/trade_hub.png" alt="Trade Hub" width="800"><br>
+  <em>Trade Hub — multi-leg mixed freight route calculator showing 293 routes for a C2 Hercules Starlifter with estimated profits up to 12.6M aUEC</em>
+</p>
+
+---
+
 ## Features
 
 - **Always-on-top overlay** — stays visible over Star Citizen
