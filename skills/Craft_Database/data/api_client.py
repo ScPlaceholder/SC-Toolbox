@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from shared.api_config import (
     SC_CRAFT_BASE_URL,
@@ -18,8 +18,8 @@ from shared.http_client import HttpClient
 log = logging.getLogger(__name__)
 
 
-def _q(value: str) -> str:
-    """URL-encode a query parameter value."""
+def _url_encode_value(value: str) -> str:
+    """URL-encode a single query parameter value."""
     return quote(str(value), safe="")
 
 
@@ -43,7 +43,7 @@ class CraftApiClient:
 
     def _vq(self, extra: str = "") -> str:
         """Build the version query-string fragment."""
-        qs = f"version={_q(self._version)}"
+        qs = f"version={_url_encode_value(self._version)}"
         if extra:
             qs += f"&{extra}"
         return qs
@@ -80,25 +80,20 @@ class CraftApiClient:
         contractor: str = "",
         category: str = "",
     ) -> Result[dict]:
-        parts = [
-            f"page={page}",
-            f"limit={limit}",
-            f"search={_q(search)}",
-        ]
+        params: dict[str, str | int] = {
+            "page": page,
+            "limit": limit,
+            "search": search,
+        }
         if ownable is not None:
-            parts.append(f"ownable={'1' if ownable else '0'}")
-        if resource:
-            parts.append(f"resource={_q(resource)}")
-        if mission_type:
-            parts.append(f"mission_type={_q(mission_type)}")
-        if location:
-            parts.append(f"location={_q(location)}")
-        if contractor:
-            parts.append(f"contractor={_q(contractor)}")
-        if category:
-            parts.append(f"category={_q(category)}")
+            params["ownable"] = "1" if ownable else "0"
+        for key, val in [("resource", resource), ("mission_type", mission_type),
+                         ("location", location), ("contractor", contractor),
+                         ("category", category)]:
+            if val:
+                params[key] = val
 
-        qs = "&".join(parts)
+        qs = urlencode(params, quote_via=quote)
         log.debug("Fetching blueprints page=%d search=%r", page, search)
         r = self._http.get_json(f"/blueprints?{self._vq(qs)}")
         if r.ok:

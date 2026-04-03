@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -19,8 +20,9 @@ from shared.qt.search_bar import SCSearchBar
 from shared.qt.theme import P
 from shared.qt.ipc_thread import IPCWatcher
 
-from data.repository import CraftRepository
+from data.repository import BlueprintQuery, CraftRepository
 from domain.models import Blueprint
+from services.inventory import InventoryService
 from ui.constants import TOOL_COLOR, TOOL_NAME, POLL_MS, PAGE_SIZE
 from ui.widgets import BlueprintGrid, PaginationBar
 from ui.filter_panel import FilterPanel
@@ -48,12 +50,13 @@ class CraftDatabaseApp(SCWindow):
         self.move(x, y)
         self._cmd_file = cmd_file
         self._repo = CraftRepository()
+        self._inventory = InventoryService()
         self._current_page = 1
         self._search_text = ""
-
-        self._data_ready.connect(self._on_data_ready)
+        self._inventory_mode = False
 
         self._build_ui()
+        self._data_ready.connect(self._on_data_ready)
         self._start_loading()
 
         if cmd_file:
@@ -110,6 +113,13 @@ class CraftDatabaseApp(SCWindow):
 
         stats_lay.addStretch()
 
+        # Inventory toggle button
+        self._inv_btn = QPushButton(f"INVENTORY (0)")
+        self._inv_btn.setCursor(Qt.PointingHandCursor)
+        self._update_inv_btn_style(active=False)
+        self._inv_btn.clicked.connect(self._toggle_inventory)
+        stats_lay.addWidget(self._inv_btn)
+
         self._version_lbl = QLabel("")
         self._version_lbl.setStyleSheet(f"color: {P.fg_dim}; font-size: 8pt;")
         stats_lay.addWidget(self._version_lbl)
@@ -152,6 +162,7 @@ class CraftDatabaseApp(SCWindow):
         self._grid = BlueprintGrid()
         self._grid.card_clicked.connect(self._on_card_clicked)
         self._grid.card_expand.connect(self._on_card_expand)
+        self._grid.card_ownership.connect(self._on_ownership_toggled)
         center_lay.addWidget(self._grid, 1)
 
         # Pagination
@@ -169,6 +180,32 @@ class CraftDatabaseApp(SCWindow):
         self._loading_lbl.setStyleSheet(
             f"color: {TOOL_COLOR}; font-size: 12pt; font-weight: bold;"
         )
+
+        self._update_inv_count()
+
+    # ── Inventory button styling ─────────────────────────────────────────
+
+    def _update_inv_btn_style(self, active: bool):
+        if active:
+            self._inv_btn.setStyleSheet(
+                f"QPushButton {{ color: {P.bg_primary}; background: {TOOL_COLOR};"
+                f"border: 1px solid {TOOL_COLOR}; border-radius: 3px;"
+                f"padding: 3px 12px; font-size: 8pt; font-weight: bold;"
+                f"letter-spacing: 1px; }}"
+                f"QPushButton:hover {{ background: #55ddcc; border-color: #55ddcc; }}"
+            )
+        else:
+            self._inv_btn.setStyleSheet(
+                f"QPushButton {{ color: {TOOL_COLOR}; background: transparent;"
+                f"border: 1px solid {TOOL_COLOR}; border-radius: 3px;"
+                f"padding: 3px 12px; font-size: 8pt; font-weight: bold;"
+                f"letter-spacing: 1px; }}"
+                f"QPushButton:hover {{ background: {P.bg_input}; }}"
+            )
+
+    def _update_inv_count(self):
+        count = self._inventory.owned_count()
+        self._inv_btn.setText(f"INVENTORY ({count})")
 
     # ── Loading ──────────────────────────────────────────────────────────
 
@@ -194,28 +231,96 @@ class CraftDatabaseApp(SCWindow):
     # ── Grid refresh ─────────────────────────────────────────────────────
 
     def _refresh_grid(self):
+        if self._inventory_mode:
+            self._refresh_inventory_grid()
+            return
+
         blueprints = self._repo.get_blueprints()
         pag = self._repo.get_pagination()
+        owned_ids = self._inventory.owned_ids()
 
-        self._grid.set_blueprints(blueprints)
+        self._grid.set_blueprints(blueprints, owned_ids=owned_ids, inventory_mode=False)
         self._pagination.set_pagination(pag.page, pag.pages)
         self._result_lbl.setText(f"{pag.total} results")
 
-    def _fetch_with_filters(self, page: int = 1):
+    def _get_filter_values(self) -> dict[str, str]:
+        """Return sanitised filter values from the sidebar."""
         filters = self._filter_panel.get_filters()
+        return {
+            "category": filters.get("category", "").strip(),
+            "resource": filters.get("resource", "").strip(),
+            "mission_type": filters.get("mission_type", "").strip(),
+            "location": filters.get("location", "").strip(),
+            "contractor": filters.get("contractor", "").strip(),
+            "ownable": filters.get("ownable", ""),
+        }
+
+    @staticmethod
+    def _apply_local_filters(blueprints: list[Blueprint], fv: dict[str, str]) -> list[Blueprint]:
+        """Apply sidebar filters in-memory (used for inventory mode)."""
+        cat = fv["category"]
+        res = fv["resource"]
+        mt = fv["mission_type"]
+        loc = fv["location"]
+        con = fv["contractor"]
+
+        if cat:
+            blueprints = [bp for bp in blueprints if cat.lower() in bp.category.lower()]
+        if res:
+            blueprints = [bp for bp in blueprints if res.lower() in [n.lower() for n in bp.ingredient_names]]
+        if mt:
+            blueprints = [bp for bp in blueprints if any(mt.lower() in m.mission_type.lower() for m in bp.missions)]
+        if loc:
+            blueprints = [bp for bp in blueprints if any(loc.lower() in m.locations.lower() for m in bp.missions)]
+        if con:
+            blueprints = [bp for bp in blueprints if any(con.lower() in m.contractor.lower() for m in bp.missions)]
+        return blueprints
+
+    def _refresh_inventory_grid(self):
+        all_raw = self._inventory.get_all()
+        blueprints = [Blueprint.from_dict(d) for d in all_raw]
+
+        # Apply search filter
+        query = self._search_text.strip().lower()
+        if query:
+            blueprints = [
+                bp for bp in blueprints
+                if query in bp.name.lower()
+                or query in bp.category.lower()
+                or any(query in n.lower() for n in bp.ingredient_names)
+            ]
+
+        # Apply sidebar filters locally
+        fv = self._get_filter_values()
+        blueprints = self._apply_local_filters(blueprints, fv)
+
+        owned_ids = self._inventory.owned_ids()
+        self._grid.set_blueprints(blueprints, owned_ids=owned_ids, inventory_mode=True)
+        self._pagination.set_pagination(1, 1)
+        self._result_lbl.setText(f"{len(blueprints)} owned blueprints")
+
+    def _fetch_with_filters(self, page: int = 1):
+        if self._inventory_mode:
+            self._refresh_inventory_grid()
+            return
+
+        fv = self._get_filter_values()
         self._current_page = page
         self._result_lbl.setText("Loading...")
 
-        self._repo.fetch_blueprints(
+        query = BlueprintQuery(
             page=page,
             limit=PAGE_SIZE,
             search=self._search_text,
-            ownable=True if filters.get("ownable") else None,
-            resource=filters.get("resource", ""),
-            mission_type=filters.get("mission_type", ""),
-            location=filters.get("location", ""),
-            contractor=filters.get("contractor", ""),
-            category=filters.get("category", ""),
+            ownable=True if fv["ownable"] else None,
+            resource=fv["resource"],
+            mission_type=fv["mission_type"],
+            location=fv["location"],
+            contractor=fv["contractor"],
+            category=fv["category"],
+        )
+        self._repo.fetch_blueprints(
+            query=query,
             on_done=lambda: self._data_ready.emit(),
         )
 
@@ -237,6 +342,24 @@ class CraftDatabaseApp(SCWindow):
     def _on_card_expand(self, bp: Blueprint):
         BlueprintPopup(bp, parent=self, accent=TOOL_COLOR)
 
+    def _on_ownership_toggled(self, bp: Blueprint, now_owned: bool):
+        if now_owned:
+            self._inventory.add(bp.blueprint_id, bp.raw_dict)
+        else:
+            self._inventory.remove(bp.blueprint_id)
+
+        self._update_inv_count()
+        self._refresh_grid()
+
+    def _toggle_inventory(self):
+        self._inventory_mode = not self._inventory_mode
+        self._update_inv_btn_style(self._inventory_mode)
+
+        if self._inventory_mode:
+            self._refresh_inventory_grid()
+        else:
+            self._fetch_with_filters(page=self._current_page)
+
     # ── Tutorial ─────────────────────────────────────────────────────────
 
     def _show_tutorial(self):
@@ -257,6 +380,6 @@ class CraftDatabaseApp(SCWindow):
             QApplication.instance().quit()
         elif action == "refresh":
             self._fetch_with_filters(page=self._current_page)
+        else:
+            self.handle_ipc_command(cmd)
 
-    def handle_ipc_command(self, cmd: dict):
-        self._handle_command(cmd)

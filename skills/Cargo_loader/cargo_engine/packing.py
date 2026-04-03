@@ -4,8 +4,32 @@
 Pure logic, no UI. Deterministic results for identical inputs.
 """
 
+import itertools
+
 from cargo_engine.schema import CONTAINER_DIMS, CONTAINER_MAX_STACK_HEIGHT
-from cargo_engine.placement import best_rotation
+
+
+def _valid_rotations(
+    dims: tuple[int, int, int],
+    sw: int, sh: int, sl: int,
+    max_ch: int | None,
+) -> list[tuple[int, int, int]]:
+    """All unique orientations of *dims* that fit in sw×sh×sl, sorted by
+    (ascending ch, descending footprint area) so low-profile rotations come first.
+    """
+    seen: set[tuple] = set()
+    result = []
+    for perm in itertools.permutations(dims):
+        if perm in seen:
+            continue
+        seen.add(perm)
+        cw, ch, cl = perm
+        if max_ch is not None and ch > max_ch:
+            continue
+        if cw <= sw and ch <= sh and cl <= sl:
+            result.append(perm)
+    result.sort(key=lambda p: (p[1], -(p[0] * p[2])))
+    return result
 
 
 def place_containers_3d(
@@ -15,42 +39,48 @@ def place_containers_3d(
 
     Returns list of (lx, ly, lz, cw, ch, cl, size)
     — positions are relative to the slot's own origin.
+
+    Each container placement tries all valid rotations so that containers can
+    fill irregular remaining space (e.g. after a large container takes the front
+    portion of a slot, smaller containers rotate to fit the back portion).
     """
     sw, sh, sl = slot["w"], slot["h"], slot["l"]
     occupied = [[[False] * sl for _ in range(sh)] for _ in range(sw)]
     result: list[tuple] = []
 
     for size in sorted(assignment.keys(), reverse=True):
-        rot = best_rotation(
+        rots = _valid_rotations(
             CONTAINER_DIMS[size], sw, sh, sl,
             max_ch=CONTAINER_MAX_STACK_HEIGHT.get(size),
         )
-        if rot is None:
+        if not rots:
             continue
-        cw, ch, cl = rot
 
         for _ in range(assignment[size]):
             placed = False
-            for ly in range(sh - ch + 1):
+            for cw, ch, cl in rots:
                 if placed:
                     break
-                for lz in range(sl - cl + 1):
+                for ly in range(sh - ch + 1):
                     if placed:
                         break
-                    for lx in range(sw - cw + 1):
-                        if all(
-                            not occupied[lx + dx][ly + dy][lz + dz]
-                            for dx in range(cw)
-                            for dy in range(ch)
-                            for dz in range(cl)
-                        ):
-                            for dx in range(cw):
-                                for dy in range(ch):
-                                    for dz in range(cl):
-                                        occupied[lx + dx][ly + dy][lz + dz] = True
-                            result.append((lx, ly, lz, cw, ch, cl, size))
-                            placed = True
+                    for lz in range(sl - cl + 1):
+                        if placed:
                             break
+                        for lx in range(sw - cw + 1):
+                            if all(
+                                not occupied[lx + dx][ly + dy][lz + dz]
+                                for dx in range(cw)
+                                for dy in range(ch)
+                                for dz in range(cl)
+                            ):
+                                for dx in range(cw):
+                                    for dy in range(ch):
+                                        for dz in range(cl):
+                                            occupied[lx + dx][ly + dy][lz + dz] = True
+                                result.append((lx, ly, lz, cw, ch, cl, size))
+                                placed = True
+                                break
     return result
 
 
@@ -69,8 +99,12 @@ def build_slots(ship: dict) -> tuple[list[dict], tuple]:
             slots.append({
                 "x": x, "y0": 0, "z": z,
                 "w": w, "h": h, "l": l,
-                "maxSize": grid.get("maxSize"),
-                "minSize": grid.get("minSize"),
+                # maxSize/minSize from sc-cargo.space are unreliable
+                # (e.g. Vulture's 2×2×3 bay is incorrectly tagged maxSize=1).
+                # Physical dimensions are the only constraint; reference loadouts
+                # in reference_loadouts.json provide the correct per-ship optimums.
+                "maxSize": None,
+                "minSize": None,
                 "capacity": w * h * l,
             })
     if not slots:

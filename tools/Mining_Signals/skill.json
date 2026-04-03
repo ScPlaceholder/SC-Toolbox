@@ -1,0 +1,11 @@
+{
+    "id": "mining_signals",
+    "name": "Mining Signals",
+    "icon": "\ud83d\udce1",
+    "color": "#33dd88",
+    "folder": "Mining_Signals",
+    "script": "mining_signals_app.py",
+    "hotkey": "<shift>+9",
+    "settings_key": "hotkey_mining_signals",
+    "persistent": true
+}

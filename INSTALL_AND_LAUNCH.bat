@@ -99,10 +99,14 @@ if !errorlevel! neq 0 goto :install_deps
 if !errorlevel! neq 0 goto :install_deps
 "%PYTHON_EXE%" -c "import pynput" >nul 2>&1
 if !errorlevel! neq 0 goto :install_deps
+"%PYTHON_EXE%" -c "import mss" >nul 2>&1
+if !errorlevel! neq 0 goto :install_deps
+"%PYTHON_EXE%" -c "import pytesseract" >nul 2>&1
+if !errorlevel! neq 0 goto :install_deps
 goto :deps_ok
 
 :install_deps
-echo  [*] Installing dependencies (PySide6, requests, pynput)...
+echo  [*] Installing dependencies (PySide6, requests, pynput, mss, pytesseract)...
 echo      This may take a few minutes on first run...
 "%PYTHON_EXE%" -m pip install -r "%~dp0requirements.txt" --quiet
 if !errorlevel! neq 0 (
@@ -121,6 +125,8 @@ if !errorlevel! neq 0 (
 echo  [OK] PySide6
 echo  [OK] requests
 echo  [OK] pynput
+echo  [OK] mss
+echo  [OK] pytesseract
 echo.
 echo  =============================================
 echo   Launching SC_Toolbox...

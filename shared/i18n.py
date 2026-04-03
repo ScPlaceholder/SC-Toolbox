@@ -39,6 +39,10 @@ _current_lang: str = "en"
 def init(lang: str = "en", locale_dir: str | None = None) -> None:
     """Initialise the translation catalog.
 
+    Automatically compiles ``.po`` → ``.mo`` if the ``.mo`` is missing
+    or older than the ``.po``, so translators only need to drop in
+    ``.po`` files.
+
     Parameters
     ----------
     lang:
@@ -53,6 +57,9 @@ def init(lang: str = "en", locale_dir: str | None = None) -> None:
     if locale_dir is None:
         project_root = str(Path(__file__).resolve().parent.parent)
         locale_dir = os.path.join(project_root, "locales")
+
+    # Auto-compile .po → .mo if needed
+    _auto_compile(locale_dir, lang)
 
     _trans = gettext.translation(
         _DOMAIN, locale_dir, languages=[lang], fallback=True,
@@ -119,3 +126,112 @@ def _collect_langs(locale_dir: str, out: set[str]) -> None:
                 out.add(entry)
     except OSError:
         pass
+
+
+def _auto_compile(locale_dir: str, lang: str) -> None:
+    """Compile .po → .mo if the .mo is missing or stale."""
+    lc = os.path.join(locale_dir, lang, "LC_MESSAGES")
+    po_path = os.path.join(lc, f"{_DOMAIN}.po")
+    mo_path = os.path.join(lc, f"{_DOMAIN}.mo")
+
+    if not os.path.isfile(po_path):
+        return
+
+    # Skip if .mo is newer than .po
+    if os.path.isfile(mo_path):
+        if os.path.getmtime(mo_path) >= os.path.getmtime(po_path):
+            return
+
+    try:
+        _compile_po_to_mo(po_path, mo_path)
+        log.info("i18n: auto-compiled %s -> .mo", po_path)
+    except Exception as exc:
+        log.warning("i18n: failed to compile %s: %s", po_path, exc)
+
+
+def _compile_po_to_mo(po_path: str, mo_path: str) -> None:
+    """Minimal .po → .mo compiler (no external dependencies)."""
+    import struct
+
+    entries: list[tuple[bytes, bytes]] = []
+    msgid_parts: list[str] = []
+    msgstr_parts: list[str] = []
+    reading: str | None = None
+
+    def flush():
+        mid = "".join(msgid_parts)
+        mstr = "".join(msgstr_parts)
+        # Include the header (empty msgid) — gettext needs it for charset
+        entries.append((mid.encode("utf-8"), mstr.encode("utf-8")))
+
+    with open(po_path, encoding="utf-8") as f:
+        for line in f:
+            stripped = line.strip()
+            if stripped.startswith("msgid "):
+                if reading is not None:
+                    flush()
+                msgid_parts = [_po_unquote(stripped[6:])]
+                msgstr_parts = []
+                reading = "id"
+            elif stripped.startswith("msgstr "):
+                msgstr_parts = [_po_unquote(stripped[7:])]
+                reading = "str"
+            elif stripped.startswith('"') and stripped.endswith('"'):
+                val = _po_unquote(stripped)
+                if reading == "id":
+                    msgid_parts.append(val)
+                elif reading == "str":
+                    msgstr_parts.append(val)
+            elif not stripped or stripped.startswith("#"):
+                if reading is not None:
+                    flush()
+                    msgid_parts = []
+                    msgstr_parts = []
+                    reading = None
+
+    if reading is not None:
+        flush()
+
+    entries.sort(key=lambda p: p[0])
+
+    # Build .mo binary
+    n = len(entries)
+    ids = b""
+    strs = b""
+    id_off: list[tuple[int, int]] = []
+    str_off: list[tuple[int, int]] = []
+
+    for mid, mstr in entries:
+        id_off.append((len(mid), len(ids)))
+        ids += mid + b"\x00"
+        str_off.append((len(mstr), len(strs)))
+        strs += mstr + b"\x00"
+
+    hdr_size = 28
+    ids_start = hdr_size + n * 16
+    strs_start = ids_start + len(ids)
+
+    data = struct.pack(
+        "Iiiiiii", 0x950412DE, 0, n,
+        hdr_size, hdr_size + n * 8, 0, 0,
+    )
+    for length, offset in id_off:
+        data += struct.pack("ii", length, ids_start + offset)
+    for length, offset in str_off:
+        data += struct.pack("ii", length, strs_start + offset)
+    data += ids + strs
+
+    with open(mo_path, "wb") as f:
+        f.write(data)
+
+
+def _po_unquote(s: str) -> str:
+    """Remove quotes and unescape PO sequences."""
+    s = s.strip()
+    if s.startswith('"') and s.endswith('"'):
+        s = s[1:-1]
+    s = s.replace("\\n", "\n")
+    s = s.replace("\\t", "\t")
+    s = s.replace('\\"', '"')
+    s = s.replace("\\\\", "\\")
+    return s

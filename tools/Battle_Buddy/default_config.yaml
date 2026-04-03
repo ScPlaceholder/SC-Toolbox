@@ -1,0 +1,51 @@
+name: Battle Buddy
+module: skills.Battle_Buddy.main
+category: Star Citizen
+description: >
+  Real-time in-game HUD overlay that tracks equipped weapons, spare magazines,
+  medpens, oxypens, and grenades by monitoring the Star Citizen Game.log.
+  Automatically detects your loadout and ammo types. Shows/hides when you
+  join the Persistent Universe.
+
+custom_properties:
+  - id: log_path
+    name: Game.log Path
+    hint: "Full path to your Star Citizen Game.log file"
+    property_type: string
+    value: "C:/StarCitizen/LIVE/Game.log"
+
+  - id: launch_at_startup
+    name: Launch at Startup
+    hint: "Start the HUD process when WingmanAI loads this skill"
+    property_type: boolean
+    value: true
+
+  - id: auto_show_on_join
+    name: Auto-show on Join PU
+    hint: "Automatically show the HUD when you load into the game"
+    property_type: boolean
+    value: true
+
+  - id: orientation
+    name: HUD Orientation
+    hint: "horizontal or vertical"
+    property_type: string
+    value: "horizontal"
+
+  - id: opacity
+    name: Opacity
+    hint: "HUD window opacity (0.3 to 1.0)"
+    property_type: number
+    value: 0.92
+
+  - id: window_x
+    name: Window X
+    hint: "HUD window X position"
+    property_type: number
+    value: 60
+
+  - id: window_y
+    name: Window Y
+    hint: "HUD window Y position"
+    property_type: number
+    value: 880

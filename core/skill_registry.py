@@ -61,6 +61,12 @@ _BUILTIN_SKILLS: list[dict] = [
         "script": "craft_db_app.py", "hotkey": "<shift>+7",
         "settings_key": "hotkey_craft_db",
     },
+    {
+        "id": "battle_buddy", "name": N_("Battle Buddy"), "icon": "\U0001f396",
+        "color": "#dd4444", "folder": "Battle_Buddy",
+        "script": "hud_app.py", "hotkey": "<shift>+8",
+        "settings_key": "hotkey_battle_buddy",
+    },
 ]
 
 _BUILTIN_INDEX: dict[str, dict] = {s["id"]: s for s in _BUILTIN_SKILLS}
@@ -100,25 +106,27 @@ def discover_skills(base_dir: str) -> list[SkillConfig]:
         The SC_Toolbox root directory (contains ``skills/``).
     """
     skills_root = os.path.join(base_dir, "skills")
+    tools_root = os.path.join(base_dir, "tools")
     parent_skills = os.path.dirname(base_dir)  # custom_skills/ level
 
     found: dict[str, SkillConfig] = {}
 
-    # Phase 1: scan for skill.json files
-    if os.path.isdir(skills_root):
-        try:
-            for entry in sorted(os.listdir(skills_root)):
-                entry_path = os.path.join(skills_root, entry)
-                if not os.path.isdir(entry_path):
-                    continue
-                cfg = _try_load_skill_json(entry_path)
-                if cfg:
-                    # Override folder to match actual directory name
-                    cfg.folder = entry
-                    found[cfg.id] = cfg
-                    log.debug("skill_registry: discovered %s from skill.json", cfg.id)
-        except OSError as exc:
-            log.warning("skill_registry: error scanning %s: %s", skills_root, exc)
+    # Phase 1: scan for skill.json files (in both skills/ and tools/)
+    for scan_root in (skills_root, tools_root):
+        if os.path.isdir(scan_root):
+            try:
+                for entry in sorted(os.listdir(scan_root)):
+                    entry_path = os.path.join(scan_root, entry)
+                    if not os.path.isdir(entry_path):
+                        continue
+                    cfg = _try_load_skill_json(entry_path)
+                    if cfg:
+                        # Override folder to match actual directory name
+                        cfg.folder = entry
+                        found[cfg.id] = cfg
+                        log.debug("skill_registry: discovered %s from skill.json", cfg.id)
+            except OSError as exc:
+                log.warning("skill_registry: error scanning %s: %s", scan_root, exc)
 
     # Phase 2: fill in built-in skills that weren't discovered via skill.json
     result: list[SkillConfig] = []
@@ -128,10 +136,11 @@ def discover_skills(base_dir: str) -> list[SkillConfig]:
             result.append(found.pop(sid))
             continue
 
-        # Check if the folder exists (either under skills/ or parent custom_skills/)
+        # Check if the folder exists (under skills/, tools/, or parent custom_skills/)
         local = os.path.join(skills_root, builtin["folder"])
+        tools = os.path.join(tools_root, builtin["folder"])
         parent = os.path.join(parent_skills, builtin["folder"])
-        if os.path.isdir(local) or os.path.isdir(parent):
+        if os.path.isdir(local) or os.path.isdir(tools) or os.path.isdir(parent):
             result.append(SkillConfig.from_dict(builtin))
             log.debug("skill_registry: using built-in metadata for %s", sid)
 
@@ -146,11 +155,15 @@ def discover_skills(base_dir: str) -> list[SkillConfig]:
 def resolve_skill_path(skill: SkillConfig, base_dir: str) -> str | None:
     """Return the absolute directory path for a skill, or None if not found."""
     skills_root = os.path.join(base_dir, "skills")
+    tools_root = os.path.join(base_dir, "tools")
     parent_skills = os.path.dirname(base_dir)
 
     local = os.path.join(skills_root, skill.folder)
     if os.path.isdir(local):
         return local
+    tools = os.path.join(tools_root, skill.folder)
+    if os.path.isdir(tools):
+        return tools
     parent = os.path.join(parent_skills, skill.folder)
     if os.path.isdir(parent):
         return parent

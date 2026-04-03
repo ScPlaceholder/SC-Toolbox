@@ -1,4 +1,5 @@
 """Loadout aggregation — compute footer totals and signatures from selections."""
+from services.dps_calculator import dps_sustained
 
 
 def compute_footer_totals(selections: dict,
@@ -6,7 +7,11 @@ def compute_footer_totals(selections: dict,
                           find_cooler, find_radar, find_powerplant,
                           power_sim: bool = False,
                           weapon_power_ratio: float = 1.0,
-                          shield_power_ratio: float = 1.0) -> dict:
+                          shield_power_ratio: float = 1.0,
+                          ammo_load_mult: float = 1.0,
+                          regen_per_sec_mult: float = 1.0,
+                          power_ratio_mult: float = 1.0,
+                          raw_weapon_lookup=None) -> dict:
     """Compute all aggregate stats from current component selections.
 
     Parameters
@@ -20,6 +25,10 @@ def compute_footer_totals(selections: dict,
         Whether power simulation is active
     weapon_power_ratio, shield_power_ratio : float
         Power allocation fractions (0-1)
+    ammo_load_mult, regen_per_sec_mult, power_ratio_mult : float
+        Ship engineering buff multipliers from ship.data.buff.regenModifier
+    raw_weapon_lookup : callable or None
+        Optional fn(ref) -> raw weapon dict; used for context-aware dps_sus.
 
     Returns
     -------
@@ -38,7 +47,21 @@ def compute_footer_totals(selections: dict,
         s = find_weapon(nm)
         if s:
             tot_raw += s["dps_raw"]
-            tot_sus += s["dps_sus"]
+            # Compute context-aware sustained DPS if raw data available
+            if raw_weapon_lookup and power_sim:
+                raw = raw_weapon_lookup(s.get("ref", ""))
+                if raw:
+                    # raw_lookup returns the inner data dict directly (entry["data"])
+                    ctx_sus = dps_sustained(
+                        raw, s["alpha"], s["rps"],
+                        ammo_load_mult, regen_per_sec_mult,
+                        power_ratio_mult, weapon_power_ratio,
+                    )
+                    tot_sus += ctx_sus
+                else:
+                    tot_sus += s["dps_sus"]
+            else:
+                tot_sus += s["dps_sus"]
             tot_alp += s["alpha"]
             gun_count += 1
 
@@ -106,12 +129,6 @@ def compute_footer_totals(selections: dict,
         s = find_weapon(nm)
         if s:
             tot_pwr_draw += float(s.get("power_draw", 0) or 0)
-
-    # Apply power ratio when POWER SIM active
-    if power_sim:
-        tot_raw *= weapon_power_ratio
-        tot_sus *= weapon_power_ratio
-        tot_regen *= shield_power_ratio
 
     return {
         "dps_raw": tot_raw,

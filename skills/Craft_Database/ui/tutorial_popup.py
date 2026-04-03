@@ -11,7 +11,13 @@ from PySide6.QtWidgets import (
 )
 
 from shared.qt.theme import P
-from ui.constants import TOOL_COLOR
+from ui.constants import (
+    TOOL_COLOR,
+    POPUP_BRACKET_LEN,
+    CLOSE_BTN_BG,
+    CLOSE_BTN_COLOR,
+    CLOSE_BTN_HOVER_BG,
+)
 
 # ── Shared rich-text style fragments ─────────────────────────────────────
 
@@ -25,6 +31,7 @@ _YLW = f"color: {P.yellow};"
 _C_START   = TOOL_COLOR          # teal   — Getting Started
 _C_BROWSE  = "#44aaff"           # blue   — Browsing
 _C_FILTER  = "#ffb347"           # amber  — Filters
+_C_INV     = "#33dd88"           # green  — Inventory
 _C_DETAIL  = "#cc88ff"           # purple — Detail Popup
 _C_TIPS    = "#44dd88"           # green  — Tips
 
@@ -79,6 +86,7 @@ debounce delay.</p>
 <p>Each card shows:</p>
 <ul>
   <li><b>Blueprint name</b> and <b>craft time</b></li>
+  <li>An <b>Own</b> button to add the blueprint to your inventory</li>
   <li>Up to four <b>ingredient pills</b> with resource name and quantity</li>
   <li>Number of <b>source missions</b> that reward this blueprint</li>
 </ul>
@@ -123,6 +131,36 @@ or <b>CfP</b>.</p>
 of the filter panel to reset all dropdowns and the ownable checkbox at once.</p>
 """)
 
+_TAB_INVENTORY = _html(f"""
+{_h3("Inventory", _C_INV)}
+
+{_h4("Marking Blueprints as Owned", _C_INV)}
+<p>Each blueprint card has an <b>Own</b> button in the header row. Click it
+to add that blueprint to your personal inventory. Once owned, the button
+changes to a greyed-out <b>Owned</b> label so you can see at a glance
+which blueprints you already have.</p>
+
+{_h4("Viewing Your Inventory", _C_INV)}
+<p>Click the <span style="{_ACC}">INVENTORY (N)</span> button in the stats
+bar at the top of the window. The number in parentheses shows how many
+blueprints you currently own. When active, the button highlights and the
+grid switches to show only your owned blueprints.</p>
+
+{_h4("Filtering Your Inventory", _C_INV)}
+<p>All sidebar filters (category, resource, mission type, location,
+contractor) and the search bar work in inventory mode too, letting you
+quickly find specific blueprints among your collection.</p>
+
+{_h4("Removing a Blueprint", _C_INV)}
+<p>While viewing your inventory, each card shows an <b>Unown</b> button.
+Clicking it opens a confirmation prompt &mdash; press <b>Yes</b> to
+remove the blueprint from your inventory, or <b>No</b> to keep it.</p>
+
+{_h4("Persistence", _C_INV)}
+<p>Your inventory is saved locally and persists between sessions. You
+do not need to re-mark blueprints each time you launch the tool.</p>
+""")
+
 _TAB_DETAIL = _html(f"""
 {_h3("Blueprint Detail Popup", _C_DETAIL)}
 
@@ -132,14 +170,16 @@ Up to <b>5 detail popups</b> can be open simultaneously.</p>
 
 {_h4("Global Quality Slider", _C_DETAIL)}
 <p>Drag the slider (or type in the spinbox) to set a quality value from
-<b>0 to 1000</b>. Every ingredient card and the stat summary table update
-in real time &mdash; no reload needed.</p>
+<b>0 to 1000</b>. Moving the global slider sets <em>all</em> ingredient
+sliders to the same value at once.</p>
 
-{_h4("Parts", _C_DETAIL)}
+{_h4("Parts &amp; Per-Slot Quality", _C_DETAIL)}
 <p>Each ingredient slot shows the resource name, quantity in <b>cSCU</b>,
-and a read-only quality indicator that tracks the global slider. Quality
-effect tags (<span style="{_GRN}">+%</span> / <span style="{_YLW}">&minus;%</span>)
-show how quality affects each stat for that slot.</p>
+and its own <b>independent quality slider</b>. You can adjust each
+ingredient's quality individually to see how different quality
+combinations affect the final stats. Quality effect tags
+(<span style="{_GRN}">+%</span> / <span style="{_YLW}">&minus;%</span>)
+update in real time as you move each slider.</p>
 
 {_h4("Stat Summary", _C_DETAIL)}
 <p>A table below the parts lists every affected stat with its crafted
@@ -186,6 +226,7 @@ _TABS = [
     ("Getting Started", _TAB_GETTING_STARTED),
     ("Browsing", _TAB_BROWSING),
     ("Filters", _TAB_FILTERS),
+    ("Inventory", _TAB_INVENTORY),
     ("Detail Popup", _TAB_DETAIL),
     ("Tips", _TAB_TIPS),
 ]
@@ -200,10 +241,10 @@ class _CloseBtn(QPushButton):
         self.setObjectName("tutClose")
         self.setFixedSize(32, 28)
         self.setCursor(Qt.PointingHandCursor)
-        self.setStyleSheet("""
-            QPushButton#tutClose {
-                background: rgba(255, 60, 60, 0.15);
-                color: #cc6666;
+        self.setStyleSheet(f"""
+            QPushButton#tutClose {{
+                background: {CLOSE_BTN_BG};
+                color: {CLOSE_BTN_COLOR};
                 border: none;
                 border-radius: 3px;
                 font-family: Consolas;
@@ -212,11 +253,11 @@ class _CloseBtn(QPushButton):
                 padding: 0px;
                 margin: 2px;
                 min-height: 0px;
-            }
-            QPushButton#tutClose:hover {
-                background-color: rgba(220, 50, 50, 0.85);
+            }}
+            QPushButton#tutClose:hover {{
+                background-color: {CLOSE_BTN_HOVER_BG};
                 color: #ffffff;
-            }
+            }}
         """)
 
 
@@ -374,7 +415,7 @@ class TutorialPopup(QDialog):
         painter.setPen(QPen(edge, 1))
         painter.drawRect(0, 0, w - 1, h - 1)
 
-        bl = 14
+        bl = POPUP_BRACKET_LEN
         bracket = QColor(TOOL_COLOR)
         bracket.setAlpha(200)
         painter.setPen(QPen(bracket, 2))

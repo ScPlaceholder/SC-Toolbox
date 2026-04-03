@@ -1,11 +1,5 @@
 """Unit tests for domain models."""
 
-import sys
-import os
-
-sys.path.insert(0, os.path.normpath(os.path.join(os.path.dirname(__file__), "..")))
-sys.path.insert(0, os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
-
 import pytest
 from domain.models import (
     Blueprint,

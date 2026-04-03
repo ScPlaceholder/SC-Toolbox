@@ -62,12 +62,16 @@ def compute_shield_stats(raw: dict) -> dict:
 def compute_cooler_stats(raw: dict) -> dict:
     d  = raw.get("data", {})
     co = d.get("cooler", {})
+    res = d.get("resource", {}) or {}
+    onl = res.get("online", {}) or {}
+    gen = onl.get("generation", {}) or {}
+    cooling_rate = co.get("coolingRate") or gen.get("cooling", 0)
     return {
         "name":          d.get("name", "?"),
         "local_name":    raw.get("localName", ""),
         "ref":           d.get("ref", ""),
         "size":          d.get("size", 1),
-        "cooling_rate":  co.get("coolingRate", 0),
+        "cooling_rate":  cooling_rate,
         "suppression_heat": co.get("suppressionHeatFactor", 0),
         "suppression_ir":   co.get("suppressionIRFactor", 0),
     }

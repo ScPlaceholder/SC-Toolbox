@@ -6,7 +6,26 @@ serialisation.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
+
+log = logging.getLogger(__name__)
+
+
+def _safe_int(value, default: int = 0) -> int:
+    """Convert *value* to int, returning *default* on failure."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_float(value, default: float = 0.0) -> float:
+    """Convert *value* to float, returning *default* on failure."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 # ── Ingredient / Slot models ────────────────────────────────────────────────
@@ -26,8 +45,8 @@ class IngredientOption:
         return cls(
             guid=d.get("guid", ""),
             name=d.get("name", ""),
-            quantity_scu=float(d.get("quantity_scu", 0)),
-            min_quality=int(d.get("min_quality", 0)),
+            quantity_scu=_safe_float(d.get("quantity_scu", 0)),
+            min_quality=_safe_int(d.get("min_quality", 0)),
             unit=d.get("unit", "scu"),
             loc_key=d.get("loc_key", ""),
         )
@@ -45,10 +64,10 @@ class QualityEffect:
     def from_dict(cls, d: dict) -> QualityEffect:
         return cls(
             stat=d.get("stat", ""),
-            quality_min=int(d.get("quality_min", 0)),
-            quality_max=int(d.get("quality_max", 1000)),
-            modifier_at_min=float(d.get("modifier_at_min", 1.0)),
-            modifier_at_max=float(d.get("modifier_at_max", 1.0)),
+            quality_min=_safe_int(d.get("quality_min", 0)),
+            quality_max=_safe_int(d.get("quality_max", 1000), 1000),
+            modifier_at_min=_safe_float(d.get("modifier_at_min", 1.0), 1.0),
+            modifier_at_max=_safe_float(d.get("modifier_at_max", 1.0), 1.0),
         )
 
     def modifier_at(self, quality: int) -> float:
@@ -78,7 +97,7 @@ class IngredientSlot:
             options=[IngredientOption.from_dict(o) for o in d.get("options", [])],
             quality_effects=[QualityEffect.from_dict(q) for q in d.get("quality_effects", [])],
             name=d.get("name", ""),
-            quantity_scu=float(d.get("quantity_scu", 0)),
+            quantity_scu=_safe_float(d.get("quantity_scu", 0)),
         )
 
 
@@ -120,12 +139,12 @@ class Mission:
             contractor=d.get("contractor", ""),
             mission_type=d.get("mission_type", ""),
             category=d.get("category", ""),
-            lawful=int(d.get("lawful", 1)),
-            not_for_release=int(d.get("not_for_release", 0)),
-            drop_chance=float(d.get("drop_chance", 1.0)),
+            lawful=_safe_int(d.get("lawful", 1), 1),
+            not_for_release=_safe_int(d.get("not_for_release", 0)),
+            drop_chance=_safe_float(d.get("drop_chance", 1.0), 1.0),
             locations=d.get("locations", ""),
             description=d.get("description", ""),
-            time_to_complete_minutes=int(d.get("time_to_complete_minutes", 0)),
+            time_to_complete_minutes=_safe_int(d.get("time_to_complete_minutes", 0)),
             difficulty=MissionDifficulty.from_dict(diff) if isinstance(diff, dict) else MissionDifficulty(),
         )
 
@@ -148,11 +167,11 @@ class SpreadInfo:
     @classmethod
     def from_dict(cls, d: dict) -> SpreadInfo:
         return cls(
-            min_val=float(d.get("min", 0)),
-            max_val=float(d.get("max", 0)),
-            first_attack=float(d.get("first_attack", 0)),
-            attack=float(d.get("attack", 0)),
-            decay=float(d.get("decay", 0)),
+            min_val=_safe_float(d.get("min", 0)),
+            max_val=_safe_float(d.get("max", 0)),
+            first_attack=_safe_float(d.get("first_attack", 0)),
+            attack=_safe_float(d.get("attack", 0)),
+            decay=_safe_float(d.get("decay", 0)),
         )
 
 
@@ -172,12 +191,12 @@ class FireMode:
         sp = d.get("spread")
         return cls(
             name=d.get("name", ""),
-            fire_rate=float(d.get("fire_rate", 0)),
-            heat_per_shot=float(d.get("heat_per_shot", 0)),
-            wear_per_shot=float(d.get("wear_per_shot", 0)),
-            ammo_cost=int(d.get("ammo_cost", 1)),
-            pellet_count=int(d.get("pellet_count", 1)),
-            damage_multiplier=float(d.get("damage_multiplier", 1.0)),
+            fire_rate=_safe_float(d.get("fire_rate", 0)),
+            heat_per_shot=_safe_float(d.get("heat_per_shot", 0)),
+            wear_per_shot=_safe_float(d.get("wear_per_shot", 0)),
+            ammo_cost=_safe_int(d.get("ammo_cost", 1), 1),
+            pellet_count=_safe_int(d.get("pellet_count", 1), 1),
+            damage_multiplier=_safe_float(d.get("damage_multiplier", 1.0), 1.0),
             spread=SpreadInfo.from_dict(sp) if isinstance(sp, dict) else SpreadInfo(),
         )
 
@@ -196,13 +215,13 @@ class DamageResistance:
     @classmethod
     def from_dict(cls, d: dict) -> DamageResistance:
         return cls(
-            physical=float(d.get("physical", 0)),
-            energy=float(d.get("energy", 0)),
-            distortion=float(d.get("distortion", 0)),
-            thermal=float(d.get("thermal", 0)),
-            biochemical=float(d.get("biochemical", 0)),
-            stun=float(d.get("stun", 0)),
-            impact_force=float(d.get("impact_force", 0)),
+            physical=_safe_float(d.get("physical", 0)),
+            energy=_safe_float(d.get("energy", 0)),
+            distortion=_safe_float(d.get("distortion", 0)),
+            thermal=_safe_float(d.get("thermal", 0)),
+            biochemical=_safe_float(d.get("biochemical", 0)),
+            stun=_safe_float(d.get("stun", 0)),
+            impact_force=_safe_float(d.get("impact_force", 0)),
             profile=d.get("profile", ""),
         )
 
@@ -215,8 +234,8 @@ class TemperatureResistance:
     @classmethod
     def from_dict(cls, d: dict) -> TemperatureResistance:
         return cls(
-            min_temp=float(d.get("min", 0)),
-            max_temp=float(d.get("max", 0)),
+            min_temp=_safe_float(d.get("min", 0)),
+            max_temp=_safe_float(d.get("max", 0)),
         )
 
 
@@ -238,8 +257,8 @@ class ItemStats:
             fire_modes=[FireMode.from_dict(f) for f in d.get("fire_modes", [])],
             damage_resistance=DamageResistance.from_dict(dr) if isinstance(dr, dict) else None,
             temperature_resistance=TemperatureResistance.from_dict(tr) if isinstance(tr, dict) else None,
-            mass_kg=float(d.get("mass_kg", 0)),
-            overheat_temperature=float(d.get("overheat_temperature", 0)),
+            mass_kg=_safe_float(d.get("mass_kg", 0)),
+            overheat_temperature=_safe_float(d.get("overheat_temperature", 0)),
         )
 
 
@@ -259,22 +278,24 @@ class Blueprint:
     version: str = ""
     ingredients: list[IngredientSlot] = field(default_factory=list)
     missions: list[Mission] = field(default_factory=list)
+    _raw: dict = field(default_factory=dict, repr=False)
 
     @classmethod
     def from_dict(cls, d: dict) -> Blueprint:
         stats = d.get("item_stats")
         return cls(
-            id=int(d.get("id", 0)),
+            id=_safe_int(d.get("id", 0)),
             blueprint_id=d.get("blueprint_id", ""),
             name=d.get("name", ""),
             category=d.get("category", ""),
-            craft_time_seconds=int(d.get("craft_time_seconds", 0)),
-            tiers=int(d.get("tiers", 1)),
-            default_owned=int(d.get("default_owned", 0)),
+            craft_time_seconds=_safe_int(d.get("craft_time_seconds", 0)),
+            tiers=_safe_int(d.get("tiers", 1), 1),
+            default_owned=_safe_int(d.get("default_owned", 0)),
             item_stats=ItemStats.from_dict(stats) if isinstance(stats, dict) else ItemStats(),
             version=d.get("version", ""),
             ingredients=[IngredientSlot.from_dict(i) for i in d.get("ingredients", [])],
             missions=[Mission.from_dict(m) for m in d.get("missions", [])],
+            _raw=d,
         )
 
     @property
@@ -307,6 +328,11 @@ class Blueprint:
         return [slot.name for slot in self.ingredients if slot.name]
 
     @property
+    def raw_dict(self) -> dict:
+        """Return the original API dict (or a minimal fallback)."""
+        return self._raw if self._raw else {"blueprint_id": self.blueprint_id, "name": self.name}
+
+    @property
     def mission_count(self) -> int:
         return len(self.missions)
 
@@ -324,12 +350,25 @@ class FilterHints:
 
     @classmethod
     def from_dict(cls, d: dict) -> FilterHints:
+        if not isinstance(d, dict):
+            return cls()
+
+        def _str_list(key: str) -> list[str]:
+            raw = d.get(key, [])
+            return [str(v) for v in raw] if isinstance(raw, list) else []
+
+        # resources may arrive as list[dict] with a "name" key from the API
+        raw_resources = d.get("resource", [])
+        resources = [
+            r["name"] if isinstance(r, dict) and "name" in r else str(r)
+            for r in (raw_resources if isinstance(raw_resources, list) else [])
+        ]
         return cls(
-            locations=d.get("location", []),
-            mission_types=d.get("mission_type", []),
-            contractors=d.get("contractor", []),
-            resources=d.get("resource", []),
-            categories=d.get("category", []),
+            locations=_str_list("location"),
+            mission_types=_str_list("mission_type"),
+            contractors=_str_list("contractor"),
+            resources=resources,
+            categories=_str_list("category"),
         )
 
 
@@ -345,8 +384,8 @@ class CraftStats:
     @classmethod
     def from_dict(cls, d: dict) -> CraftStats:
         return cls(
-            total_blueprints=int(d.get("totalBlueprints", 0)),
-            unique_ingredients=int(d.get("uniqueIngredients", 0)),
+            total_blueprints=_safe_int(d.get("totalBlueprints", 0)),
+            unique_ingredients=_safe_int(d.get("uniqueIngredients", 0)),
             version=d.get("version", ""),
         )
 
@@ -364,8 +403,8 @@ class Pagination:
     @classmethod
     def from_dict(cls, d: dict) -> Pagination:
         return cls(
-            page=int(d.get("page", 1)),
-            limit=int(d.get("limit", 50)),
-            total=int(d.get("total", 0)),
-            pages=int(d.get("pages", 1)),
+            page=_safe_int(d.get("page", 1), 1),
+            limit=_safe_int(d.get("limit", 50), 50),
+            total=_safe_int(d.get("total", 0)),
+            pages=_safe_int(d.get("pages", 1), 1),
         )

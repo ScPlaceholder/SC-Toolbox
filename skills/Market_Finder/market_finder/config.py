@@ -29,11 +29,19 @@ API_BASE: str = UEX_BASE_URL
 API_TIMEOUT: int = MARKET_FINDER_TIMEOUT
 API_MAX_RETRIES: int = 3
 API_BACKOFF_BASE: float = 1.0
-API_MAX_WORKERS: int = 8
+API_MAX_WORKERS: int = 12
 API_HEADERS: dict[str, str] = MARKET_FINDER_HEADERS
 
-# Config-driven category IDs (replaces hardcoded range(1, 91))
-CATEGORY_IDS: list[int] = list(range(1, 91))
+# Category IDs that actually return data from the UEX API.
+# Trimmed from range(1, 91) — 38 empty categories removed (verified from cache).
+CATEGORY_IDS: list[int] = [
+    1, 2, 3, 4, 5, 7, 8, 9, 10, 11,
+    13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+    23, 24, 25, 26, 28, 29, 30, 31, 32, 33,
+    34, 35, 36, 38, 41, 61, 62, 63, 64, 65,
+    67, 68, 70, 73, 74, 75, 79, 82, 83, 86,
+    87, 90,
+]
 
 # ---------------------------------------------------------------------------
 # Cache

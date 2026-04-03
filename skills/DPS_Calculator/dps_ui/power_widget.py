@@ -175,6 +175,30 @@ class PowerAllocatorWidget(QWidget):
         return self._engine.shield_power_ratio
 
     @property
+    def ammo_load_mult(self):
+        return self._engine.ammo_load_mult
+
+    @property
+    def regen_per_sec_mult(self):
+        return self._engine.regen_per_sec_mult
+
+    @property
+    def power_ratio_mult(self):
+        return self._engine.power_ratio_mult
+
+    @property
+    def shield_regen_powered(self):
+        return self._engine.shield_regen_powered
+
+    @property
+    def shield_res_powered(self):
+        return self._engine.shield_res_powered
+
+    @property
+    def shield_powered_count(self):
+        return self._engine.shield_powered_count
+
+    @property
     def _slots(self):
         return self._engine.slots
 

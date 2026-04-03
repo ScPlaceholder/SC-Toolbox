@@ -153,13 +153,20 @@ PP_COLS = [
 ]
 
 WEAPON_TABLE_COLS = [
-    (_("Name"),    "name",    12, FG,      lambda v, it: it["name"]),
-    (_("Type"),    "group",    3, FG_DIM,  lambda v, it: group_short(it.get("group", ""))),
-    (_("DPS\u2193"),   "dps_sus",  7, GREEN,   lambda v, it: f"{v:,.0f}" if v else "\u2014"),
-    (_("Raw"),     "dps_raw",  6, YELLOW,  lambda v, it: f"{v:,.0f}" if v else "\u2014"),
-    (_("Alpha"),   "alpha",    6, ACCENT,  lambda v, it: f"{v:.1f}" if v else "\u2014"),
-    (_("RPS"),     "rps",      5, FG_DIM,  lambda v, it: f"{v:.2f}" if v else "\u2014"),
-    (_("Ammo"),    "ammo",     5, FG,      lambda v, it: f"{int(v)}" if v else "\u2014"),
+    (_("Name"),    "name",       12, FG,        lambda v, it: it["name"]),
+    (_("Type"),    "group",       3, FG_DIM,    lambda v, it: group_short(it.get("group", ""))),
+    (_("DPS\u2193"),   "dps_sus",  7, GREEN,    lambda v, it: f"{v:,.0f}" if v else "\u2014"),
+    (_("Raw"),     "dps_raw",     6, YELLOW,    lambda v, it: f"{v:,.0f}" if v else "\u2014"),
+    (_("Effic"),   "efficiency",  5, FG_DIM,    lambda v, it: f"{v:.2f}" if v else "\u2014"),
+    (_("Alpha"),   "alpha",       6, ACCENT,    lambda v, it: f"{v:.1f}" if v else "\u2014"),
+    (_("RPS"),     "rps",         5, FG_DIM,    lambda v, it: f"{v:.2f}" if v else "\u2014"),
+    (_("Speed"),   "speed",       5, FG_DIM,    lambda v, it: f"{int(v):,}" if v else "\u2014"),
+    (_("Range"),   "range",       6, FG_DIM,    lambda v, it: f"{int(v):,}" if v else "\u2014"),
+    (_("Spread"),  "spread",      5, FG_DIM,    lambda v, it: f"{v:.2f}" if v else "\u2014"),
+    (_("Power"),   "power",       4, ORANGE,    lambda v, it: f"{v:.0f}" if v else "\u2014"),
+    (_("Ammo"),    "ammo",        5, FG,        lambda v, it: f"{int(v)}" if v else "\u2014"),
+    (_("Pen"),     "pen",         4, PHYS_COL,  lambda v, it: f"{v:.2f}" if v else "\u2014"),
+    (_("HP"),      "wp_hp",       5, FG_DIM,    lambda v, it: f"{int(v):,}" if v else "\u2014"),
 ]
 
 MISSILE_TABLE_COLS = [

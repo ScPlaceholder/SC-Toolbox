@@ -50,6 +50,16 @@ class PowerAllocatorEngine:
         self.weapon_power_ratio = 1.0
         self.shield_power_ratio = 1.0
 
+        # Ship engineering buff multipliers (from ship.data.buff.regenModifier)
+        self.ammo_load_mult = 1.0
+        self.regen_per_sec_mult = 1.0
+        self.power_ratio_mult = 1.0
+
+        # Per-shield powered regen and resistance (erkul-exact formula)
+        self.shield_regen_powered = 0.0
+        self.shield_res_powered = {"phys": 0.0, "enrg": 0.0, "dist": 0.0}
+        self.shield_powered_count = 0
+
         # Armor signature multipliers (set by load_ship, default to neutral)
         self._armor_sig_em = 1.0
         self._armor_sig_ir = 1.0
@@ -119,6 +129,43 @@ class PowerAllocatorEngine:
         _SKIP_SUBSTRINGS = ("blanking", "blade_rack", "missilerack_blade",
                             "missile_cap", "fuel_intake", "intk_", "_remote_top_turret")
 
+        # Port-name → component type inference (mirrors slot_extractor logic).
+        # Used when a port has no itemTypes — activated only for types that have
+        # zero explicitly-typed ports anywhere in the loadout (two-phase guard).
+        _PORT_NAME_INFER: list[tuple[tuple[str, ...], str]] = [
+            (("shield",),        "Shield"),
+            (("cooler",),        "Cooler"),
+            (("power_plant",),   "PowerPlant"),
+            (("quantum_drive",), "QuantumDrive"),
+            (("radar",),         "Radar"),
+        ]
+        _INFER_SKIP_KW = ("cockpit", "screen", "display", "controller", "blastshield")
+
+        # Pre-scan: which types already have at least one explicitly-typed port?
+        def _collect_explicit_types(ports, found=None):
+            if found is None:
+                found = set()
+            for p in (ports or []):
+                for it in p.get("itemTypes", []):
+                    t = it.get("type", "")
+                    if t:
+                        found.add(t)
+                _collect_explicit_types(p.get("loadout", []), found)
+            return found
+
+        _explicit_types = _collect_explicit_types(loadout)
+
+        def _infer_port_type(pname: str) -> str | None:
+            lower = pname.lower()
+            if any(kw in lower for kw in _INFER_SKIP_KW):
+                return None
+            # Normalize underscores so "powerplant" matches keyword "power_plant"
+            normalized = lower.replace("_", "")
+            for keywords, type_name in _PORT_NAME_INFER:
+                if all(kw.replace("_", "") in normalized for kw in keywords):
+                    return type_name
+            return None
+
         def _find_nested_weapons(port):
             """Recursively find actual WeaponGun items in nested loadout."""
             found = []
@@ -184,17 +231,40 @@ class PowerAllocatorEngine:
                             self._components["lifeSupports"].append(raw)
                         matched = True
                         break
-                    elif pt in ("WeaponGun", "Turret") and ident:
+                    elif pt in ("WeaponGun", "Turret", "TurretBase") and ident:
                         # Try direct lookup first
                         raw = self._lookup_raw(ident)
                         if raw and raw.get("type") == "WeaponGun":
                             self._components["weapons"].append(raw)
                         else:
                             # Weapons are often nested: port -> gimbal -> weapon
+                            # Also handles TurretBase manned turrets whose gun
+                            # hardpoints have no itemTypes (e.g. Asgard bottom turret)
                             nested = _find_nested_weapons(port)
                             self._components["weapons"].extend(nested)
                         matched = True
                         break
+
+                # Port-name inference: when no itemTypes, infer component type
+                # from the port name (two-phase guard: only when no explicit port
+                # of that type exists anywhere in the loadout).
+                if not matched and not itypes and ident:
+                    pname = port.get("itemPortName", "")
+                    inferred = _infer_port_type(pname)
+                    if inferred and inferred not in _explicit_types:
+                        raw = self._lookup_raw(ident)
+                        if raw:
+                            type_to_bucket = {
+                                "PowerPlant":   "powerPlants",
+                                "Shield":       "shields",
+                                "Cooler":       "coolers",
+                                "Radar":        "radars",
+                                "QuantumDrive": "qdrives",
+                            }
+                            bucket = type_to_bucket.get(inferred)
+                            if bucket:
+                                self._components[bucket].append(raw)
+                                matched = True
 
                 if not matched:
                     _walk(port.get("loadout", []))
@@ -956,9 +1026,12 @@ class PowerAllocatorEngine:
             float((w.get("resource", {}).get("online", {}).get("consumption", {}).get("power", 0)) or 0)
             for w in self._components.get("weapons", [])
         )
-        buff_mult = (self._ship_data or {}).get("buff", {}).get("regenModifier", {}).get("powerRatioMultiplier", 1) or 1
+        regen_mod = (self._ship_data or {}).get("buff", {}).get("regenModifier", {}) or {}
+        self.ammo_load_mult    = float(regen_mod.get("maxAmmoLoadMultiplier", 1) or 1)
+        self.regen_per_sec_mult = float(regen_mod.get("maxRegenPerSecMultiplier", 1) or 1)
+        self.power_ratio_mult  = float(regen_mod.get("powerRatioMultiplier", 1) or 1)
         if wpn_consumption > 0:
-            ratio = wpn_pool_size * buff_mult / wpn_consumption
+            ratio = wpn_pool_size * self.power_ratio_mult / wpn_consumption
             self.weapon_power_ratio = min(ratio, 1.0)
         else:
             self.weapon_power_ratio = 1.0 if wpn_pool_size > 0 else 0.0
@@ -978,6 +1051,44 @@ class PowerAllocatorEngine:
         if not self._power_config.get("shield", {}).get("power"):
             self.shield_power_ratio = 0.0
 
+        # ── Shield Regen + Resistance (erkul-exact, per-shield formula) ──
+        # Erkul: regen_i = maxRegen × (selected_i/max_i) × range_modifier(selected_i)
+        # Erkul: res_i   = res_min + (selected_i/max_i × range_modifier(selected_i)) × (res_max - res_min)
+        shield_regen_powered = 0.0
+        shield_res_powered = {"phys": 0.0, "enrg": 0.0, "dist": 0.0}
+        n_shield_powered = 0
+        if shields and self._power_config.get("shield", {}).get("power"):
+            for shield_idx, shield in enumerate(shields):
+                this_selected = sum(p["number"] for p in self._seg_config.get("shield", [])
+                                    if p.get("index") == shield_idx and p["selected"] and not p.get("disabled"))
+                this_total = sum(p["number"] for p in self._seg_config.get("shield", [])
+                                 if p.get("index") == shield_idx and not p.get("disabled"))
+                if this_total == 0:
+                    continue
+                sh_data = shield.get("shield", {})
+                res_data = sh_data.get("resistance", {})
+                max_regen = float(sh_data.get("maxShieldRegen", 0) or 0)
+                pr = shield.get("resource", {}).get("online", {}).get("powerRanges")
+                modifier = self._find_range_modifier(pr, this_selected) if pr else 1.0
+                effective_r = (this_selected / this_total) * modifier
+                shield_regen_powered += max_regen * effective_r
+                shield_res_powered["phys"] += (
+                    float(res_data.get("physicalMin", 0) or 0)
+                    + effective_r * (float(res_data.get("physicalMax", 0) or 0) - float(res_data.get("physicalMin", 0) or 0))
+                )
+                shield_res_powered["enrg"] += (
+                    float(res_data.get("energyMin", 0) or 0)
+                    + effective_r * (float(res_data.get("energyMax", 0) or 0) - float(res_data.get("energyMin", 0) or 0))
+                )
+                shield_res_powered["dist"] += (
+                    float(res_data.get("distortionMin", 0) or 0)
+                    + effective_r * (float(res_data.get("distortionMax", 0) or 0) - float(res_data.get("distortionMin", 0) or 0))
+                )
+                n_shield_powered += 1
+        self.shield_regen_powered = shield_regen_powered
+        self.shield_res_powered = shield_res_powered
+        self.shield_powered_count = n_shield_powered
+
         return {
             "em_sig": em_sig,
             "ir_sig": ir_sig,
@@ -988,4 +1099,9 @@ class PowerAllocatorEngine:
             "weapon_power_ratio": self.weapon_power_ratio,
             "shield_power_ratio": self.shield_power_ratio,
             "pp_online": self._pp_count,
+            "ammo_load_mult": self.ammo_load_mult,
+            "regen_per_sec_mult": self.regen_per_sec_mult,
+            "power_ratio_mult": self.power_ratio_mult,
+            "shield_regen_powered": shield_regen_powered,
+            "shield_res_powered": shield_res_powered,
         }

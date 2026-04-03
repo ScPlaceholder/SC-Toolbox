@@ -139,6 +139,8 @@ def build_indexes(raw):
 RAW_BY_LN = {}
 RAW_BY_REF = {}
 
+SUPPLEMENT_FILE = os.path.join(SCRIPT_DIR, "data", "erkul_supplement.json")
+
 def build_raw_lookups(raw):
     global RAW_BY_LN, RAW_BY_REF
     for ep_key in raw:
@@ -153,6 +155,21 @@ def build_raw_lookups(raw):
                 RAW_BY_LN[ln] = d
             if ref:
                 RAW_BY_REF[ref] = d
+
+    # Merge supplement data (items absent from Erkul API)
+    try:
+        with open(SUPPLEMENT_FILE, encoding="utf-8") as f:
+            supplement = json.load(f)
+        for entry in supplement:
+            ln = entry.get("localName", "")
+            d  = entry.get("data", {})
+            ref = d.get("ref", "")
+            if ln:
+                RAW_BY_LN.setdefault(ln, d)
+            if ref:
+                RAW_BY_REF.setdefault(ref, d)
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
 
 def find_component(by_ref, by_name, query):
     """Find a component by ref UUID, localName, or name."""
@@ -329,7 +346,20 @@ def audit_ship(ship_name, ship_data, indexes, raw):
             total_alpha += w["alpha"]
             gun_count += 1
         else:
-            results["weapon_issues"].append(f"UNRESOLVED weapon ref: {lr} in slot {slot.get('label','?')}")
+            # Check if it's a missile equipped in a gun slot (e.g. Avenger Renegade)
+            m_in_gun = find_component(m_by_ref, m_by_name, lr)
+            if m_in_gun:
+                results["weapon_issues"].append(
+                    f"INFO: missile in gun slot: {lr} in slot {slot.get('label','?')}")
+            else:
+                raw_d = RAW_BY_REF.get(lr) or RAW_BY_LN.get(lr)
+                if raw_d:
+                    itype = raw_d.get("type", "Unknown")
+                    results["weapon_issues"].append(
+                        f"KNOWN NON-WEAPON ({itype}): {lr} in slot {slot.get('label','?')}")
+                else:
+                    results["weapon_issues"].append(
+                        f"UNRESOLVED weapon ref: {lr} in slot {slot.get('label','?')}")
 
     # ── MISSILES ──
     gun_ids = {s["id"] for s in wt_slots}
@@ -346,7 +376,14 @@ def audit_ship(ship_name, ship_data, indexes, raw):
             total_missile_dmg += m["total_dmg"]
             missile_count += 1
         else:
-            results["missile_issues"].append(f"UNRESOLVED missile ref: {lr} in slot {slot.get('label','?')}")
+            raw_d = RAW_BY_REF.get(lr) or RAW_BY_LN.get(lr)
+            if raw_d:
+                itype = raw_d.get("type", "Unknown")
+                results["missile_issues"].append(
+                    f"KNOWN NON-WEAPON ({itype}): {lr} in slot {slot.get('label','?')}")
+            else:
+                results["missile_issues"].append(
+                    f"UNRESOLVED missile ref: {lr} in slot {slot.get('label','?')}")
 
     # ── SHIELDS ──
     sh_slots = extract_slots_by_type(loadout, {"Shield"})
@@ -562,6 +599,166 @@ def audit_all_missiles(raw):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# PHASE 5: CONTEXT-AWARE DPS PIPELINE TESTS
+# These tests catch wiring bugs that Phase 1-4 miss — e.g., wrong data level
+# being passed to dps_sustained, ship buff not applied, power ratio ignored.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Known-good reference values verified against erkul.games:
+#   CF-337 Panther (alpha=43.65, rps=12.5, maxAmmoLoad=75, maxRegenPerSec=15, cooldown=0.25)
+#   Asgard buff: ammoLoadMult=5, regenMult=1, powerRatioMult=1
+#
+#   standalone (all mults=1, ratio=1):        ammos=75,  sus≈291.0
+#   with ammoLoadMult=5, ratio=1.0:           ammos=375, sus≈296.2
+#   with ammoLoadMult=5, ratio=0.513:         ammos=192, sus≈206.6  ← Erkul shows ~207
+
+_PHASE5_TESTS = [
+    # (description, weapon_name_substr, ammo_load_mult, regen_mult, power_ratio_mult,
+    #  weapon_power_ratio, expected_sus, tolerance)
+    ("Panther standalone (no buff)",
+     "CF-337 Panther", 1.0, 1.0, 1.0, 1.0, 291.0, 1.0),
+    ("Panther Asgard buff ammoLoad=5 full power",
+     "CF-337 Panther", 5.0, 1.0, 1.0, 1.0, 296.2, 1.0),
+    ("Panther Asgard buff ammoLoad=5 ratio=0.513 (Erkul ~207)",
+     "CF-337 Panther", 5.0, 1.0, 1.0, 0.513, 206.6, 1.0),
+]
+
+def run_phase5_tests(raw, out):
+    """Test the full context-aware dps_sustained pipeline for known reference values."""
+    out("=" * 100)
+    out("  PHASE 5: CONTEXT-AWARE DPS PIPELINE TESTS")
+    out("=" * 100)
+    out()
+
+    failures = []
+
+    # ── Test A: raw_lookup returns inner data dict (not outer entry) ──────────
+    out("A. raw_lookup structure test:")
+    sample_ref = None
+    for entry in raw.get("/live/weapons", []):
+        r = entry.get("data", {}).get("ref")
+        if r:
+            sample_ref = r
+            break
+
+    if sample_ref:
+        result = RAW_BY_REF.get(sample_ref, {})
+        has_weapon_key = "weapon" in result
+        has_data_key   = "data" in result
+        if has_weapon_key and not has_data_key:
+            out(f"  PASS  raw_lookup returns inner data dict (has 'weapon', no 'data' wrapper)")
+        elif has_data_key:
+            msg = "  FAIL  raw_lookup returns OUTER entry dict — double-unwrap bug present"
+            out(msg)
+            failures.append(msg)
+        elif not has_weapon_key:
+            msg = f"  FAIL  raw_lookup result has neither 'weapon' nor 'data' key (ref={sample_ref})"
+            out(msg)
+            failures.append(msg)
+    else:
+        out("  SKIP  No weapon refs found in cache")
+    out()
+
+    # ── Test B: ammo_load_mult changes sustained DPS ──────────────────────────
+    out("B. ammo_load_mult effect test:")
+    panther_d = None
+    for entry in raw.get("/live/weapons", []):
+        d = entry.get("data", {})
+        if "Panther" in d.get("name", "") and "CF-337" in d.get("name", ""):
+            panther_d = d
+            break
+
+    if panther_d:
+        alp = alpha_max(panther_d)
+        rps = fire_rate_rps(panther_d)
+        sus_no_buff  = dps_sustained(panther_d, alp, rps, 1.0, 1.0, 1.0, 1.0)
+        sus_with_buff = dps_sustained(panther_d, alp, rps, 5.0, 1.0, 1.0, 1.0)
+        if abs(sus_with_buff - sus_no_buff) > 1.0:
+            out(f"  PASS  ammo_load_mult=5 changes sus: {sus_no_buff:.1f} → {sus_with_buff:.1f}")
+        else:
+            msg = f"  FAIL  ammo_load_mult=5 had no effect: {sus_no_buff:.1f} → {sus_with_buff:.1f}"
+            out(msg)
+            failures.append(msg)
+    else:
+        out("  SKIP  CF-337 Panther not found in cache")
+    out()
+
+    # ── Test C: weapon_power_ratio compounds into ammos (not linear scale) ────
+    out("C. weapon_power_ratio compounding test:")
+    if panther_d:
+        alp = alpha_max(panther_d)
+        rps = fire_rate_rps(panther_d)
+        sus_full  = dps_sustained(panther_d, alp, rps, 5.0, 1.0, 1.0, 1.0)
+        sus_half  = dps_sustained(panther_d, alp, rps, 5.0, 1.0, 1.0, 0.5)
+        # Linear scale would give sus_half = sus_full * 0.5
+        # Erkul's formula gives a non-linear result due to charge_time compounding
+        linear_pred = sus_full * 0.5
+        is_nonlinear = abs(sus_half - linear_pred) > 1.0
+        if sus_half < sus_full and is_nonlinear:
+            out(f"  PASS  power_ratio=0.5 gives non-linear result: {sus_full:.1f} → {sus_half:.1f} "
+                f"(linear would be {linear_pred:.1f})")
+        elif sus_half >= sus_full:
+            msg = f"  FAIL  power_ratio=0.5 did not reduce sustained DPS: {sus_full:.1f} → {sus_half:.1f}"
+            out(msg)
+            failures.append(msg)
+        else:
+            msg = f"  FAIL  power_ratio=0.5 applied as linear scale: {sus_full:.1f} → {sus_half:.1f}"
+            out(msg)
+            failures.append(msg)
+    else:
+        out("  SKIP  CF-337 Panther not found in cache")
+    out()
+
+    # ── Test D: Known reference values ────────────────────────────────────────
+    out("D. Known reference value tests (Erkul-verified):")
+    if panther_d:
+        alp = alpha_max(panther_d)
+        rps = fire_rate_rps(panther_d)
+        for desc, name_substr, alm, rpm, prm, wpr, expected, tol in _PHASE5_TESTS:
+            if name_substr.split()[-1] not in "CF-337 Panther":
+                continue
+            got = dps_sustained(panther_d, alp, rps, alm, rpm, prm, wpr)
+            if abs(got - expected) <= tol:
+                out(f"  PASS  {desc}: expected={expected:.1f} got={got:.1f}")
+            else:
+                msg = f"  FAIL  {desc}: expected={expected:.1f} got={got:.1f} (delta={got-expected:+.1f})"
+                out(msg)
+                failures.append(msg)
+    else:
+        out("  SKIP  CF-337 Panther not found in cache")
+    out()
+
+    # ── Test E: Asgard ship buff is readable from cache ───────────────────────
+    out("E. Ship engineering buff test (Asgard ammoLoadMult=5):")
+    asgard_d = None
+    for e in raw.get("/live/ships", []):
+        d = e.get("data", {})
+        if d.get("name") == "Asgard":
+            asgard_d = d
+            break
+    if asgard_d:
+        buff = asgard_d.get("buff", {}).get("regenModifier", {})
+        alm = float(buff.get("maxAmmoLoadMultiplier", 1) or 1)
+        if abs(alm - 5.0) < 0.01:
+            out(f"  PASS  Asgard maxAmmoLoadMultiplier = {alm}")
+        else:
+            msg = f"  FAIL  Asgard maxAmmoLoadMultiplier = {alm} (expected 5.0)"
+            out(msg)
+            failures.append(msg)
+    else:
+        out("  SKIP  Asgard not found in cache")
+    out()
+
+    total = len(_PHASE5_TESTS) + 4  # A,B,C,D,E
+    n_fail = len(failures)
+    out(f"Phase 5 result: {n_fail} failures")
+    if failures:
+        out("  *** PIPELINE BUGS DETECTED — fix these before shipping ***")
+    out()
+    return failures
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # MAIN
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -666,15 +863,18 @@ def main():
             continue
 
         all_results.append(result)
-        all_issues = (result["weapon_issues"] + result["shield_issues"] +
-                      result["missile_issues"] + result["hull_issues"] +
-                      result["power_issues"] + result["issues"])
-        if all_issues:
-            ships_with_issues += 1
-            total_ship_issues += len(all_issues)
+        all_messages = (result["weapon_issues"] + result["shield_issues"] +
+                        result["missile_issues"] + result["hull_issues"] +
+                        result["power_issues"] + result["issues"])
+        # Only count true unknowns as issues; KNOWN/INFO are informational
+        real_issues = [m for m in all_messages if m.startswith("UNRESOLVED")]
+        if all_messages:
+            if real_issues:
+                ships_with_issues += 1
+            total_ship_issues += len(real_issues)
             out(f"  {ship_name}:")
-            for issue in all_issues:
-                out(f"    {issue}")
+            for msg in all_messages:
+                out(f"    {msg}")
 
     out()
     out(f"Ships audited: {len(ships)}")
@@ -750,13 +950,18 @@ def main():
                 f"{t['shield_hp']:>8.0f} | {t['shield_regen']:>6.1f} | "
                 f"{t['shield_res_phys']:>+5.0f} {t['shield_res_energy']:>+5.0f} "
                 f"{t['shield_res_dist']:>+5.0f} | "
-                f"{t['hull_hp']:>7d} | {t['armor_type']:>7s} | "
+                f"{t['hull_hp']:>7.0f} | {t['armor_type']:>7s} | "
                 f"{t['armor_phys_mult']:>5.2f} {t['armor_energy_mult']:>5.2f} "
                 f"{t['armor_dist_mult']:>5.2f} | "
                 f"{t['gun_count']:>4d} | {t['missile_count']:>4d} | {t['shield_count']:>4d}")
         out(line)
 
     out()
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # PHASE 5: CONTEXT-AWARE DPS PIPELINE TESTS
+    # ═══════════════════════════════════════════════════════════════════════
+    p5_failures = run_phase5_tests(raw, out)
 
     # ═══════════════════════════════════════════════════════════════════════
     # SUMMARY
@@ -772,6 +977,8 @@ def main():
     out(f"Phase 2 — Ship audits: {len(ships)} ships, {ships_with_issues} with issues, {total_ship_issues} total issues")
     out(f"Phase 3 — Power pips: see table above")
     out(f"Phase 4 — DPS/Shield/Hull: see table above")
+    out(f"Phase 5 — Pipeline tests: {len(p5_failures)} failures" +
+        (" *** BUGS DETECTED ***" if p5_failures else " (all pass)"))
     out(f"Elapsed: {elapsed:.1f}s")
 
     # Write report

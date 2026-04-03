@@ -12,8 +12,10 @@ def fire_rate_rps(weapon_data: dict) -> float:
         delays = [a["delay"] for a in fa if a.get("delay")]
         delays = [d for d in delays if d > 0]
         if delays:
-            cycle_time = sum(d / 60.0 for d in delays)
-            return 1.0 / cycle_time if cycle_time > 0 else 0.0
+            # Erkul formula: each delay value is a fire rate (RPM-like unit);
+            # 60/d gives the period per action, N/sum(60/d) = shots per second.
+            rps_sum = sum(60.0 / d for d in delays)
+            return len(delays) / rps_sum if rps_sum > 0 else 0.0
         rates = [a["fireRate"] for a in fa if a.get("fireRate")]
         return sum(rates) / 60.0 if rates else 0.0
     elif isinstance(fa, dict):
@@ -35,14 +37,31 @@ def alpha_max(weapon_data: dict) -> float:
     return base * charge_mult
 
 
-def dps_sustained(weapon_data: dict, alpha: float, rps: float) -> float:
+def dps_sustained(weapon_data: dict, alpha: float, rps: float,
+                  ammo_load_mult: float = 1.0,
+                  regen_per_sec_mult: float = 1.0,
+                  power_ratio_mult: float = 1.0,
+                  weapon_power_ratio: float = 1.0) -> float:
+    """Compute sustained DPS using Erkul's exact formula.
+
+    Ship engineering buffs and power ratio compound into both ammo count
+    and regen rate — they are NOT applied as a linear scale on the result.
+
+    Parameters
+    ----------
+    ammo_load_mult       : ship buff maxAmmoLoadMultiplier   (default 1.0)
+    regen_per_sec_mult   : ship buff maxRegenPerSecMultiplier (default 1.0)
+    power_ratio_mult     : ship buff powerRatioMultiplier     (default 1.0)
+    weapon_power_ratio   : computed by PowerAllocatorEngine   (default 1.0)
+    """
     w = weapon_data.get("weapon", {})
     regen = w.get("regen", {})
     if regen and regen.get("maxAmmoLoad"):
-        ammos      = float(regen.get("maxAmmoLoad", 0))
-        max_regen  = float(regen.get("maxRegenPerSec", 0) or 1)
+        effective_ratio = weapon_power_ratio * power_ratio_mult
+        ammos      = round(float(regen.get("maxAmmoLoad", 0)) * ammo_load_mult * effective_ratio)
+        max_regen  = float(regen.get("maxRegenPerSec", 0) or 1) * regen_per_sec_mult * effective_ratio
         cooldown   = float(regen.get("regenerationCooldown", 0))
-        if rps > 0 and ammos > 0:
+        if rps > 0 and ammos > 0 and max_regen > 0:
             fire_time   = ammos / rps
             charge_time = cooldown + ammos / max_regen
             return (ammos * alpha) / (charge_time + fire_time)
@@ -90,22 +109,50 @@ def dmg_breakdown(weapon_data: dict) -> dict:
 
 
 def compute_weapon_stats(raw: dict) -> dict:
-    d   = raw.get("data", {})
-    rps = fire_rate_rps(d)
-    alp = alpha_max(d)
-    brk = dmg_breakdown(d)
-    dom = max(brk, key=brk.get) if any(brk.values()) else "damagePhysical"
+    d    = raw.get("data", {})
+    rps  = fire_rate_rps(d)
+    alp  = alpha_max(d)
+    brk  = dmg_breakdown(d)
+    dom  = max(brk, key=brk.get) if any(brk.values()) else "damagePhysical"
+    dps_raw = alp * rps
+
+    # -- Extended stats matching Erkul picker columns --------------------------
+    ammo_d   = (d.get("ammo") or {}).get("data") or {}
+    w_data   = d.get("weapon") or {}
+    fa       = w_data.get("fireActions", [])
+    act0     = fa[0] if isinstance(fa, list) and fa else (fa if isinstance(fa, dict) else {})
+    spd_d    = act0.get("spread") or {}
+
+    speed    = float(ammo_d.get("speed", 0) or 0)
+    lifetime = float(ammo_d.get("lifetime", 0) or 0)
+    spread   = float(spd_d.get("max", 0) or 0)
+    power    = float(((d.get("resource") or {}).get("online") or {})
+                     .get("consumption", {}).get("power", 0) or 0)
+    pen      = float((ammo_d.get("penetration") or {}).get("base", 0) or 0)
+    wp_hp    = float((d.get("health") or {}).get("hp", 0) or 0)
+
+    # Ammo: prefer ammoContainer count (ballistic), fall back to regen maxAmmoLoad
+    ac_count    = int((d.get("ammoContainer") or {}).get("maxAmmoCount", 0) or 0)
+    regen_load  = int((w_data.get("regen") or {}).get("maxAmmoLoad", 0) or 0)
+
     return {
-        "name":      d.get("name", "?"),
+        "name":       d.get("name", "?"),
         "local_name": raw.get("localName", ""),
-        "ref":       d.get("ref", ""),
-        "size":      d.get("size", 1),
-        "group":     d.get("group", ""),
-        "alpha":     alp,
-        "rps":       rps,
-        "dps_raw":   alp * rps,
-        "dps_sus":   dps_sustained(d, alp, rps),
-        "ammo":      d.get("ammoContainer", {}).get("maxAmmoCount", 0),
-        "dmg":       brk,
-        "dom":       dom,
+        "ref":        d.get("ref", ""),
+        "size":       d.get("size", 1),
+        "group":      d.get("group", ""),
+        "alpha":      alp,
+        "rps":        rps,
+        "dps_raw":    dps_raw,
+        "dps_sus":    dps_sustained(d, alp, rps),
+        "ammo":       ac_count or regen_load,
+        "speed":      speed,
+        "range":      round(speed * lifetime),
+        "spread":     spread,
+        "power":      power,
+        "pen":        pen,
+        "wp_hp":      wp_hp,
+        "efficiency": dps_raw / (power * 100) if power > 0 else 0.0,
+        "dmg":        brk,
+        "dom":        dom,
     }

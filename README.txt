@@ -450,7 +450,7 @@ scmdb.net        -- Mission database, crafting blueprints,
 fleetyards.net   -- Ship hardpoint data
 sc-cargo.space   -- Cargo grid layouts and container data
 
-Discord: https://discord.gg/A7JDCxmC
+Discord: https://discord.gg/D3hqGU5hNt
 GitHub:  https://github.com/ScPlaceholder/SC-Toolbox-Beta-V1.2
 
 

@@ -212,12 +212,17 @@ class DataService:
         """Fetch all data from the UEX API with progress updates."""
         errors: list[str] = []
 
-        # --- Terminals ---
+        # --- Terminals + Vehicles (parallel) ---
         with self._lock:
-            self._progress = "Fetching terminals..."
+            self._progress = "Fetching terminals & vehicles..."
         if self._check_cancelled():
             return
-        term_result = self._api.get("terminals")
+        with ThreadPoolExecutor(max_workers=2) as pre_pool:
+            term_fut = pre_pool.submit(self._api.get, "terminals")
+            veh_fut = pre_pool.submit(self._api.get, "vehicles")
+            term_result = term_fut.result()
+            veh_result = veh_fut.result()
+
         term_map: dict[int, dict] = {}
         if term_result.ok:
             for t in term_result.data:
@@ -228,12 +233,6 @@ class DataService:
             errors.append(f"terminals: {term_result.error}")
             log.warning("Failed to fetch terminals: %s", term_result.error)
 
-        # --- Vehicles ---
-        with self._lock:
-            self._progress = "Fetching vehicles..."
-        if self._check_cancelled():
-            return
-        veh_result = self._api.get("vehicles")
         vehicles: list[dict] = veh_result.data if veh_result.ok else []
         if not veh_result.ok:
             errors.append(f"vehicles: {veh_result.error}")
@@ -265,22 +264,21 @@ class DataService:
                 except (OSError, urllib.error.URLError, KeyError, TypeError, ValueError) as exc:
                     log.warning("Category %d exception: %s", cid, exc)
 
-        # --- Rentals ---
+        # --- Rentals + Vehicle purchases (parallel) ---
         with self._lock:
-            self._progress = "Fetching rentals..."
+            self._progress = "Fetching rentals & purchase prices..."
         if self._check_cancelled():
             return
-        rent_result = self._api.get("vehicles_rentals_prices_all")
+        with ThreadPoolExecutor(max_workers=2) as post_pool:
+            rent_fut = post_pool.submit(self._api.get, "vehicles_rentals_prices_all")
+            purch_fut = post_pool.submit(self._api.get, "vehicles_purchases_prices_all")
+            rent_result = rent_fut.result()
+            purch_result = purch_fut.result()
+
         rentals: list[dict] = rent_result.data if rent_result.ok else []
         if not rent_result.ok:
             errors.append(f"rentals: {rent_result.error}")
 
-        # --- Vehicle purchases ---
-        with self._lock:
-            self._progress = "Fetching ship purchase prices..."
-        if self._check_cancelled():
-            return
-        purch_result = self._api.get("vehicles_purchases_prices_all")
         vehicle_purchases: list[dict] = purch_result.data if purch_result.ok else []
         if not purch_result.ok:
             errors.append(f"purchases: {purch_result.error}")

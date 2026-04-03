@@ -26,6 +26,7 @@ TAG_COLORS = {
     "LEGAL":          ("#1a3322", "#33dd88"),
     "ILLEGAL":        ("#331a1a", "#ff5533"),
     "CHAIN":          ("#332a11", "#ffaa22"),
+    "Blueprint":      ("#0d1f2e", "#44aaff"),
     "ONCE":           ("#332a11", "#ffaa22"),
     "Stanton":        ("#0a2218", "#33cc88"),
     "Pyro":           ("#331a0a", "#ff7733"),

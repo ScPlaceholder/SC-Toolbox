@@ -4,7 +4,7 @@ import logging
 import os
 from typing import Any, Dict, List, Optional
 
-from models.items import NONE_GADGET, NONE_LASER, NONE_MODULE, SHIPS
+from models.items import MAX_MODULE_SLOTS, NONE_GADGET, NONE_LASER, NONE_MODULE, SHIPS
 
 log = logging.getLogger("MiningLoadout.config")
 
@@ -59,15 +59,15 @@ def _validate_config(raw: Dict[str, Any]) -> Dict[str, Any]:
             td = loadout.get(key, {})
             if isinstance(td, dict):
                 laser = td.get("laser", NONE_LASER)
-                mods = td.get("modules", [NONE_MODULE, NONE_MODULE])
+                mods = td.get("modules", [NONE_MODULE] * MAX_MODULE_SLOTS)
                 if not isinstance(mods, list):
-                    mods = [NONE_MODULE, NONE_MODULE]
-                # Pad to 2 slots
-                while len(mods) < 2:
+                    mods = [NONE_MODULE] * MAX_MODULE_SLOTS
+                # Pad to MAX_MODULE_SLOTS
+                while len(mods) < MAX_MODULE_SLOTS:
                     mods.append(NONE_MODULE)
-                validated_loadout[key] = {"laser": str(laser), "modules": [str(m) for m in mods[:2]]}
+                validated_loadout[key] = {"laser": str(laser), "modules": [str(m) for m in mods[:MAX_MODULE_SLOTS]]}
             else:
-                validated_loadout[key] = {"laser": NONE_LASER, "modules": [NONE_MODULE, NONE_MODULE]}
+                validated_loadout[key] = {"laser": NONE_LASER, "modules": [NONE_MODULE] * MAX_MODULE_SLOTS}
         cfg["loadout"] = validated_loadout
     else:
         cfg["loadout"] = {}
@@ -114,7 +114,7 @@ def save_config(
     config_path = path or _CONFIG_PATH
     loadout: Dict[str, Any] = {}
     for i in range(len(turret_lasers)):
-        mods = turret_modules[i] if i < len(turret_modules) else [NONE_MODULE, NONE_MODULE]
+        mods = turret_modules[i] if i < len(turret_modules) else [NONE_MODULE] * MAX_MODULE_SLOTS
         loadout[f"turret_{i}"] = {
             "laser": turret_lasers[i],
             "modules": list(mods),

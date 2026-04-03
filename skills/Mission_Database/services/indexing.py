@@ -154,6 +154,7 @@ def index_mining(
                 comp_guid = dep.get("compositionGuid", "")
                 comp = compositions.get(comp_guid, {})
                 dep_prob = dep.get("relativeProbability", 0) / total_prob if total_prob else 0
+                dep_pct = dep_prob * 100
 
                 # Harvestables use presetName instead of compositions
                 preset_name = dep.get("presetName", "")
@@ -164,7 +165,7 @@ def index_mining(
                         "type": loc_type,
                         "group": grp_name,
                         "min_pct": 0,
-                        "max_pct": dep_prob * 100,
+                        "max_pct": dep_pct,
                         "probability": dep_prob,
                     }
                     r2l[preset_name].append(entry)
@@ -172,7 +173,7 @@ def index_mining(
                         "resource": preset_name,
                         "group": grp_name,
                         "min_pct": 0,
-                        "max_pct": dep_prob * 100,
+                        "max_pct": dep_pct,
                     })
                     cat = cat_labels.get(grp_name, "")
                     if cat:
@@ -183,24 +184,22 @@ def index_mining(
                     elem_name = part.get("elementName", "")
                     if not elem_name:
                         continue
-                    min_pct = part.get("minPercent", 0)
-                    max_pct = part.get("maxPercent", 0)
 
                     entry = {
                         "location": loc_name,
                         "system": system,
                         "type": loc_type,
                         "group": grp_name,
-                        "min_pct": min_pct,
-                        "max_pct": max_pct,
+                        "min_pct": 0,
+                        "max_pct": dep_pct,
                         "probability": dep_prob,
                     }
                     r2l[elem_name].append(entry)
                     l2r[loc_name].append({
                         "resource": elem_name,
                         "group": grp_name,
-                        "min_pct": min_pct,
-                        "max_pct": max_pct,
+                        "min_pct": 0,
+                        "max_pct": dep_pct,
                     })
 
                     # Categorize resource by group type

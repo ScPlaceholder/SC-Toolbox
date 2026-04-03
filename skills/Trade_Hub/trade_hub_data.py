@@ -569,7 +569,7 @@ def _safe(d: dict, key: str, default=""):
 
 
 def _best_loc_api(r: dict, suffix: str) -> str:
-    for key in (f"outpost_{suffix}", f"city_{suffix}", f"space_station_{suffix}",
+    for key in (f"outpost_{suffix}", f"space_station_{suffix}", f"city_{suffix}",
                 f"moon_{suffix}", f"planet_{suffix}", f"star_system_{suffix}"):
         v = (r.get(key) or "").strip()
         if v:
@@ -781,7 +781,7 @@ class DataFetcher:
                 entry["sells"].append(p)
 
         def _loc(t):
-            for k in ("city_name", "space_station_name", "outpost_name",
+            for k in ("outpost_name", "space_station_name", "city_name",
                       "moon_name", "planet_name"):
                 v = (t.get(k) or "").strip()
                 if v:

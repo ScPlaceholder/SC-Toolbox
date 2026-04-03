@@ -262,10 +262,14 @@ class SCFuzzyCombo(QWidget):
     # ── Popup ─────────────────────────────────────────────────────────────
 
     def _show_list(self, query: str) -> None:
-        matches = (
-            [i for i in self._all_items if _fuzzy_match(query, i)]
-            if query else list(self._all_items)
-        )
+        if query:
+            ql = query.lower()
+            # Substring matches first, then fuzzy-only matches
+            substring = [i for i in self._all_items if ql in i.lower()]
+            fuzzy_only = [i for i in self._all_items if i not in substring and _fuzzy_match(query, i)]
+            matches = substring + fuzzy_only
+        else:
+            matches = list(self._all_items)
         if not matches:
             self._list.hide()
             return
@@ -299,9 +303,16 @@ class SCFuzzyCombo(QWidget):
             self.currentIndexChanged.emit(idx)
 
     def _on_enter(self) -> None:
+        text = self._input.text().strip()
+        if not text:
+            return
+        # Prefer exact substring match over fuzzy; fall back to first list item
         if self._list.count() > 0:
+            tl = text.lower()
+            for i in range(self._list.count()):
+                if tl in self._list.item(i).text().lower():
+                    self._on_item_clicked(self._list.item(i))
+                    return
             self._on_item_clicked(self._list.item(0))
         else:
-            text = self._input.text().strip()
-            if text:
-                self.item_selected.emit(text)
+            self.item_selected.emit(text)

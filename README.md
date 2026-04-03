@@ -23,7 +23,7 @@
   <a href="https://github.com/ScPlaceholder/SC-Toolbox-Beta-V1.2/releases/latest">
     <img src="https://img.shields.io/github/v/release/ScPlaceholder/SC-Toolbox-Beta-V1.2?label=Download&style=for-the-badge" alt="Download">
   </a>
-  <a href="https://discord.gg/A7JDCxmC">
+  <a href="https://discord.gg/D3hqGU5hNt">
     <img src="https://img.shields.io/badge/Discord-Join-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord">
   </a>
 </p>
@@ -96,4 +96,4 @@ If you prefer to run from source instead of the installer:
 
 ## Community
 
-- [Discord](https://discord.gg/A7JDCxmC) — Bug reports, feedback, and discussion
+- [Discord](https://discord.gg/D3hqGU5hNt) — Bug reports, feedback, and discussion

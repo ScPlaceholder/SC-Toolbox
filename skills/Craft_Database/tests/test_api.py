@@ -1,16 +1,10 @@
 """Unit tests for CraftApiClient (mocked HTTP)."""
 
-import sys
-import os
-
-sys.path.insert(0, os.path.normpath(os.path.join(os.path.dirname(__file__), "..")))
-sys.path.insert(0, os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
-
 from unittest.mock import MagicMock, patch
 import pytest
 
 from shared.errors import Result
-from data.api_client import CraftApiClient, _q
+from data.api_client import CraftApiClient, _url_encode_value
 
 
 # ── URL encoding helper ─────────────────────────────────────────────────
@@ -18,16 +12,16 @@ from data.api_client import CraftApiClient, _q
 
 class TestUrlEncoding:
     def test_plain_string(self):
-        assert _q("Tungsten") == "Tungsten"
+        assert _url_encode_value("Tungsten") == "Tungsten"
 
     def test_spaces(self):
-        assert _q("Hand Mining") == "Hand%20Mining"
+        assert _url_encode_value("Hand Mining") == "Hand%20Mining"
 
     def test_special_chars(self):
-        assert _q("A&B=C") == "A%26B%3DC"
+        assert _url_encode_value("A&B=C") == "A%26B%3DC"
 
     def test_slash(self):
-        assert _q("Armour / Combat") == "Armour%20%2F%20Combat"
+        assert _url_encode_value("Armour / Combat") == "Armour%20%2F%20Combat"
 
 
 # ── CraftApiClient ───────────────────────────────────────────────────────

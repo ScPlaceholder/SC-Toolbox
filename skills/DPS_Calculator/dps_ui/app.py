@@ -1,6 +1,7 @@
 """DPS Calculator main application — three-panel erkul.games layout (PySide6)."""
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -15,7 +16,7 @@ from PySide6.QtCore import Qt, QTimer, Signal, Slot, QObject
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QSplitter, QScrollArea, QFrame, QSizePolicy, QTabWidget,
+    QSplitter, QScrollArea, QFrame, QSizePolicy, QTabWidget, QFileDialog,
 )
 
 # Path setup — bootstrap from the parent DPS_Calculator dir (not dps_ui/)
@@ -53,6 +54,7 @@ from services.stat_computation import (
     compute_powerplant_stats_erkul, compute_qdrive_stats_erkul,
 )
 from services.loadout_aggregator import compute_footer_totals, compute_raw_signatures
+from services.dps_calculator import dps_sustained
 
 _log = logging.getLogger(__name__)
 
@@ -105,9 +107,17 @@ class DpsCalcApp(SCWindow):
         self._power_sim = True
         self._weapon_power_ratio = 1.0
         self._shield_power_ratio = 1.0
+        self._shield_regen_powered = 0.0
+        self._shield_res_powered = {"phys": 0.0, "enrg": 0.0, "dist": 0.0}
+        self._shield_powered_count = 0
+        self._ammo_load_mult = 1.0
+        self._regen_per_sec_mult = 1.0
+        self._power_ratio_mult = 1.0
+        self._turret_slot_ids: set = set()
         self._flight_mode = "scm"
         self._ship_data: Optional[dict] = None
         self._pending_ship: Optional[str] = None
+        self._pending_sel: Optional[dict] = None
         self._ov_vars: dict = {}
         self._sig_vars: dict = {}
 
@@ -206,6 +216,27 @@ class DpsCalcApp(SCWindow):
         self._ship_combo.setFixedWidth(240)
         self._ship_combo.item_selected.connect(self._on_ship_selected)
         hdr_lay.addWidget(self._ship_combo)
+
+        _loadout_btn_style = f"""
+            QPushButton {{
+                background-color: {BG3}; color: {FG_DIM};
+                font-family: Consolas; font-size: 8pt;
+                border: none; padding: 3px 7px;
+            }}
+            QPushButton:hover {{ background-color: {BORDER}; color: {FG}; }}
+            QPushButton:disabled {{ color: {FG_DIMMER}; }}
+        """
+        btn_save = QPushButton(_("\u2b07 Save Loadout"), hdr)
+        btn_save.setCursor(Qt.PointingHandCursor)
+        btn_save.setStyleSheet(_loadout_btn_style)
+        btn_save.clicked.connect(self._save_loadout)
+        hdr_lay.addWidget(btn_save)
+
+        btn_load = QPushButton(_("\u2b06 Load Loadout"), hdr)
+        btn_load.setCursor(Qt.PointingHandCursor)
+        btn_load.setStyleSheet(_loadout_btn_style)
+        btn_load.clicked.connect(self._load_loadout)
+        hdr_lay.addWidget(btn_load)
 
         hdr_lay.addStretch(1)
 
@@ -338,9 +369,9 @@ class DpsCalcApp(SCWindow):
 
         self._footer_labels: dict[str, QLabel] = {}
         for key, label_text, color in [
-            ("dps_raw", _("DPS:"),       GREEN),
-            ("dps_sus", _("Sustained:"), YELLOW),
-            ("alpha",   _("Alpha:"),     ACCENT),
+            ("dps_raw", _("Burst:"),       GREEN),
+            ("dps_sus", _("DPS:"),         YELLOW),
+            ("alpha",   _("Alpha T+P:"),  ACCENT),
             ("shld_hp", _("Shield:"),    DIST_COL),
             ("hull_hp", _("Hull:"),      PHYS_COL),
             ("cooling", _("Cooling:"),   CYAN),
@@ -435,6 +466,19 @@ class DpsCalcApp(SCWindow):
             self._ov_vars[key] = val_lbl
             self._right_layout.insertWidget(self._right_layout.count() - 1, fr)
 
+        def sub_label(text, color=FG_DIM):
+            fr = QWidget(container)
+            fr_lay = QHBoxLayout(fr)
+            fr_lay.setContentsMargins(8, 6, 8, 1)
+            lbl = QLabel(text, fr)
+            lbl.setStyleSheet(
+                f"color: {color}; font-family: Consolas; font-size: 8pt; "
+                f"font-weight: bold; background: transparent;"
+            )
+            fr_lay.addWidget(lbl)
+            fr_lay.addStretch(1)
+            self._right_layout.insertWidget(self._right_layout.count() - 1, fr)
+
         # -- Signature bar (IR / EM / CS) --
         sig_bar = QWidget(container)
         sig_bar.setFixedHeight(32)
@@ -492,8 +536,14 @@ class DpsCalcApp(SCWindow):
         def _on_power_change():
             pa = getattr(self, "_power_allocator", None)
             if pa:
-                self._weapon_power_ratio = getattr(pa, "weapon_power_ratio", 1.0)
-                self._shield_power_ratio = getattr(pa, "shield_power_ratio", 1.0)
+                self._weapon_power_ratio   = getattr(pa, "weapon_power_ratio",   1.0)
+                self._shield_power_ratio   = getattr(pa, "shield_power_ratio",   1.0)
+                self._shield_regen_powered  = getattr(pa, "shield_regen_powered",  0.0)
+                self._shield_res_powered    = getattr(pa, "shield_res_powered",    {"phys": 0.0, "enrg": 0.0, "dist": 0.0})
+                self._shield_powered_count  = getattr(pa, "shield_powered_count",  0)
+                self._ammo_load_mult        = getattr(pa, "ammo_load_mult",        1.0)
+                self._regen_per_sec_mult    = getattr(pa, "regen_per_sec_mult",    1.0)
+                self._power_ratio_mult      = getattr(pa, "power_ratio_mult",      1.0)
             self._update_footer()
 
         self._power_allocator = PowerAllocator(
@@ -503,12 +553,32 @@ class DpsCalcApp(SCWindow):
 
         # Sections
         section(_("WEAPON DPS"), GREEN)
-        big_stat(_("dps"), "dps_raw", GREEN, 16)
-        big_stat(_("sustained"), "dps_sus", YELLOW, 12)
-        big_stat(_("alpha"), "alpha", ACCENT, 12)
+        sub_label(_("── Pilot"))
+        stat_row(_("Burst:"),  "pilot_dps_raw",  GREEN,  bold=True)
+        stat_row(_("DPS:"),    "pilot_dps_sus",  YELLOW, bold=True)
+        stat_row(_("Alpha:"),  "pilot_alpha",    ACCENT)
+        sub_label(_("── Turret / Gunner"))
+        stat_row(_("Burst:"),  "turret_dps_raw", GREEN,  bold=True)
+        stat_row(_("DPS:"),    "turret_dps_sus", YELLOW, bold=True)
+        stat_row(_("Alpha:"),  "turret_alpha",   ACCENT)
         big_stat(_("missile dmg"), "missile_dmg", RED, 12)
         stat_row(_("Weapon slots:"), "gun_slots")
         stat_row(_("Missile racks:"), "miss_slots")
+
+        section(_("SELECTED WEAPON"), YELLOW)
+        stat_row(_("Name:"),          "wpn_name")
+        stat_row(_("Size:"),          "wpn_size")
+        stat_row(_("DPS Burst:"),     "wpn_dps_burst",  YELLOW)
+        stat_row(_("DPS Sustained:"), "wpn_dps_sus",    GREEN)
+        stat_row(_("Alpha:"),         "wpn_alpha",      ACCENT)
+        stat_row(_("Fire Rate:"),     "wpn_fire_rate")
+        stat_row(_("Max Ammos:"),     "wpn_ammo")
+        stat_row(_("Ammo Speed:"),    "wpn_speed")
+        stat_row(_("Ammo Range:"),    "wpn_range")
+        stat_row(_("Spread:"),        "wpn_spread")
+        stat_row(_("Power:"),         "wpn_power",      ORANGE)
+        stat_row(_("Penetration:"),   "wpn_pen",        PHYS_COL)
+        stat_row(_("Health:"),        "wpn_hp")
 
         section(_("SHIELDS"), DIST_COL)
         big_stat(_("hp"), "shld_hp", DIST_COL, 14)
@@ -584,6 +654,12 @@ class DpsCalcApp(SCWindow):
         sid = slot["id"]
         max_sz = slot["max_size"] or 1
 
+        # If Erkul returned maxSize=None, infer size from the stock component
+        if not slot.get("max_size") and slot.get("local_ref"):
+            _tentative = find_fn(slot["local_ref"])
+            if _tentative and _tentative.get("size", 1) > max_sz:
+                max_sz = _tentative["size"]
+
         # Slot header
         sh = QWidget()
         sh_lay = QHBoxLayout(sh)
@@ -612,6 +688,8 @@ class DpsCalcApp(SCWindow):
             name = item["name"] if item else ""
             self._sel[_key][_sid] = name
             self._update_footer()
+            if _key == "weapons":
+                self._update_weapon_info_card(item)
 
         stock_ref = ""
         if slot.get("local_ref"):
@@ -677,7 +755,85 @@ class DpsCalcApp(SCWindow):
             _log.critical("_on_data_loaded CRASHED", exc_info=True)
             self._status_lbl.setText(f"Load error: {exc}")
 
+    # -- Loadout save / load ---------------------------------------------------
+
+    _LOADOUT_DIR = os.path.join(os.path.expanduser("~"), "Documents", "SC Loadouts")
+    _LOADOUT_VERSION = 1
+
+    def _save_loadout(self) -> None:
+        if not self._ship_name:
+            return
+        os.makedirs(self._LOADOUT_DIR, exist_ok=True)
+        default_name = re.sub(r'[\\/:*?"<>|]', "_", self._ship_name)
+        dlg = QFileDialog(self, _("Save Loadout"),
+                          os.path.join(self._LOADOUT_DIR, f"{default_name}.json"),
+                          _("Loadout files (*.json);;All files (*)"))
+        dlg.setOption(QFileDialog.Option.DontUseNativeDialog, True)
+        dlg.setAcceptMode(QFileDialog.AcceptMode.AcceptSave)
+        dlg.setDefaultSuffix("json")
+        if dlg.exec() != QFileDialog.DialogCode.Accepted:
+            return
+        files = dlg.selectedFiles()
+        path = files[0] if files else ""
+        if not path:
+            return
+        payload = {
+            "version": self._LOADOUT_VERSION,
+            "ship": self._ship_name,
+            "selections": self._sel,
+        }
+        try:
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(payload, fh, indent=2, ensure_ascii=False)
+            self._status_lbl.setText(_("Loadout saved: ") + os.path.basename(path))
+        except OSError as exc:
+            self._status_lbl.setText(f"Save error: {exc}")
+
+    def _load_loadout(self) -> None:
+        os.makedirs(self._LOADOUT_DIR, exist_ok=True)
+        dlg = QFileDialog(self, _("Load Loadout"),
+                          self._LOADOUT_DIR,
+                          _("Loadout files (*.json);;All files (*)"))
+        dlg.setOption(QFileDialog.Option.DontUseNativeDialog, True)
+        dlg.setAcceptMode(QFileDialog.AcceptMode.AcceptOpen)
+        dlg.setFileMode(QFileDialog.FileMode.ExistingFile)
+        if dlg.exec() != QFileDialog.DialogCode.Accepted:
+            return
+        files = dlg.selectedFiles()
+        path = files[0] if files else ""
+        if not path:
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                payload = json.load(fh)
+        except (OSError, json.JSONDecodeError) as exc:
+            self._status_lbl.setText(f"Load error: {exc}")
+            return
+
+        ship_name = payload.get("ship", "")
+        saved_sel = payload.get("selections", {})
+
+        if not ship_name or not self._data.loaded:
+            return
+
+        # Store selections to apply after ship finishes loading
+        self._pending_sel = saved_sel
+        self._load_ship(ship_name)
+
+    def _apply_pending_sel(self) -> None:
+        """Apply saved component selections to all slot tables after ship load."""
+        sel = self._pending_sel or {}
+        for section_key, tables in self._slot_tables.items():
+            saved_section = sel.get(section_key, {})
+            for slot, tbl, find_fn in tables:
+                sid = slot["id"]
+                saved_name = saved_section.get(sid)
+                if saved_name:
+                    tbl.select_by_name(saved_name)
+        self._update_footer()
+
     def _on_ship_selected(self, name: str) -> None:
+        self._pending_sel = None  # clear any pending loadout on manual ship change
         self._load_ship(name)
 
     # -- Ship loading ----------------------------------------------------------
@@ -827,7 +983,13 @@ class DpsCalcApp(SCWindow):
         if hasattr(self, "_power_allocator"):
             self._power_allocator.load_ship(ship)
         self._compute_power_stats(ship)
-        self._update_footer()
+
+        # Apply a saved loadout if one was queued by _load_loadout()
+        if self._pending_sel is not None:
+            self._apply_pending_sel()
+            self._pending_sel = None
+        else:
+            self._update_footer()
 
         ship_name = ship.get("name", "?")
         self._status_lbl.setText(f"Loaded: {ship_name} \u2014 fetching Fleetyards\u2026")
@@ -848,6 +1010,7 @@ class DpsCalcApp(SCWindow):
     def _rebuild_weapons_section(self, parent_layout, gun_slots, turret_slots) -> None:
         key = "weapons"
         all_slots = gun_slots + turret_slots
+        self._turret_slot_ids = {s["id"] for s in turret_slots}
         if not all_slots:
             lbl = QLabel("  " + _("No weapon slots."))
             lbl.setStyleSheet(
@@ -1005,8 +1168,6 @@ class DpsCalcApp(SCWindow):
 
     def _update_overview(self, ship: dict) -> None:
         v = self._ov_vars
-        hull = ship.get("hull", {})
-        hull_hp = hull.get("totalHp", 0) if isinstance(hull, dict) else 0
 
         armor = ship.get("armor", {})
         if isinstance(armor, dict):
@@ -1014,11 +1175,16 @@ class DpsCalcApp(SCWindow):
         else:
             armor_d = {}
         a_health = armor_d.get("health", {}) or {}
-        hull_hp = hull_hp or a_health.get("hp", 0)
+        # Erkul shows armor.data.health.hp as "Hull HP" (not hull.totalHp)
+        armor_hp = a_health.get("hp", 0)
+        hull = ship.get("hull", {})
+        hull_total_hp = hull.get("totalHp", 0) if isinstance(hull, dict) else 0
+        hull_hp = armor_hp or hull_total_hp
         a_resist = a_health.get("damageResistanceMultiplier", {}) or {}
-        a_phys = (1 - a_resist.get("physical", 1)) * 100
-        a_enrg = (1 - a_resist.get("energy", 1)) * 100
-        a_dist = (1 - a_resist.get("distortion", 1)) * 100
+        # Erkul sign convention: (mult - 1)*100, so 0.81 → -19%, 1.15 → +15%
+        a_phys = (a_resist.get("physical", 1) - 1) * 100
+        a_enrg = (a_resist.get("energy", 1) - 1) * 100
+        a_dist = (a_resist.get("distortion", 1) - 1) * 100
         a_type = armor_d.get("subType", "?")
 
         ifcs = ship.get("ifcs", {}) or {}
@@ -1077,6 +1243,28 @@ class DpsCalcApp(SCWindow):
 
     # -- Footer / totals -------------------------------------------------------
 
+    def _update_weapon_row_sus(self) -> None:
+        """Update the DPS↓ column in each weapon row (sustained)."""
+        for slot, tbl, find_fn in self._slot_tables.get("weapons", []):
+            nm = self._sel.get("weapons", {}).get(slot["id"])
+            if not nm:
+                tbl.update_stat("dps_sus", "\u2014")
+                continue
+            s = find_fn(nm)
+            if not s:
+                tbl.update_stat("dps_sus", "\u2014")
+                continue
+            raw = self._data.raw_lookup(s.get("ref", ""))
+            if raw:
+                val = dps_sustained(
+                    raw, s["alpha"], s["rps"],
+                    self._ammo_load_mult, self._regen_per_sec_mult,
+                    self._power_ratio_mult, self._weapon_power_ratio,
+                )
+            else:
+                val = s["dps_sus"]
+            tbl.update_stat("dps_sus", f"{val:,.0f}" if val else "\u2014")
+
     def _update_footer(self) -> None:
         totals = compute_footer_totals(
             self._sel,
@@ -1089,16 +1277,30 @@ class DpsCalcApp(SCWindow):
             power_sim=self._power_sim,
             weapon_power_ratio=self._weapon_power_ratio,
             shield_power_ratio=self._shield_power_ratio,
+            ammo_load_mult=self._ammo_load_mult,
+            regen_per_sec_mult=self._regen_per_sec_mult,
+            power_ratio_mult=self._power_ratio_mult,
+            raw_weapon_lookup=self._data.raw_lookup,
         )
+
+        # Update per-row DPS in the weapon tables (sustained)
+        if self._power_sim:
+            self._update_weapon_row_sus()
 
         tot_raw = totals["dps_raw"]
         tot_sus = totals["dps_sus"]
         tot_alp = totals["alpha"]
         miss_dmg = totals["missile_dmg"]
         tot_hp = totals["shield_hp"]
-        tot_regen = totals["shield_regen"]
-        shld_res = totals["shield_res"]
-        shld_count = totals["shield_count"]
+        # Power sim: use erkul-exact per-shield formula from power_engine
+        if self._power_sim and self._shield_powered_count:
+            tot_regen = self._shield_regen_powered
+            shld_res = self._shield_res_powered
+            shld_count = self._shield_powered_count
+        else:
+            tot_regen = totals["shield_regen"]
+            shld_res = totals["shield_res"]
+            shld_count = totals["shield_count"]
         tot_cool = totals["cooling"]
         tot_pwr_out = totals["power_output"]
         tot_pwr_draw = totals["power_draw"]
@@ -1110,7 +1312,7 @@ class DpsCalcApp(SCWindow):
         fl["dps_sus"].setText(f"{tot_sus:,.0f}" if tot_sus else "\u2014")
         fl["alpha"].setText(f"{tot_alp:,.1f}" if tot_alp else "\u2014")
         fl["shld_hp"].setText(f"{tot_hp:,.0f}" if tot_hp else "\u2014")
-        fl["cooling"].setText(f"{tot_cool/1000:,.0f}k" if tot_cool else "\u2014")
+        fl["cooling"].setText(f"{tot_cool:,.0f}" if tot_cool else "\u2014")
 
         v = self._ov_vars
 
@@ -1119,9 +1321,37 @@ class DpsCalcApp(SCWindow):
             if lbl:
                 lbl.setText(str(text))
 
-        _set("dps_raw", f"{tot_raw:,.0f}" if tot_raw else "\u2014")
-        _set("dps_sus", f"{tot_sus:,.0f}" if tot_sus else "\u2014")
-        _set("alpha", f"{tot_alp:,.1f}" if tot_alp else "\u2014")
+        # Split pilot vs turret DPS
+        pilot_raw = pilot_sus = pilot_alp = 0.0
+        turret_raw = turret_sus = turret_alp = 0.0
+        for sid, nm in self._sel.get("weapons", {}).items():
+            if not nm:
+                continue
+            s = self._data.find_weapon(nm)
+            if not s:
+                continue
+            raw_d = self._data.raw_lookup(s.get("ref", ""))
+            if raw_d:
+                sus = dps_sustained(raw_d, s["alpha"], s["rps"],
+                    self._ammo_load_mult, self._regen_per_sec_mult,
+                    self._power_ratio_mult, self._weapon_power_ratio)
+            else:
+                sus = s["dps_sus"]
+            if sid in self._turret_slot_ids:
+                turret_raw += s["dps_raw"]
+                turret_sus += sus
+                turret_alp += s["alpha"]
+            else:
+                pilot_raw += s["dps_raw"]
+                pilot_sus += sus
+                pilot_alp += s["alpha"]
+
+        _set("pilot_dps_raw",  f"{pilot_raw:,.0f}"  if pilot_raw  else "\u2014")
+        _set("pilot_dps_sus",  f"{pilot_sus:,.0f}"  if pilot_sus  else "\u2014")
+        _set("pilot_alpha",    f"{pilot_alp:,.1f}"  if pilot_alp  else "\u2014")
+        _set("turret_dps_raw", f"{turret_raw:,.0f}" if turret_raw else "\u2014")
+        _set("turret_dps_sus", f"{turret_sus:,.0f}" if turret_sus else "\u2014")
+        _set("turret_alpha",   f"{turret_alp:,.1f}" if turret_alp else "\u2014")
         _set("missile_dmg", f"{miss_dmg:,.0f}" if miss_dmg else "\u2014")
         _set("gun_slots", f"{n_guns} " + _("equipped"))
         _set("miss_slots", f"{n_miss} " + _("equipped"))
@@ -1131,13 +1361,64 @@ class DpsCalcApp(SCWindow):
         _set("shld_phys", pct(avg(shld_res["phys"])))
         _set("shld_enrg", pct(avg(shld_res["enrg"])))
         _set("shld_dist", pct(avg(shld_res["dist"])))
-        _set("cooling", f"{tot_cool/1000:,.0f}k" if tot_cool else "\u2014")
+        _set("cooling", f"{tot_cool:,.0f}" if tot_cool else "\u2014")
         _set("pwr_output", f"{tot_pwr_out:,.0f}" if tot_pwr_out else "\u2014")
         _set("pwr_draw", f"{tot_pwr_draw:,.0f}" if tot_pwr_draw else "\u2014")
         margin = tot_pwr_out - tot_pwr_draw
         _set("pwr_margin", f"{margin:+,.0f}" if tot_pwr_out else "\u2014")
 
         self._update_signatures()
+
+    def _update_weapon_info_card(self, item) -> None:
+        """Populate the SELECTED WEAPON info card with per-weapon stats."""
+        _WPN_KEYS = ("wpn_name", "wpn_size", "wpn_dps_burst", "wpn_dps_sus",
+                     "wpn_alpha", "wpn_fire_rate", "wpn_ammo", "wpn_speed",
+                     "wpn_range", "wpn_spread", "wpn_power", "wpn_pen", "wpn_hp")
+        v = self._ov_vars
+
+        def _set(key, text):
+            lbl = v.get(key)
+            if lbl:
+                lbl.setText(str(text))
+
+        if not item:
+            for k in _WPN_KEYS:
+                _set(k, "\u2014")
+            return
+
+        _set("wpn_name",  item.get("name", "\u2014"))
+        _set("wpn_size",  f"S{item.get('size', '?')}")
+
+        burst = item.get("dps_raw", 0)
+        _set("wpn_dps_burst", f"{burst:,.0f}" if burst else "\u2014")
+
+        raw_d = self._data.raw_lookup(item.get("ref", ""))
+        if raw_d:
+            sus = dps_sustained(raw_d, item["alpha"], item["rps"],
+                                self._ammo_load_mult, self._regen_per_sec_mult,
+                                self._power_ratio_mult, self._weapon_power_ratio)
+        else:
+            sus = item.get("dps_sus", 0)
+        _set("wpn_dps_sus", f"{sus:,.0f}" if sus else "\u2014")
+
+        alpha = item.get("alpha", 0)
+        _set("wpn_alpha",     f"{alpha:.1f}" if alpha else "\u2014")
+        rps = item.get("rps", 0)
+        _set("wpn_fire_rate", f"{rps * 60:.0f} rpm" if rps else "\u2014")
+        ammo = item.get("ammo", 0)
+        _set("wpn_ammo",      f"{int(ammo)}" if ammo else "\u2014")
+        speed = item.get("speed", 0)
+        _set("wpn_speed",     f"{int(speed):,} m/s" if speed else "\u2014")
+        rng = item.get("range", 0)
+        _set("wpn_range",     f"{int(rng):,} m" if rng else "\u2014")
+        spread = item.get("spread", 0)
+        _set("wpn_spread",    f"{spread:.2f}\u00b0" if spread else "\u2014")
+        power = item.get("power", 0)
+        _set("wpn_power",     f"{power:.0f}" if power else "\u2014")
+        pen = item.get("pen", 0)
+        _set("wpn_pen",       f"{pen:.2f} m" if pen else "\u2014")
+        hp = item.get("wp_hp", 0)
+        _set("wpn_hp",        f"{int(hp):,}" if hp else "\u2014")
 
     def _update_signatures(self) -> None:
         em_sig = 0.0
@@ -1165,11 +1446,23 @@ class DpsCalcApp(SCWindow):
     def _compute_power_stats(self, ship: dict) -> None:
         if hasattr(self, "_power_allocator") and self._power_allocator._slots:
             pa = self._power_allocator
-            self._weapon_power_ratio = getattr(pa, "weapon_power_ratio", 1.0)
-            self._shield_power_ratio = getattr(pa, "shield_power_ratio", 1.0)
+            self._weapon_power_ratio   = getattr(pa, "weapon_power_ratio",   1.0)
+            self._shield_power_ratio   = getattr(pa, "shield_power_ratio",   1.0)
+            self._shield_regen_powered  = getattr(pa, "shield_regen_powered",  0.0)
+            self._shield_res_powered    = getattr(pa, "shield_res_powered",    {"phys": 0.0, "enrg": 0.0, "dist": 0.0})
+            self._shield_powered_count  = getattr(pa, "shield_powered_count",  0)
+            self._ammo_load_mult        = getattr(pa, "ammo_load_mult",        1.0)
+            self._regen_per_sec_mult    = getattr(pa, "regen_per_sec_mult",    1.0)
+            self._power_ratio_mult      = getattr(pa, "power_ratio_mult",      1.0)
         else:
-            self._weapon_power_ratio = 1.0
-            self._shield_power_ratio = 1.0
+            self._weapon_power_ratio    = 1.0
+            self._shield_power_ratio    = 1.0
+            self._shield_regen_powered  = 0.0
+            self._shield_res_powered    = {"phys": 0.0, "enrg": 0.0, "dist": 0.0}
+            self._shield_powered_count  = 0
+            self._ammo_load_mult        = 1.0
+            self._regen_per_sec_mult    = 1.0
+            self._power_ratio_mult      = 1.0
 
     # -- Version check ---------------------------------------------------------
 

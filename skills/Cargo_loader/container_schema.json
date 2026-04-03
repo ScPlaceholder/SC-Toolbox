@@ -5,7 +5,7 @@
 
   "containerTypes": {
     "1":  { "scu": 1,  "dimensions": { "w": 1, "h": 1, "l": 1 }, "maxStackHeight": null },
-    "2":  { "scu": 2,  "dimensions": { "w": 1, "h": 1, "l": 2 }, "maxStackHeight": null },
+    "2":  { "scu": 2,  "dimensions": { "w": 1, "h": 1, "l": 2 }, "maxStackHeight": 1  },
     "4":  { "scu": 4,  "dimensions": { "w": 2, "h": 1, "l": 2 }, "maxStackHeight": 1  },
     "8":  { "scu": 8,  "dimensions": { "w": 2, "h": 2, "l": 2 }, "maxStackHeight": null },
     "16": { "scu": 16, "dimensions": { "w": 2, "h": 2, "l": 4 }, "maxStackHeight": null },

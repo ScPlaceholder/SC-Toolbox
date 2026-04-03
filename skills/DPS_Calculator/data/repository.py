@@ -4,6 +4,7 @@ Uses ErkulApiClient / FleetyardsApiClient for HTTP,
 DiskCache / FleetyardsCache for persistence,
 and delegates compute functions to services.*.
 """
+import json
 import logging
 import threading
 import time
@@ -43,6 +44,7 @@ CACHE_TTL        = CACHE_TTL_ERKUL
 CACHE_VERSION    = 5
 FY_HP_CACHE_FILE = os.path.join(_DATA_DIR, ".fy_hardpoints_cache.json")
 FY_HP_TTL        = CACHE_TTL_CARGO
+SUPPLEMENT_FILE  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "erkul_supplement.json")
 
 
 def _fy_slug(name: str) -> str:
@@ -402,6 +404,21 @@ class ComponentRepository:
                         r = d.get("ref")
                         if r:
                             rbr[r] = d
+                # Merge supplement data (items absent from Erkul API)
+                try:
+                    with open(SUPPLEMENT_FILE, encoding="utf-8") as _sf:
+                        _supplement = json.load(_sf)
+                    for _entry in _supplement:
+                        _ln = _entry.get("localName", "")
+                        _d  = _entry.get("data", {})
+                        _r  = _d.get("ref", "")
+                        if _ln:
+                            rln.setdefault(_ln, _d)
+                        if _r:
+                            rbr.setdefault(_r, _d)
+                except (FileNotFoundError, json.JSONDecodeError):
+                    pass
+
                 snap.by_local_name = bln
                 snap.raw_by_local_name = rln
                 snap.raw_by_ref = rbr

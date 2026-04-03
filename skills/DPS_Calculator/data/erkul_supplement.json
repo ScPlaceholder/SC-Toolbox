@@ -1,0 +1,120 @@
+[
+  {
+    "localName": "ANVL_Hornet_F7C_Cargo_Mod",
+    "data": {
+      "ref": "8661bcd6-9247-4376-8509-11af3d24a44c",
+      "name": "Big Box Model H",
+      "type": "Module",
+      "subType": "CargoMod",
+      "size": 4,
+      "_supplement_note": "F7C Hornet Mk I center slot — cargo expansion module, not a weapon"
+    }
+  },
+  {
+    "localName": "ANVL_Fixed_Mount_Hornet_Ball_S4",
+    "data": {
+      "ref": "18895043-42c5-4f1d-a5e8-4cf7c78bd69f",
+      "name": "Specialty Hornet S5 VariPuck Mount",
+      "type": "Turret",
+      "subType": "BallTurret",
+      "size": 4,
+      "_supplement_note": "F7C Wildfire center slot — fixed ball-turret housing, holds the stock laser cannons"
+    }
+  },
+  {
+    "localName": "ANVL_Hornet_F7CM_Mk2_Ball_Turret_Bespoke",
+    "data": {
+      "ref": "4b2e4ce4-ac79-4923-bfdd-ccce02129b27",
+      "name": "TMSB-5 Ball Turret",
+      "type": "Turret",
+      "subType": "BallTurret",
+      "size": 4,
+      "_supplement_note": "F7C-M Heartseeker Mk II center slot — bespoke manned ball turret"
+    }
+  },
+  {
+    "localName": "UMNT_ANVL_S5_Cap_Mk2",
+    "data": {
+      "ref": "167138ef-b585-4a7b-8808-a70ba93d0390",
+      "name": "Hornet Ghost Mk II Center Cap",
+      "type": "Module",
+      "subType": "BlankCap",
+      "size": 4,
+      "_supplement_note": "F7C-S Ghost Mk II center slot — blank cap, no weapon installed by default"
+    }
+  },
+  {
+    "localName": "GRIN_TractorBeam_S1",
+    "data": {
+      "ref": "34f8a503-41bc-4245-baea-e824c8a39411",
+      "name": "SureGrip S1 Tractor Beam",
+      "type": "TractorBeam",
+      "subType": "TractorBeam",
+      "size": 1,
+      "_supplement_note": "Nomad rear turret — tractor beam, not a weapon; absent from Erkul /live/weapons"
+    }
+  },
+  {
+    "localName": "GRIN_TractorBeam_S2",
+    "data": {
+      "ref": "8c16ee3d-78fb-4fef-a369-b3d42952ec33",
+      "name": "SureGrip S2 Tractor Beam",
+      "type": "TractorBeam",
+      "subType": "TractorBeam",
+      "size": 2,
+      "_supplement_note": "C1 Spirit rear turret and Constellation Taurus lower turret — tractor beam, not a weapon"
+    }
+  },
+  {
+    "localName": "Mount_Gimbal_S1",
+    "data": {
+      "ref": "80ae6d83-7d8a-4357-b109-a0154418bae5",
+      "name": "VariPuck S1 Gimbal Mount",
+      "type": "Turret",
+      "subType": "GunTurret",
+      "size": 1,
+      "_supplement_note": "RAFT left/right fixed slots — gimbal mount housing, not a weapon itself"
+    }
+  },
+  {
+    "localName": "",
+    "data": {
+      "ref": "e3575ddd-4ae1-4383-a405-f9f8c71cd573",
+      "name": "Golem OX Turret Hardpoint 1",
+      "type": "Unknown",
+      "size": 1,
+      "_supplement_note": "Golem OX primary turret slot 1 — UUID confirmed in ship loadout; item identity unknown, not in any API"
+    }
+  },
+  {
+    "localName": "",
+    "data": {
+      "ref": "f627cdcb-5597-4d05-b96d-80129104aba2",
+      "name": "Golem OX Turret Hardpoint 2",
+      "type": "Unknown",
+      "size": 1,
+      "_supplement_note": "Golem OX primary turret slot 2 — UUID confirmed in ship loadout; item identity unknown, not in any API"
+    }
+  },
+  {
+    "localName": "",
+    "data": {
+      "ref": "720ea5f5-d897-4e06-af7c-fb729295f0c6",
+      "name": "Storm AA Primary Turret System",
+      "type": "Unknown",
+      "size": 2,
+      "_supplement_note": "Storm AA missile turret system — UUID confirmed in ship loadout; full stats unknown, not in Erkul API"
+    }
+  },
+  {
+    "localName": "",
+    "data": {
+      "ref": "b6205a2d-563c-415d-9e8f-7873283aea8b",
+      "name": "Perseus Torpedo Storage Rack",
+      "type": "TorpedoStorage",
+      "subType": "AmmoStorage",
+      "size": 6,
+      "_supplement_note": "Perseus internal torpedo ammo bays (editable: False) — not player-facing missile slots; handled by torpedo_storage skip pattern"
+    }
+  }
+]

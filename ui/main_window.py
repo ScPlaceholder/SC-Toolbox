@@ -4,6 +4,9 @@ Main launcher window — PySide6 MobiGlas-style implementation.
 Assembles header, tile grid, and settings panel using the shared Qt library.
 """
 import logging
+import os
+import queue as _queue
+import threading
 import webbrowser
 from typing import Callable, Dict, List, Optional
 
@@ -48,9 +51,12 @@ class UpdateBubble(QWidget):
         super().__init__(None, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setObjectName("updateBubble")
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedSize(340, 130)
+        self.setFixedSize(340, 160)
         self._parent_window = parent_window
         self._result = result
+        self._download_url = result.download_url
+        self._cancel = threading.Event()
+        self._cb_queue = _queue.Queue()
 
         # Position near top-right of parent
         pr = parent_window.geometry()
@@ -61,7 +67,7 @@ class UpdateBubble(QWidget):
         main_layout.setSpacing(8)
 
         # Title
-        title = QLabel(f"UPDATE AVAILABLE", self)
+        title = QLabel("UPDATE AVAILABLE", self)
         title.setStyleSheet(f"""
             font-family: Electrolize, Consolas, monospace;
             font-size: 10pt; font-weight: bold;
@@ -71,7 +77,7 @@ class UpdateBubble(QWidget):
         main_layout.addWidget(title)
 
         # Version info
-        info = QLabel(f"v{result.current_version}  →  v{result.latest_version}", self)
+        info = QLabel(f"v{result.current_version}  \u2192  v{result.latest_version}", self)
         info.setStyleSheet(f"""
             font-family: Consolas, monospace; font-size: 9pt;
             color: {P.fg_bright}; background: transparent;
@@ -82,18 +88,33 @@ class UpdateBubble(QWidget):
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
 
-        download_btn = QPushButton("OPEN DOWNLOAD", self)
-        download_btn.setCursor(Qt.PointingHandCursor)
-        download_btn.setStyleSheet(f"""
-            QPushButton {{
-                font-family: Consolas; font-size: 8pt; font-weight: bold;
-                color: {P.bg_deepest}; background: {P.green};
-                border: none; border-radius: 3px; padding: 4px 12px;
-            }}
-            QPushButton:hover {{ background: #55eebb; }}
-        """)
-        download_btn.clicked.connect(self._open_download)
-        btn_row.addWidget(download_btn)
+        if self._download_url:
+            self._update_btn = QPushButton("UPDATE NOW", self)
+            self._update_btn.setCursor(Qt.PointingHandCursor)
+            self._update_btn.setStyleSheet(f"""
+                QPushButton {{
+                    font-family: Consolas; font-size: 8pt; font-weight: bold;
+                    color: {P.bg_deepest}; background: {P.green};
+                    border: none; border-radius: 3px; padding: 4px 12px;
+                }}
+                QPushButton:hover {{ background: #55eebb; }}
+                QPushButton:disabled {{ background: rgba(0,200,100,0.4); color: rgba(0,0,0,0.5); }}
+            """)
+            self._update_btn.clicked.connect(self._start_update)
+            btn_row.addWidget(self._update_btn)
+        else:
+            download_btn = QPushButton("OPEN DOWNLOAD", self)
+            download_btn.setCursor(Qt.PointingHandCursor)
+            download_btn.setStyleSheet(f"""
+                QPushButton {{
+                    font-family: Consolas; font-size: 8pt; font-weight: bold;
+                    color: {P.bg_deepest}; background: {P.green};
+                    border: none; border-radius: 3px; padding: 4px 12px;
+                }}
+                QPushButton:hover {{ background: #55eebb; }}
+            """)
+            download_btn.clicked.connect(self._open_download)
+            btn_row.addWidget(download_btn)
 
         dismiss_btn = QPushButton("DISMISS", self)
         dismiss_btn.setCursor(Qt.PointingHandCursor)
@@ -111,8 +132,152 @@ class UpdateBubble(QWidget):
         btn_row.addStretch(1)
         main_layout.addLayout(btn_row)
 
-        # Auto-dismiss after 15 seconds
-        QTimer.singleShot(15000, self.close)
+        # Status label
+        self._status_lbl = QLabel("", self)
+        self._status_lbl.setStyleSheet(f"""
+            font-family: Consolas; font-size: 7pt;
+            color: {P.fg_dim}; background: transparent;
+        """)
+        main_layout.addWidget(self._status_lbl)
+
+        # Poll timer — drains _cb_queue on the GUI thread
+        self._poll_timer = QTimer(self)
+        self._poll_timer.setInterval(50)
+        self._poll_timer.timeout.connect(self._drain_cb_queue)
+        self._poll_timer.start()
+
+        # Auto-dismiss after 15 seconds (only if not in the middle of an update)
+        QTimer.singleShot(15000, self._maybe_auto_dismiss)
+
+    def _maybe_auto_dismiss(self):
+        # Don't auto-dismiss if an update is in progress
+        if hasattr(self, "_update_btn") and not self._update_btn.isEnabled():
+            return
+        self.close()
+
+    def _drain_cb_queue(self):
+        while True:
+            try:
+                fn = self._cb_queue.get_nowait()
+            except _queue.Empty:
+                break
+            try:
+                fn()
+            except Exception:
+                pass
+
+    def _start_update(self):
+        self._update_btn.setEnabled(False)
+        self._update_btn.setText("Downloading...")
+
+        def _worker():
+            tmp_path = None
+            try:
+                from shared.auto_updater import download, apply_zip
+
+                def _on_progress(done, total):
+                    if total > 0:
+                        pct = int(done * 100 / total)
+                        label = f"{pct}%"
+                    else:
+                        label = f"{done / (1024 * 1024):.1f} MB"
+                    self._cb_queue.put(lambda t=label: self._status_lbl.setText(t))
+
+                tmp_path = download(self._download_url, _on_progress, self._cancel)
+
+                self._cb_queue.put(lambda: self._update_btn.setText("Applying..."))
+
+                count = apply_zip(tmp_path)
+
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+                tmp_path = None
+
+                self._cb_queue.put(lambda c=count: self._on_update_done(c))
+
+            except InterruptedError:
+                self._cb_queue.put(self._on_cancelled)
+            except Exception as exc:
+                if tmp_path:
+                    try:
+                        os.unlink(tmp_path)
+                    except OSError:
+                        pass
+                self._cb_queue.put(lambda e=exc: self._on_error(str(e)))
+
+        t = threading.Thread(target=_worker, daemon=True)
+        t.start()
+
+    def _on_update_done(self, count):
+        self._poll_timer.stop()
+        self._update_btn.setText("RESTART NOW")
+        self._update_btn.setEnabled(True)
+        try:
+            self._update_btn.clicked.disconnect()
+        except RuntimeError:
+            pass
+        self._update_btn.clicked.connect(self._restart)
+        self._status_lbl.setStyleSheet(f"""
+            font-family: Consolas; font-size: 7pt;
+            color: {P.green}; background: transparent;
+        """)
+        self._status_lbl.setText(f"\u2713 {count} files updated \u2014 restart to apply")
+
+    def _on_error(self, msg):
+        self._update_btn.setEnabled(True)
+        self._update_btn.setText("UPDATE NOW")
+        self._status_lbl.setStyleSheet(f"""
+            font-family: Consolas; font-size: 7pt;
+            color: {P.red}; background: transparent;
+        """)
+        self._status_lbl.setText(msg)
+
+    def _on_cancelled(self):
+        self._update_btn.setEnabled(True)
+        self._update_btn.setText("UPDATE NOW")
+        self._status_lbl.setStyleSheet(f"""
+            font-family: Consolas; font-size: 7pt;
+            color: {P.fg_dim}; background: transparent;
+        """)
+        self._status_lbl.setText("Cancelled")
+
+    def _restart(self):
+        import subprocess
+        import sys
+
+        self._cancel.set()
+        self._poll_timer.stop()
+
+        pw = self._parent_window
+        pos = pw.pos()
+        size = pw.size()
+        opacity = pw.windowOpacity()
+
+        cmd_file = sys.argv[6] if len(sys.argv) > 6 else "nul"
+
+        subprocess.Popen(
+            [
+                sys.executable,
+                sys.argv[0],
+                str(pos.x()),
+                str(pos.y()),
+                str(size.width()),
+                str(size.height()),
+                str(opacity),
+                cmd_file,
+            ],
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS,
+            close_fds=True,
+        )
+        from PySide6.QtWidgets import QApplication
+        QApplication.instance().quit()
+
+    def closeEvent(self, event):
+        self._cancel.set()
+        self._poll_timer.stop()
+        super().closeEvent(event)
 
     def paintEvent(self, event):
         p = QPainter(self)
@@ -164,6 +329,7 @@ class LauncherWindow(SCWindow):
         scroll_on_hover: bool = False,
         ui_scale: float = 1.0,
         hide_on_tool_active: bool = False,
+        on_restart: Optional[Callable[[], None]] = None,
     ) -> None:
         super().__init__(
             title="SC_Toolbox",
@@ -186,6 +352,7 @@ class LauncherWindow(SCWindow):
         self._scroll_on_hover = scroll_on_hover
         self._ui_scale = ui_scale
         self._hide_on_tool_active = hide_on_tool_active
+        self._on_restart = on_restart
         self._settings_popup: Optional[SettingsPopup] = None
         self._update_bubble: Optional[UpdateBubble] = None
 
@@ -269,7 +436,7 @@ class LauncherWindow(SCWindow):
             color: #7289da; background: transparent;
         """)
         discord.setCursor(Qt.PointingHandCursor)
-        discord.mousePressEvent = lambda e: webbrowser.open("https://discord.gg/A7JDCxmC")
+        discord.mousePressEvent = lambda e: webbrowser.open("https://discord.gg/D3hqGU5hNt")
         h_layout.addWidget(discord)
 
         self.content_layout.addWidget(header)

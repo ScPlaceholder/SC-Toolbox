@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Optional
 
 from PySide6.QtCore import Qt, QPoint
-from PySide6.QtGui import QPainter, QColor, QPen
+from PySide6.QtGui import QPainter, QColor, QPen, QGuiApplication
 from PySide6.QtWidgets import (
     QDialog,
     QFrame,
@@ -29,9 +29,26 @@ from ui.constants import (
     LAWFUL_COLOR,
     UNLAWFUL_COLOR,
     TAG_COLORS,
+    POPUP_BRACKET_LEN,
+    PYRO_LOCATION_COLOR,
+    CLOSE_BTN_BG,
+    CLOSE_BTN_COLOR,
+    CLOSE_BTN_HOVER_BG,
+    PIN_BTN_ACTIVE_BG,
+    PIN_BTN_INACTIVE_BG,
 )
 
 MAX_OPEN_POPUPS = 5
+
+
+def _slider_qss(groove_h: int = 4, handle_w: int = 12) -> str:
+    """Return QSS for a horizontal quality slider."""
+    return (
+        f"QSlider::groove:horizontal {{ background: {P.bg_input}; height: {groove_h}px;"
+        f"border-radius: {groove_h // 2}px; }}"
+        f"QSlider::handle:horizontal {{ background: {P.fg}; width: {handle_w}px;"
+        f"margin: -4px 0; border-radius: {handle_w // 2}px; }}"
+    )
 
 
 # ── Shared button helpers (match Mission Database modal pattern) ─────────
@@ -42,7 +59,7 @@ def _pin_btn_qss(pinned: bool, accent: str = "") -> str:
     if pinned:
         return f"""
             QPushButton#modalPin {{
-                background-color: rgba(51, 221, 136, 80);
+                background-color: {PIN_BTN_ACTIVE_BG};
                 color: {P.bg_primary};
                 border: 1px solid {c};
                 border-radius: 3px;
@@ -57,7 +74,7 @@ def _pin_btn_qss(pinned: bool, accent: str = "") -> str:
         """
     return f"""
         QPushButton#modalPin {{
-            background-color: rgba(51, 221, 136, 30);
+            background-color: {PIN_BTN_INACTIVE_BG};
             color: {c};
             border: 1px solid rgba(51, 221, 136, 60);
             border-radius: 3px;
@@ -78,10 +95,10 @@ class _ModalCloseBtn(QPushButton):
         self.setObjectName("modalClose")
         self.setFixedSize(32, 28)
         self.setCursor(Qt.PointingHandCursor)
-        self.setStyleSheet("""
-            QPushButton#modalClose {
-                background: rgba(255, 60, 60, 0.15);
-                color: #cc6666;
+        self.setStyleSheet(f"""
+            QPushButton#modalClose {{
+                background: {CLOSE_BTN_BG};
+                color: {CLOSE_BTN_COLOR};
                 border: none;
                 border-radius: 3px;
                 font-family: Consolas;
@@ -90,11 +107,11 @@ class _ModalCloseBtn(QPushButton):
                 padding: 0px;
                 margin: 2px;
                 min-height: 0px;
-            }
-            QPushButton#modalClose:hover {
-                background-color: rgba(220, 50, 50, 0.85);
+            }}
+            QPushButton#modalClose:hover {{
+                background-color: {CLOSE_BTN_HOVER_BG};
                 color: #ffffff;
-            }
+            }}
         """)
 
 
@@ -124,11 +141,14 @@ class BlueprintPopup(QDialog):
         self._pinned = False
         self._quality = 500
 
-        # Refs to labels that need in-place update on quality change
+        # Per-slot quality tracking: index → quality value
+        self._slot_qualities: list[int] = []
         self._slot_sliders: list[QSlider] = []
-        self._slot_quality_labels: list[QLabel] = []
-        self._effect_tags: list[tuple[QLabel, QualityEffect]] = []
-        self._stat_labels: list[tuple[QLabel, QualityEffect]] = []
+        self._slot_spinboxes: list[QSpinBox] = []
+        # Per-slot effect tags: list of (tag_label, QualityEffect, slot_index)
+        self._effect_tags: list[tuple[QLabel, QualityEffect, int]] = []
+        # Per-slot stat labels: list of (label, stat_name, list of (QualityEffect, slot_index))
+        self._stat_labels: list[tuple[QLabel, str, list[tuple[QualityEffect, int]]]] = []
 
         self.setWindowTitle(bp.name)
         self.setWindowFlags(
@@ -142,13 +162,21 @@ class BlueprintPopup(QDialog):
         self._evict_oldest()
         BlueprintPopup._open_dialogs.append(self)
 
-        # Position near parent
+        # Center on parent, clamped to screen bounds
         if parent:
             pg = parent.geometry()
             idx = len(BlueprintPopup._open_dialogs) - 1
-            x = pg.x() + pg.width() - 400 + idx * 26
-            y = pg.y() + 60 + idx * 30
-            self.move(max(0, x), max(0, y))
+            cx = pg.x() + (pg.width() - self.width()) // 2 + idx * 26
+            cy = pg.y() + (pg.height() - self.height()) // 2 + idx * 30
+
+            # Clamp to screen
+            screen = QGuiApplication.primaryScreen()
+            if screen:
+                sr = screen.availableGeometry()
+                cx = max(sr.x(), min(cx, sr.right() - self.width()))
+                cy = max(sr.y(), min(cy, sr.bottom() - self.height()))
+
+            self.move(max(0, cx), max(0, cy))
 
         self._build()
         self.show()
@@ -248,12 +276,7 @@ class BlueprintPopup(QDialog):
         self._quality_slider = QSlider(Qt.Horizontal)
         self._quality_slider.setRange(0, 1000)
         self._quality_slider.setValue(self._quality)
-        self._quality_slider.setStyleSheet(
-            f"QSlider::groove:horizontal {{ background: {P.bg_input}; height: 4px;"
-            f"border-radius: 2px; }}"
-            f"QSlider::handle:horizontal {{ background: {P.fg}; width: 12px;"
-            f"margin: -4px 0; border-radius: 6px; }}"
-        )
+        self._quality_slider.setStyleSheet(_slider_qss(groove_h=4, handle_w=12))
         self._quality_slider.valueChanged.connect(self._on_quality_changed)
         q_row.addWidget(self._quality_slider, 1)
 
@@ -275,12 +298,7 @@ class BlueprintPopup(QDialog):
             self._add_slot_card(slot)
 
         # ── Stats summary
-        all_effects: list[QualityEffect] = []
-        for slot in bp.ingredients:
-            all_effects.extend(slot.quality_effects)
-        if all_effects:
-            self._add_section_header("STAT SUMMARY")
-            self._build_stats_table(all_effects)
+        self._build_stats_table()
 
         # ── Missions
         if bp.missions:
@@ -307,6 +325,9 @@ class BlueprintPopup(QDialog):
         self._layout.addWidget(lbl)
 
     def _add_slot_card(self, slot: IngredientSlot):
+        slot_idx = len(self._slot_qualities)
+        self._slot_qualities.append(self._quality)
+
         card = QFrame()
         card.setStyleSheet(
             f"QFrame {{ background: {P.bg_card}; border: 1px solid {P.border_card};"
@@ -333,7 +354,7 @@ class BlueprintPopup(QDialog):
         res_lbl.setStyleSheet(f"color: {color}; font-size: 9pt; font-weight: bold; border: none;")
         card_lay.addWidget(res_lbl)
 
-        # Quality slider (read-only, tracks global)
+        # Quality slider (independently controllable)
         q_row = QHBoxLayout()
         q_row.setSpacing(4)
         q_label = QLabel("QUALITY")
@@ -343,24 +364,23 @@ class BlueprintPopup(QDialog):
         slider = QSlider(Qt.Horizontal)
         slider.setRange(0, 1000)
         slider.setValue(self._quality)
-        slider.setEnabled(False)
-        slider.setStyleSheet(
-            f"QSlider::groove:horizontal {{ background: {P.bg_input}; height: 3px;"
-            f"border-radius: 1px; }}"
-            f"QSlider::handle:horizontal {{ background: {P.fg_dim}; width: 8px;"
-            f"margin: -3px 0; border-radius: 4px; }}"
-        )
+        slider.setStyleSheet(_slider_qss(groove_h=3, handle_w=10))
+        idx = slot_idx  # capture for lambda
+        slider.valueChanged.connect(lambda val, i=idx: self._on_slot_quality_changed(i, val))
         self._slot_sliders.append(slider)
         q_row.addWidget(slider, 1)
 
-        q_val = QLabel(str(self._quality))
-        q_val.setFixedWidth(36)
-        q_val.setStyleSheet(
-            f"color: {TOOL_COLOR}; background: {P.bg_input}; border: 1px solid {P.border};"
-            f"border-radius: 3px; padding: 1px; font-size: 8pt; qproperty-alignment: AlignCenter;"
+        spin = QSpinBox()
+        spin.setRange(0, 1000)
+        spin.setValue(self._quality)
+        spin.setFixedWidth(52)
+        spin.setStyleSheet(
+            f"QSpinBox {{ color: {TOOL_COLOR}; background: {P.bg_input};"
+            f"border: 1px solid {P.border}; border-radius: 3px; padding: 1px; font-size: 8pt; }}"
         )
-        self._slot_quality_labels.append(q_val)
-        q_row.addWidget(q_val)
+        spin.valueChanged.connect(lambda val, i=idx: self._on_slot_spin_changed(i, val))
+        self._slot_spinboxes.append(spin)
+        q_row.addWidget(spin)
         card_lay.addLayout(q_row)
 
         # Quality effect tags
@@ -369,15 +389,27 @@ class BlueprintPopup(QDialog):
             effects_row.setSpacing(4)
             for qe in slot.quality_effects:
                 tag = QLabel()
-                self._effect_tags.append((tag, qe))
-                self._update_effect_tag(tag, qe)
+                self._effect_tags.append((tag, qe, slot_idx))
+                self._update_effect_tag(tag, qe, self._quality)
                 effects_row.addWidget(tag)
             effects_row.addStretch()
             card_lay.addLayout(effects_row)
 
         self._layout.addWidget(card)
 
-    def _build_stats_table(self, effects: list[QualityEffect]):
+    def _build_stats_table(self):
+        """Build stat summary using per-slot quality values."""
+        # Collect all (effect, slot_index) pairs grouped by stat name
+        stat_effects: dict[str, list[tuple[QualityEffect, int]]] = {}
+        for slot_idx, slot in enumerate(self._bp.ingredients):
+            for qe in slot.quality_effects:
+                stat_effects.setdefault(qe.stat, []).append((qe, slot_idx))
+
+        if not stat_effects:
+            return
+
+        self._add_section_header("STAT SUMMARY")
+
         # Header row
         hdr = QHBoxLayout()
         for text, w in [("STAT", 140), ("BASE", 50), ("CRAFTED", 60)]:
@@ -392,16 +424,11 @@ class BlueprintPopup(QDialog):
         self._layout.addLayout(hdr)
 
         # Data rows
-        seen: set[str] = set()
-        for qe in effects:
-            if qe.stat in seen:
-                continue
-            seen.add(qe.stat)
-
+        for stat_name, qe_list in stat_effects.items():
             row = QHBoxLayout()
             row.setSpacing(4)
 
-            stat_lbl = QLabel(qe.stat)
+            stat_lbl = QLabel(stat_name)
             stat_lbl.setFixedWidth(140)
             stat_lbl.setStyleSheet(f"color: {P.fg}; font-size: 8pt; border: none;")
             row.addWidget(stat_lbl)
@@ -413,8 +440,8 @@ class BlueprintPopup(QDialog):
 
             crafted_lbl = QLabel()
             crafted_lbl.setFixedWidth(60)
-            self._stat_labels.append((crafted_lbl, qe))
-            self._update_stat_label(crafted_lbl, qe)
+            self._stat_labels.append((crafted_lbl, stat_name, qe_list))
+            self._update_stat_label(crafted_lbl, qe_list)
             row.addWidget(crafted_lbl)
 
             row.addStretch()
@@ -481,7 +508,7 @@ class BlueprintPopup(QDialog):
         info.addWidget(contractor_lbl)
 
         if m.locations:
-            loc_color = "#44aaff" if "Pyro" in m.locations else TOOL_COLOR
+            loc_color = PYRO_LOCATION_COLOR if "Pyro" in m.locations else TOOL_COLOR
             loc_lbl = QLabel(m.locations)
             loc_lbl.setStyleSheet(
                 f"color: {P.fg}; background: {P.bg_input};"
@@ -500,8 +527,8 @@ class BlueprintPopup(QDialog):
 
     # ── Quality: in-place label updates (no rebuild) ─────────────────────
 
-    def _update_effect_tag(self, tag: QLabel, qe: QualityEffect):
-        pct = qe.pct_at(self._quality)
+    def _update_effect_tag(self, tag: QLabel, qe: QualityEffect, quality: int):
+        pct = qe.pct_at(quality)
         sign = "+" if pct >= 0 else ""
         color = STAT_POSITIVE if pct > 0 else (STAT_NEGATIVE if pct < 0 else STAT_NEUTRAL)
         tag.setText(f"{qe.stat} {sign}{pct:.0f}%")
@@ -511,42 +538,68 @@ class BlueprintPopup(QDialog):
             f"padding: 1px 5px; font-size: 7pt;"
         )
 
-    def _update_stat_label(self, lbl: QLabel, qe: QualityEffect):
-        pct = qe.pct_at(self._quality)
+    def _update_stat_label(self, lbl: QLabel, qe_list: list[tuple[QualityEffect, int]]):
+        """Average the modifier across all slots contributing to this stat."""
+        total = 0.0
+        for qe, slot_idx in qe_list:
+            total += qe.pct_at(self._slot_qualities[slot_idx])
+        pct = total / len(qe_list) if qe_list else 0.0
         sign = "+" if pct >= 0 else ""
         color = STAT_POSITIVE if pct > 0 else (STAT_NEGATIVE if pct < 0 else STAT_NEUTRAL)
         lbl.setText(f"{sign}{pct:.0f}%")
         lbl.setStyleSheet(f"color: {color}; font-size: 8pt; font-weight: bold; border: none;")
 
-    def _update_quality_labels(self):
-        """Update all quality-dependent labels in-place — no rebuild."""
-        for slider in self._slot_sliders:
-            slider.blockSignals(True)
-            slider.setValue(self._quality)
-            slider.blockSignals(False)
+    def _on_slot_quality_changed(self, slot_idx: int, val: int):
+        self._slot_qualities[slot_idx] = val
+        # Sync spinbox
+        self._slot_spinboxes[slot_idx].blockSignals(True)
+        self._slot_spinboxes[slot_idx].setValue(val)
+        self._slot_spinboxes[slot_idx].blockSignals(False)
+        self._refresh_slot_effects(slot_idx)
 
-        for lbl in self._slot_quality_labels:
-            lbl.setText(str(self._quality))
+    def _on_slot_spin_changed(self, slot_idx: int, val: int):
+        self._slot_qualities[slot_idx] = val
+        # Sync slider
+        self._slot_sliders[slot_idx].blockSignals(True)
+        self._slot_sliders[slot_idx].setValue(val)
+        self._slot_sliders[slot_idx].blockSignals(False)
+        self._refresh_slot_effects(slot_idx)
 
-        for tag, qe in self._effect_tags:
-            self._update_effect_tag(tag, qe)
-
-        for lbl, qe in self._stat_labels:
-            self._update_stat_label(lbl, qe)
+    def _refresh_slot_effects(self, slot_idx: int):
+        """Update effect tags for one slot + all stat summary rows."""
+        q = self._slot_qualities[slot_idx]
+        for tag, qe, idx in self._effect_tags:
+            if idx == slot_idx:
+                self._update_effect_tag(tag, qe, q)
+        for lbl, _stat_name, qe_list in self._stat_labels:
+            if any(si == slot_idx for _, si in qe_list):
+                self._update_stat_label(lbl, qe_list)
 
     def _on_quality_changed(self, val: int):
+        """Global slider sets all slot sliders."""
         self._quality = val
         self._quality_spin.blockSignals(True)
         self._quality_spin.setValue(val)
         self._quality_spin.blockSignals(False)
-        self._update_quality_labels()
+        for i in range(len(self._slot_qualities)):
+            self._slot_qualities[i] = val
+            self._slot_sliders[i].blockSignals(True)
+            self._slot_sliders[i].setValue(val)
+            self._slot_sliders[i].blockSignals(False)
+            self._slot_spinboxes[i].blockSignals(True)
+            self._slot_spinboxes[i].setValue(val)
+            self._slot_spinboxes[i].blockSignals(False)
+        for tag, qe, idx in self._effect_tags:
+            self._update_effect_tag(tag, qe, val)
+        for lbl, _stat_name, qe_list in self._stat_labels:
+            self._update_stat_label(lbl, qe_list)
 
     def _on_quality_spin_changed(self, val: int):
         self._quality = val
         self._quality_slider.blockSignals(True)
         self._quality_slider.setValue(val)
         self._quality_slider.blockSignals(False)
-        self._update_quality_labels()
+        self._on_quality_changed(val)
 
     # ── Pin / Unpin ──────────────────────────────────────────────────────
 
@@ -602,7 +655,7 @@ class BlueprintPopup(QDialog):
         painter.setPen(QPen(edge, 1))
         painter.drawRect(0, 0, w - 1, h - 1)
 
-        bl = 14
+        bl = POPUP_BRACKET_LEN
         bracket = QColor(self._accent)
         bracket.setAlpha(200)
         painter.setPen(QPen(bracket, 2))

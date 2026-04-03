@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QScrollArea, QFrame, QSizePolicy, QSpinBox, QTabWidget,
     QGraphicsView, QGraphicsScene, QGraphicsPolygonItem, QGraphicsTextItem,
-    QGraphicsItemGroup, QDialog,
+    QGraphicsItemGroup, QDialog, QFileDialog,
     QApplication,
 )
 
@@ -308,14 +308,38 @@ class ShipDataLoader:
         for m in re.finditer(r'([A-Za-z_$][A-Za-z0-9_$]*)="([^"]{1,100})"', text):
             str_vars[m.group(1)] = m.group(2)
 
-        ship_refs = []
+        # Match ship reference objects with manufacturer/name/official in any order.
+        # Values may be variable references or inline strings.
+        _VAL = r'(?:[A-Za-z_$][A-Za-z0-9_$]*|"[^"]{0,120}")'
+        ship_refs: list[tuple[str, str, str]] = []
+        seen_off: set[str] = set()
         for m in re.finditer(
-            r'\{manufacturer:([A-Za-z_$][A-Za-z0-9_$]*)'
-            r',name:([A-Za-z_$][A-Za-z0-9_$]*)'
-            r',official:([A-Za-z_$][A-Za-z0-9_$]*)\}',
+            rf'\{{(?=[^{{}}]{{1,300}}\bmanufacturer:({_VAL}))'
+            rf'(?=[^{{}}]{{1,300}}\bname:({_VAL}))'
+            rf'(?=[^{{}}]{{1,300}}\bofficial:({_VAL}))'
+            rf'[^{{}}]{{1,300}}\}}',
             text,
         ):
-            ship_refs.append((m.group(1), m.group(2), m.group(3)))
+            obj_text = m.group(0)
+            mfr_m  = re.search(rf'\bmanufacturer:({_VAL})', obj_text)
+            name_m = re.search(rf'\bname:({_VAL})', obj_text)
+            off_m  = re.search(rf'\bofficial:({_VAL})', obj_text)
+            if not (mfr_m and name_m and off_m):
+                continue
+            mfr_v  = mfr_m.group(1)
+            name_v = name_m.group(1)
+            off_v  = off_m.group(1)
+            # off_v must be a bare variable (the cargo data object reference)
+            if off_v.startswith('"') or off_v in seen_off:
+                continue
+            seen_off.add(off_v)
+            ship_refs.append((mfr_v, name_v, off_v))
+
+        def _resolve(val: str) -> str:
+            """Resolve a string variable reference or strip inline string quotes."""
+            if val.startswith('"'):
+                return val[1:-1]
+            return str_vars.get(val, val)
 
         ships = []
         for mfr_v, name_v, off_v in ship_refs:
@@ -328,8 +352,8 @@ class ShipDataLoader:
                 j = re.sub(r'([{,\[])([A-Za-z_$][A-Za-z0-9_$]*):', r'\1"\2":', j)
                 obj = json.loads(j)
                 ships.append({
-                    "manufacturer": str_vars.get(mfr_v, mfr_v),
-                    "name":         str_vars.get(name_v, name_v),
+                    "manufacturer": _resolve(mfr_v),
+                    "name":         _resolve(name_v),
                     **obj,
                 })
             except (json.JSONDecodeError, KeyError, TypeError) as exc:
@@ -337,11 +361,16 @@ class ShipDataLoader:
         return ships
 
     def _extract_obj(self, text: str, var_name: str) -> str | None:
-        marker = var_name + "={capacity:"
-        start = text.find(marker)
-        if start == -1:
+        # Fast path: cargo object starts with capacity (most common)
+        obj_start = -1
+        for suffix in ("={capacity:", "={"):
+            marker = var_name + suffix
+            pos = text.find(marker)
+            if pos != -1:
+                obj_start = pos + len(var_name) + 1
+                break
+        if obj_start == -1:
             return None
-        obj_start = start + len(var_name) + 1
         depth = 0
         i = obj_start
         while i < len(text):
@@ -349,7 +378,11 @@ class ShipDataLoader:
             elif text[i] == "}":
                 depth -= 1
                 if depth == 0:
-                    return text[obj_start : i + 1]
+                    raw = text[obj_start : i + 1]
+                    # For the loose match, only accept objects that contain capacity
+                    if suffix != "={capacity:" and "capacity:" not in raw:
+                        return None
+                    return raw
             i += 1
         return None
 
@@ -1274,6 +1307,7 @@ class CargoApp(SCWindow):
         self._slot_assignment: list[dict] = []
         self._counts: dict[int, int] = {s: 0 for s in CONTAINER_SIZES}
         self._has_layout: bool = False
+        self._pending_loadout: dict | None = None
 
         # Planning mode state
         self._selected_commodity: str | None = None
@@ -1346,6 +1380,27 @@ class CargoApp(SCWindow):
         """)
         btn_refresh.clicked.connect(self._refresh)
         hdr_lay.addWidget(btn_refresh)
+
+        _plan_btn_style = f"""
+            QPushButton {{
+                background-color: {BG3}; color: {FG_DIM};
+                font-family: Consolas; font-size: 8pt;
+                border: none; padding: 3px 7px;
+            }}
+            QPushButton:hover {{ background-color: {BORDER}; color: {FG}; }}
+            QPushButton:disabled {{ color: {FG_DIM}; opacity: 0.5; }}
+        """
+        btn_save_plan = QPushButton(_("\u2b07 Save Plan"), hdr)
+        btn_save_plan.setCursor(Qt.PointingHandCursor)
+        btn_save_plan.setStyleSheet(_plan_btn_style)
+        btn_save_plan.clicked.connect(self._save_loadout)
+        hdr_lay.addWidget(btn_save_plan)
+
+        btn_load_plan = QPushButton(_("\u2b06 Load Plan"), hdr)
+        btn_load_plan.setCursor(Qt.PointingHandCursor)
+        btn_load_plan.setStyleSheet(_plan_btn_style)
+        btn_load_plan.clicked.connect(self._load_loadout)
+        hdr_lay.addWidget(btn_load_plan)
 
         hdr_lay.addStretch(1)
 
@@ -1934,6 +1989,9 @@ class CargoApp(SCWindow):
         self._status_lbl.setText(f"{ship['name']}  \u2014  {cap:,} SCU")
         self._update_assignment_summary()
 
+        if self._pending_loadout:
+            self._apply_pending_loadout()
+
     def _show_tutorial(self) -> None:
         """Show (or raise) the tutorial popup anchored to the refresh button."""
         if not hasattr(self, "_tutorial_dlg") or self._tutorial_dlg is None:
@@ -2283,6 +2341,105 @@ class CargoApp(SCWindow):
                     self._slot_assignment[i] = fill
         else:
             self._slot_assignment = assign_slots_from_counts(self._slots, self._counts)
+
+    # -- Cargo plan save / load -----------------------------------------------
+
+    _LOADOUT_DIR = os.path.join(os.path.expanduser("~"), "Documents", "SC Cargo Plans")
+    _LOADOUT_VERSION = 1
+
+    def _save_loadout(self) -> None:
+        if not self._current_ship:
+            return
+        os.makedirs(self._LOADOUT_DIR, exist_ok=True)
+        default_name = re.sub(r'[\\/:*?"<>|]', "_", self._current_ship["name"])
+        dlg = QFileDialog(self, _("Save Cargo Plan"),
+                          os.path.join(self._LOADOUT_DIR, f"{default_name}.json"),
+                          _("Cargo plan files (*.json);;All files (*)"))
+        dlg.setOption(QFileDialog.Option.DontUseNativeDialog, True)
+        dlg.setAcceptMode(QFileDialog.AcceptMode.AcceptSave)
+        dlg.setDefaultSuffix("json")
+        if dlg.exec() != QFileDialog.DialogCode.Accepted:
+            return
+        files = dlg.selectedFiles()
+        path = files[0] if files else ""
+        if not path:
+            return
+        counts = {str(s): self._get_count(s) for s in CONTAINER_SIZES}
+        assignments = [
+            {"pos": list(k), "commodity": v}
+            for k, v in self._renderer._assignments.items()
+        ]
+        payload = {
+            "version": self._LOADOUT_VERSION,
+            "ship": self._current_ship["name"],
+            "rotation": self._renderer._rotation,
+            "counts": counts,
+            "assignments": assignments,
+        }
+        try:
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(payload, fh, indent=2, ensure_ascii=False)
+            self._status_lbl.setText(_("Saved: ") + os.path.basename(path))
+        except OSError as exc:
+            self._status_lbl.setText(f"Save error: {exc}")
+
+    def _load_loadout(self) -> None:
+        os.makedirs(self._LOADOUT_DIR, exist_ok=True)
+        dlg = QFileDialog(self, _("Load Cargo Plan"),
+                          self._LOADOUT_DIR,
+                          _("Cargo plan files (*.json);;All files (*)"))
+        dlg.setOption(QFileDialog.Option.DontUseNativeDialog, True)
+        dlg.setAcceptMode(QFileDialog.AcceptMode.AcceptOpen)
+        dlg.setFileMode(QFileDialog.FileMode.ExistingFile)
+        if dlg.exec() != QFileDialog.DialogCode.Accepted:
+            return
+        files = dlg.selectedFiles()
+        path = files[0] if files else ""
+        if not path:
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                payload = json.load(fh)
+        except (OSError, json.JSONDecodeError) as exc:
+            self._status_lbl.setText(f"Load error: {exc}")
+            return
+        ship_name = payload.get("ship", "")
+        if not ship_name:
+            self._status_lbl.setText(_("Load error: missing ship name"))
+            return
+        self._pending_loadout = payload
+        self._load_ship(ship_name)
+
+    def _apply_pending_loadout(self) -> None:
+        payload = self._pending_loadout
+        self._pending_loadout = None
+        if not payload:
+            return
+        # Restore rotation
+        rotation = payload.get("rotation", 0)
+        self._renderer.set_rotation(rotation)
+        self._update_iso_info_label()
+        # Reset spinbox limits to physical maxima so dynamic clamping from
+        # the previous _update_fill() call doesn't prevent restoring saved values
+        self._update_spinbox_limits()
+        # Restore commodity assignments before rendering so they appear in the
+        # first render triggered by _update_fill()
+        raw_assignments = payload.get("assignments", [])
+        self._renderer._assignments.clear()
+        for entry in raw_assignments:
+            pos = entry.get("pos")
+            commodity = entry.get("commodity", "")
+            if pos and len(pos) == 4 and commodity:
+                self._renderer._assignments[tuple(pos)] = commodity
+        # Restore container counts
+        counts = payload.get("counts", {})
+        for s in CONTAINER_SIZES:
+            n = int(counts.get(str(s), 0))
+            self._spinboxes[s].blockSignals(True)
+            self._spinboxes[s].setValue(n)
+            self._spinboxes[s].blockSignals(False)
+        self._update_fill()
+        self._update_assignment_summary()
 
     def _optimize(self) -> None:
         if not self._current_ship or not self._slots:

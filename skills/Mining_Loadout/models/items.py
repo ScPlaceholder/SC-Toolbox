@@ -23,6 +23,9 @@ ATTR_DURATION = "Duration"
 ATTR_SIZE = "Size"
 ATTR_CLUSTER = "Cluster Modifier"
 
+# Maximum number of module slots any laser can have
+MAX_MODULE_SLOTS = 3
+
 # UEX API category IDs
 CATEGORY_LASERS = 29
 CATEGORY_MODULES = 30
@@ -48,6 +51,7 @@ class LaserItem:
     charge_rate: Optional[float]    # % modifier
     module_slots: int               # default 2
     price: float = 0.0              # min buy price aUEC
+    buy_locations: List = field(default_factory=list)  # [(terminal_name, price_buy)]
 
 
 @dataclass
@@ -68,6 +72,7 @@ class ModuleItem:
     uses: int
     duration: Optional[float]       # seconds (active only)
     price: float = 0.0
+    buy_locations: List = field(default_factory=list)  # [(terminal_name, price_buy)]
 
 
 @dataclass
@@ -81,6 +86,7 @@ class GadgetItem:
     resistance: Optional[float]
     cluster: Optional[float]
     price: float = 0.0
+    buy_locations: List = field(default_factory=list)  # [(terminal_name, price_buy)]
 
 
 @dataclass

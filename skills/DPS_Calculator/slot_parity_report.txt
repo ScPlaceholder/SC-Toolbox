@@ -1,0 +1,519 @@
+====================================================================================================
+  SLOT PARITY AUDIT — Our Extractor vs Erkul Raw Loadout Tree
+====================================================================================================
+Ships: 208
+
+====================================================================================================
+  SLOT COUNT MISMATCHES
+====================================================================================================
+
+  100i:
+    WeaponGun         : ours=  2  erkul=  3  delta=-1
+
+  125a:
+    WeaponGun         : ours=  2  erkul=  3  delta=-1
+
+  135c:
+    WeaponGun         : ours=  2  erkul=  3  delta=-1
+
+  400i:
+    WeaponGun         : ours=  6  erkul=  4  delta=+2
+
+  600i:
+    WeaponGun         : ours=  7  erkul=  5  delta=+2
+
+  600i Executive Edition:
+    WeaponGun         : ours=  7  erkul=  5  delta=+2
+
+  600i Touring:
+    WeaponGun         : ours=  7  erkul=  5  delta=+2
+
+  890 Jump:
+    WeaponGun         : ours=  8  erkul=  2  delta=+6
+    Cooler            : ours=  2  erkul=  0  delta=+2
+
+  A1 Spirit:
+    WeaponGun         : ours=  5  erkul=  6  delta=-1
+
+  A2 Hercules Starlifter:
+    WeaponGun         : ours= 14  erkul= 10  delta=+4
+
+  Apollo Medivac:
+    WeaponGun         : ours=  3  erkul=  4  delta=-1
+
+  Apollo Triage:
+    WeaponGun         : ours=  3  erkul=  4  delta=-1
+
+  Asgard:
+    WeaponGun         : ours=  7  erkul=  5  delta=+2
+
+  C1 Spirit:
+    WeaponGun         : ours=  4  erkul=  5  delta=-1
+
+  C2 Hercules Starlifter:
+    WeaponGun         : ours=  6  erkul=  4  delta=+2
+
+  C8 Pisces:
+    WeaponGun         : ours=  2  erkul=  4  delta=-2
+
+  C8R Pisces Rescue:
+    WeaponGun         : ours=  2  erkul=  4  delta=-2
+
+  C8X Pisces Expedition:
+    WeaponGun         : ours=  4  erkul=  6  delta=-2
+
+  Carrack:
+    WeaponGun         : ours=  8  erkul=  1  delta=+7
+
+  Carrack Expedition:
+    WeaponGun         : ours=  8  erkul=  1  delta=+7
+
+  Caterpillar:
+    WeaponGun         : ours=  7  erkul=  3  delta=+4
+
+  Caterpillar Pirate:
+    WeaponGun         : ours=  7  erkul=  3  delta=+4
+
+  Centurion:
+    WeaponGun         : ours=  5  erkul=  2  delta=+3
+
+  Constellation Andromeda:
+    WeaponGun         : ours=  8  erkul=  4  delta=+4
+
+  Constellation Aquila:
+    WeaponGun         : ours=  6  erkul=  4  delta=+2
+
+  Constellation Phoenix:
+    WeaponGun         : ours=  8  erkul=  4  delta=+4
+
+  Constellation Phoenix Emerald:
+    WeaponGun         : ours=  8  erkul=  4  delta=+4
+
+  Constellation Taurus:
+    WeaponGun         : ours=  8  erkul=  4  delta=+4
+
+  Corsair:
+    WeaponGun         : ours= 11  erkul=  8  delta=+3
+
+  Cutlass Black:
+    WeaponGun         : ours=  6  erkul=  4  delta=+2
+
+  Cutlass Blue:
+    WeaponGun         : ours=  6  erkul=  4  delta=+2
+
+  Cutlass Steel:
+    WeaponGun         : ours=  8  erkul=  6  delta=+2
+
+  Cyclone AA:
+    WeaponGun         : ours=  1  erkul=  0  delta=+1
+
+  Cyclone MT:
+    WeaponGun         : ours=  2  erkul=  0  delta=+2
+
+  Cyclone TR:
+    WeaponGun         : ours=  2  erkul=  0  delta=+2
+
+  F7A Hornet Mk I:
+    WeaponGun         : ours=  6  erkul=  4  delta=+2
+
+  F7A Hornet Mk II:
+    WeaponGun         : SIZE MISMATCH ours=[3, 4, 4, 5] erkul=[4, 4, 5, 5]
+
+  F7C Hornet Mk I:
+    WeaponGun         : ours=  4  erkul=  3  delta=+1
+
+  F7C Hornet Mk II:
+    WeaponGun         : SIZE MISMATCH ours=[3, 4, 4, 5] erkul=[4, 4, 5, 5]
+
+  F7C Hornet Wildfire Mk I:
+    WeaponGun         : ours=  4  erkul=  3  delta=+1
+
+  F7C-M Hornet Heartseeker Mk I:
+    WeaponGun         : ours=  6  erkul=  4  delta=+2
+
+  F7C-M Hornet Heartseeker Mk II:
+    WeaponGun         : ours=  4  erkul=  3  delta=+1
+
+  F7C-M Super Hornet Mk I:
+    WeaponGun         : ours=  6  erkul=  4  delta=+2
+
+  F7C-M Super Hornet Mk II:
+    WeaponGun         : SIZE MISMATCH ours=[3, 4, 4, 5] erkul=[4, 4, 5, 5]
+
+  F7C-R Hornet Tracker Mk I:
+    WeaponGun         : ours=  4  erkul=  3  delta=+1
+
+  F7C-R Hornet Tracker Mk II:
+    WeaponGun         : ours=  4  erkul=  3  delta=+1
+
+  F7C-S Hornet Ghost Mk I:
+    WeaponGun         : ours=  4  erkul=  3  delta=+1
+
+  F7C-S Hornet Ghost Mk II:
+    WeaponGun         : ours=  4  erkul=  3  delta=+1
+
+  Freelancer:
+    WeaponGun         : ours=  4  erkul=  2  delta=+2
+
+  Freelancer DUR:
+    WeaponGun         : ours=  4  erkul=  0  delta=+4
+
+  Freelancer MAX:
+    WeaponGun         : ours=  4  erkul=  0  delta=+4
+
+  Freelancer MIS:
+    WeaponGun         : ours=  4  erkul=  2  delta=+2
+
+  Gladiator:
+    WeaponGun         : ours=  4  erkul=  2  delta=+2
+
+  Golem OX:
+    WeaponGun         : ours=  4  erkul=  3  delta=+1
+
+  Hammerhead:
+    WeaponGun         : ours= 24  erkul=  0  delta=+24
+
+  Hermes:
+    WeaponGun         : ours=  3  erkul=  4  delta=-1
+
+  Hull C:
+    WeaponGun         : ours=  5  erkul=  3  delta=+2
+    Cooler            : ours=  2  erkul=  0  delta=+2
+    PowerPlant        : ours=  2  erkul=  0  delta=+2
+
+  Hurricane:
+    WeaponGun         : ours=  6  erkul=  2  delta=+4
+
+  Idris M:
+    WeaponGun         : ours= 23  erkul=  5  delta=+18
+    Shield            : ours=  2  erkul=  0  delta=+2
+    Cooler            : ours=  2  erkul=  0  delta=+2
+
+  Idris P:
+    WeaponGun         : ours= 24  erkul=  4  delta=+20
+    Shield            : ours=  2  erkul=  0  delta=+2
+    Cooler            : ours=  2  erkul=  0  delta=+2
+
+  M2 Hercules Starlifter:
+    WeaponGun         : ours=  8  erkul=  5  delta=+3
+
+  Mercury Star Runner:
+    WeaponGun         : ours=  5  erkul=  1  delta=+4
+
+  P-52 Merlin:
+    WeaponGun         : ours=  3  erkul=  1  delta=+2
+
+  P-72 Archimedes:
+    WeaponGun         : ours=  4  erkul=  0  delta=+4
+
+  P-72 Archimedes Emerald:
+    WeaponGun         : ours=  4  erkul=  0  delta=+4
+
+  Paladin:
+    Shield            : ours=  3  erkul=  0  delta=+3
+    Cooler            : ours=  2  erkul=  0  delta=+2
+    PowerPlant        : ours=  3  erkul=  0  delta=+3
+    Radar             : ours=  3  erkul=  0  delta=+3
+
+  Perseus:
+    WeaponGun         : ours= 10  erkul=  2  delta=+8
+
+  Polaris:
+    WeaponGun         : ours= 22  erkul=  1  delta=+21
+
+  RAFT:
+    WeaponGun         : ours=  4  erkul=  3  delta=+1
+
+  Reclaimer:
+    WeaponGun         : ours= 14  erkul=  6  delta=+8
+
+  Redeemer:
+    WeaponGun         : ours= 10  erkul=  6  delta=+4
+
+  Reliant Kore:
+    WeaponGun         : ours=  5  erkul=  4  delta=+1
+
+  Retaliator:
+    WeaponGun         : ours= 10  erkul=  0  delta=+10
+
+  Scorpius:
+    WeaponGun         : ours=  8  erkul=  9  delta=-1
+
+  Scorpius Antares:
+    WeaponGun         : ours=  4  erkul=  8  delta=-4
+
+  Starfarer:
+    WeaponGun         : ours=  8  erkul=  0  delta=+8
+
+  Starfarer Gemini:
+    WeaponGun         : ours=  8  erkul=  0  delta=+8
+
+  Starlancer MAX:
+    WeaponGun         : ours=  6  erkul=  2  delta=+4
+
+  Starlancer TAC:
+    WeaponGun         : ours= 10  erkul=  2  delta=+8
+
+  Terrapin:
+    WeaponGun         : ours=  1  erkul=  2  delta=-1
+
+  Terrapin Medic:
+    WeaponGun         : ours=  1  erkul=  2  delta=-1
+
+  Valkyrie:
+    WeaponGun         : ours=  7  erkul=  3  delta=+4
+
+  Vanguard Harbinger:
+    WeaponGun         : ours=  7  erkul=  5  delta=+2
+
+  Vanguard Hoplite:
+    WeaponGun         : ours=  7  erkul=  5  delta=+2
+
+  Vanguard Sentinel:
+    WeaponGun         : ours=  7  erkul=  5  delta=+2
+
+  Vanguard Warden:
+    WeaponGun         : ours=  7  erkul=  5  delta=+2
+
+  Zeus Mk II CL:
+    WeaponGun         : ours=  3  erkul=  2  delta=+1
+
+  Zeus Mk II ES:
+    WeaponGun         : ours=  3  erkul=  2  delta=+1
+
+
+====================================================================================================
+  PER-TYPE SUMMARY
+====================================================================================================
+
+  Type                  Match   Mismatch Ships with issues
+  --------------------------------------------------------------------------------
+  WeaponGun               124         84   100i, 125a, 135c, 400i, 600i ... +79 more
+  MissileLauncher         208          0   
+  Shield                  205          3   Idris M, Idris P, Paladin
+  Cooler                  203          5   890 Jump, Hull C, Idris M, Idris P, Paladin
+  PowerPlant              206          2   Hull C, Paladin
+  QuantumDrive            208          0   
+  Radar                   207          1   Paladin
+
+====================================================================================================
+  FULL SLOT COUNT TABLE (ours / erkul raw)
+====================================================================================================
+
+  Ship                                |      Guns |  Missiles |   Shields |   Coolers |        PP |        QD |     Radar
+  -------------------------------------------------------------------------------------------------------------------------
+  100i                                |   2/3  * |   1/1    |   1/1    |   2/2    |   1/1    |   1/1    |   1/1    <<<
+  125a                                |   2/3  * |   2/2    |   1/1    |   2/2    |   1/1    |   1/1    |   1/1    <<<
+  135c                                |   2/3  * |   1/1    |   1/1    |   2/2    |   1/1    |   1/1    |   1/1    <<<
+  300i                                |   3/3    |   2/2    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  315p                                |   2/2    |   2/2    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  325a                                |   3/3    |   3/3    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  350r                                |   3/3    |   2/2    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  400i                                |   6/4  * |   4/4    |   1/1    |   1/1    |   1/1    |   1/1    |   1/1    <<<
+  600i                                |   7/5  * |   4/4    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1    <<<
+  600i Executive Edition              |   7/5  * |   4/4    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1    <<<
+  600i Touring                        |   7/5  * |   4/4    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1    <<<
+  85X Limited                         |   3/3    |   0/0    |   1/1    |   2/2    |   1/1    |   1/1    |   1/1   
+  890 Jump                            |   8/2  * |   2/2    |   2/2    |   2/0  * |   0/0    |   1/1    |   1/1    <<<
+  A1 Spirit                           |   5/6  * |   2/2    |   1/1    |   1/1    |   1/1    |   1/1    |   1/1    <<<
+  A2 Hercules Starlifter              |  14/10 * |   0/0    |   3/3    |   2/2    |   2/2    |   1/1    |   1/1    <<<
+  Apollo Medivac                      |   3/4  * |   2/2    |   4/4    |   2/2    |   2/2    |   1/1    |   1/1    <<<
+  Apollo Triage                       |   3/4  * |   2/2    |   4/4    |   2/2    |   2/2    |   1/1    |   1/1    <<<
+  Ares Star Fighter Inferno           |   1/1    |   3/3    |   2/2    |   3/3    |   2/2    |   1/1    |   1/1   
+  Ares Star Fighter Ion               |   1/1    |   3/3    |   2/2    |   3/3    |   2/2    |   1/1    |   1/1   
+  Arrow                               |   3/3    |   4/4    |   1/1    |   2/2    |   1/1    |   1/1    |   1/1   
+  Asgard                              |   7/5  * |   1/1    |   4/4    |   3/3    |   2/2    |   1/1    |   1/1    <<<
+  Aurora Mk I  LX                     |   4/4    |   1/1    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  Aurora Mk I CL                      |   4/4    |   1/1    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  Aurora Mk I ES                      |   4/4    |   1/1    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  Aurora Mk I LN                      |   4/4    |   1/1    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  Aurora Mk I MR                      |   4/4    |   1/1    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  Aurora Mk I SE                      |   4/4    |   1/1    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  Aurora Mk II                        |   4/4    |   4/4    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  Avenger Stalker                     |   3/3    |   2/2    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  Avenger Titan                       |   3/3    |   2/2    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  Avenger Titan Renegade              |   3/3    |   2/2    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  Avenger Warlock                     |   3/3    |   2/2    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  Ballista                            |   1/1    |   0/0    |   2/2    |   1/1    |   1/1    |   0/0    |   1/1   
+  Ballista Dunestalker                |   1/1    |   0/0    |   2/2    |   1/1    |   1/1    |   0/0    |   1/1   
+  Ballista Snowblind                  |   1/1    |   0/0    |   2/2    |   1/1    |   1/1    |   0/0    |   1/1   
+  Blade                               |   4/4    |   2/2    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  Buccaneer                           |   5/5    |   2/2    |   1/1    |   2/2    |   1/1    |   1/1    |   1/1   
+  C1 Spirit                           |   4/5  * |   2/2    |   1/1    |   1/1    |   1/1    |   1/1    |   1/1    <<<
+  C2 Hercules Starlifter              |   6/4  * |   0/0    |   2/2    |   2/2    |   2/2    |   1/1    |   1/1    <<<
+  C8 Pisces                           |   2/4  * |   2/2    |   1/1    |   1/1    |   1/1    |   1/1    |   1/1    <<<
+  C8R Pisces Rescue                   |   2/4  * |   2/2    |   1/1    |   1/1    |   1/1    |   1/1    |   1/1    <<<
+  C8X Pisces Expedition               |   4/6  * |   2/2    |   1/1    |   1/1    |   1/1    |   1/1    |   1/1    <<<
+  CSV-SM                              |   0/0    |   0/0    |   1/1    |   1/1    |   1/1    |   0/0    |   0/0   
+  Carrack                             |   8/1  * |   0/0    |   2/2    |   2/2    |   2/2    |   1/1    |   1/1    <<<
+  Carrack Expedition                  |   8/1  * |   0/0    |   2/2    |   2/2    |   2/2    |   1/1    |   1/1    <<<
+  Caterpillar                         |   7/3  * |   0/0    |   2/2    |   2/2    |   2/2    |   1/1    |   1/1    <<<
+  Caterpillar Pirate                  |   7/3  * |   0/0    |   2/2    |   2/2    |   2/2    |   1/1    |   1/1    <<<
+  Centurion                           |   5/2  * |   0/0    |   2/2    |   3/3    |   2/2    |   0/0    |   1/1    <<<
+  Clipper                             |   4/4    |   8/8    |   2/2    |   1/1    |   2/2    |   1/1    |   1/1   
+  Constellation Andromeda             |   8/4  * |   8/8    |   1/1    |   2/2    |   2/2    |   1/1    |   1/1    <<<
+  Constellation Aquila                |   6/4  * |   4/4    |   1/1    |   2/2    |   2/2    |   1/1    |   1/1    <<<
+  Constellation Phoenix               |   8/4  * |   4/4    |   1/1    |   2/2    |   2/2    |   1/1    |   1/1    <<<
+  Constellation Phoenix Emerald       |   8/4  * |   4/4    |   1/1    |   2/2    |   2/2    |   1/1    |   1/1    <<<
+  Constellation Taurus                |   8/4  * |   4/4    |   1/1    |   2/2    |   2/2    |   1/1    |   1/1    <<<
+  Corsair                             |  11/8  * |   4/4    |   1/1    |   2/2    |   2/2    |   1/1    |   1/1    <<<
+  Cutlass Black                       |   6/4  * |   6/6    |   1/1    |   2/2    |   1/1    |   1/1    |   1/1    <<<
+  Cutlass Blue                        |   6/4  * |   6/6    |   1/1    |   2/2    |   1/1    |   1/1    |   1/1    <<<
+  Cutlass Red                         |   4/4    |   0/0    |   1/1    |   2/2    |   1/1    |   1/1    |   1/1   
+  Cutlass Steel                       |   8/6  * |   6/6    |   1/1    |   2/2    |   1/1    |   1/1    |   1/1    <<<
+  Cutter                              |   2/2    |   2/2    |   1/1    |   1/1    |   1/1    |   1/1    |   1/1   
+  Cutter Rambler                      |   2/2    |   2/2    |   1/1    |   1/1    |   1/1    |   1/1    |   1/1   
+  Cutter Scout                        |   2/2    |   2/2    |   1/1    |   1/1    |   1/1    |   1/1    |   1/1   
+  Cyclone                             |   0/0    |   0/0    |   1/1    |   1/1    |   1/1    |   0/0    |   1/1   
+  Cyclone AA                          |   1/0  * |   0/0    |   1/1    |   1/1    |   1/1    |   0/0    |   1/1    <<<
+  Cyclone MT                          |   2/0  * |   0/0    |   1/1    |   1/1    |   1/1    |   0/0    |   1/1    <<<
+  Cyclone RC                          |   0/0    |   0/0    |   1/1    |   1/1    |   1/1    |   0/0    |   1/1   
+  Cyclone RN                          |   0/0    |   0/0    |   1/1    |   1/1    |   1/1    |   0/0    |   1/1   
+  Cyclone TR                          |   2/0  * |   0/0    |   1/1    |   1/1    |   1/1    |   0/0    |   1/1    <<<
+  Defender                            |   4/4    |   2/2    |   1/1    |   2/2    |   2/2    |   1/1    |   1/1   
+  Dragonfly                           |   2/2    |   0/0    |   0/0    |   1/1    |   1/1    |   0/0    |   1/1   
+  Dragonfly Star Kitten               |   2/2    |   0/0    |   0/0    |   1/1    |   1/1    |   0/0    |   1/1   
+  Dragonfly Yellowjacket              |   2/2    |   0/0    |   0/0    |   1/1    |   1/1    |   0/0    |   1/1   
+  Eclipse                             |   2/2    |   1/1    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  F7A Hornet Mk I                     |   6/4  * |   4/4    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1    <<<
+  F7A Hornet Mk II                    |   4/4    |   2/2    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  F7C Hornet Mk I                     |   4/3  * |   4/4    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1    <<<
+  F7C Hornet Mk II                    |   4/4    |   2/2    |   2/2    |   2/2    |   2/2    |   1/1    |   1/1   
+  F7C Hornet Wildfire Mk I            |   4/3  * |   4/4    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1    <<<
+  F7C-M Hornet Heartseeker Mk I       |   6/4  * |   2/2    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1    <<<
+  F7C-M Hornet Heartseeker Mk II      |   4/3  * |   2/2    |   3/3    |   2/2    |   1/1    |   1/1    |   1/1    <<<
+  F7C-M Super Hornet Mk I             |   6/4  * |   2/2    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1    <<<
+  F7C-M Super Hornet Mk II            |   4/4    |   2/2    |   3/3    |   2/2    |   1/1    |   1/1    |   1/1   
+  F7C-R Hornet Tracker Mk I           |   4/3  * |   4/4    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1    <<<
+  F7C-R Hornet Tracker Mk II          |   4/3  * |   2/2    |   2/2    |   2/2    |   2/2    |   1/1    |   1/1    <<<
+  F7C-S Hornet Ghost Mk I             |   4/3  * |   4/4    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1    <<<
+  F7C-S Hornet Ghost Mk II            |   4/3  * |   2/2    |   2/2    |   2/2    |   2/2    |   1/1    |   1/1    <<<
+  F8A Lightning                       |   7/7    |   2/2    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  F8C Lightning                       |   7/7    |   2/2    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  Fortune                             |   2/2    |   0/0    |   3/3    |   1/1    |   1/1    |   1/1    |   1/1   
+  Freelancer                          |   4/2  * |   4/4    |   3/3    |   2/2    |   2/2    |   1/1    |   1/1    <<<
+  Freelancer DUR                      |   4/0  * |   4/4    |   3/3    |   2/2    |   2/2    |   1/1    |   1/1    <<<
+  Freelancer MAX                      |   4/0  * |   4/4    |   3/3    |   2/2    |   2/2    |   1/1    |   1/1    <<<
+  Freelancer MIS                      |   4/2  * |   6/6    |   3/3    |   2/2    |   2/2    |   1/1    |   1/1    <<<
+  Fury                                |   4/4    |   4/4    |   1/1    |   2/2    |   1/1    |   0/0    |   1/1   
+  Fury LX                             |   0/0    |   0/0    |   1/1    |   2/2    |   1/1    |   0/0    |   1/1   
+  Fury MX                             |   0/0    |  12/12   |   1/1    |   2/2    |   1/1    |   0/0    |   1/1   
+  Gladiator                           |   4/2  * |   6/6    |   1/1    |   2/2    |   1/1    |   1/1    |   1/1    <<<
+  Gladius                             |   3/3    |   4/4    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  Gladius Pirate                      |   3/3    |   4/4    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  Gladius Valiant                     |   3/3    |   4/4    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  Glaive                              |   4/4    |   3/3    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  Golem                               |   2/2    |   2/2    |   1/1    |   1/1    |   1/1    |   1/1    |   1/1   
+  Golem OX                            |   4/3  * |   2/2    |   1/1    |   1/1    |   1/1    |   1/1    |   1/1    <<<
+  Guardian                            |   2/2    |   4/4    |   1/1    |   1/1    |   2/2    |   1/1    |   1/1   
+  Guardian MX                         |   4/4    |   2/2    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  Guardian QI                         |   2/2    |   4/4    |   1/1    |   1/1    |   2/2    |   1/1    |   1/1   
+  Hammerhead                          |  24/0  * |   8/8    |   2/2    |   2/2    |   2/2    |   1/1    |   1/1    <<<
+  Hawk                                |   6/6    |   0/0    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  Herald                              |   3/3    |   2/2    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  Hermes                              |   3/4  * |   2/2    |   4/4    |   2/2    |   2/2    |   1/1    |   1/1    <<<
+  HoverQuad                           |   0/0    |   0/0    |   0/0    |   1/1    |   1/1    |   0/0    |   1/1   
+  Hull A                              |   1/1    |   0/0    |   1/1    |   2/2    |   1/1    |   1/1    |   1/1   
+  Hull C                              |   5/3  * |   0/0    |   1/1    |   2/0  * |   2/0  * |   1/1    |   1/1    <<<
+  Hurricane                           |   6/2  * |   4/4    |   1/1    |   2/2    |   1/1    |   1/1    |   1/1    <<<
+  Idris M                             |  23/5  * |   2/2    |   2/0  * |   2/0  * |   0/0    |   1/1    |   1/1    <<<
+  Idris P                             |  24/4  * |   0/0    |   2/0  * |   2/0  * |   0/0    |   1/1    |   1/1    <<<
+  Intrepid                            |   1/1    |   2/2    |   1/1    |   1/1    |   1/1    |   1/1    |   1/1   
+  Khartu-al                           |   2/2    |   0/0    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  L-21 Wolf                           |   2/2    |   2/2    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  L-22 Alpha Wolf                     |   2/2    |   2/2    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  Lynx                                |   2/2    |   0/0    |   1/1    |   1/1    |   1/1    |   0/0    |   1/1   
+  M2 Hercules Starlifter              |   8/5  * |   0/0    |   2/2    |   2/2    |   2/2    |   1/1    |   1/1    <<<
+  M50 Interceptor                     |   2/2    |   2/2    |   1/1    |   2/2    |   1/1    |   1/1    |   1/1   
+  MDC                                 |   0/0    |   0/0    |   1/1    |   1/1    |   1/1    |   0/0    |   1/1   
+  MOLE                                |   2/2    |   0/0    |   1/1    |   1/1    |   1/1    |   1/1    |   4/4   
+  MOTH                                |   2/2    |   0/0    |   1/1    |   1/1    |   1/1    |   1/1    |   1/1   
+  MPUV Cargo                          |   0/0    |   0/0    |   1/1    |   2/2    |   1/1    |   0/0    |   0/0   
+  MPUV Personnel                      |   0/0    |   0/0    |   1/1    |   2/2    |   1/1    |   0/0    |   0/0   
+  MPUV Tractor                        |   1/1    |   0/0    |   1/1    |   1/1    |   1/1    |   0/0    |   0/0   
+  MTC                                 |   2/2    |   0/0    |   1/1    |   1/1    |   1/1    |   0/0    |   1/1   
+  Mantis                              |   2/2    |   2/2    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  Mercury Star Runner                 |   5/1  * |   4/4    |   1/1    |   2/2    |   2/2    |   1/1    |   1/1    <<<
+  Meteor                              |   6/6    |   6/6    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  Mule                                |   0/0    |   0/0    |   0/0    |   1/1    |   1/1    |   0/0    |   1/1   
+  Mustang Alpha                       |   4/4    |   0/0    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  Mustang Beta                        |   4/4    |   0/0    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  Mustang Delta                       |   6/6    |   0/0    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  Mustang Gamma                       |   3/3    |   0/0    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  Mustang Omega                       |   3/3    |   0/0    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  Nomad                               |   4/4    |   2/2    |   3/3    |   2/2    |   1/1    |   1/1    |   1/1   
+  Nova                                |   2/2    |   0/0    |   3/3    |   2/2    |   3/3    |   0/0    |   1/1   
+  Nox                                 |   2/2    |   0/0    |   0/0    |   1/1    |   1/1    |   0/0    |   1/1   
+  Nox Kue                             |   2/2    |   0/0    |   0/0    |   1/1    |   1/1    |   0/0    |   1/1   
+  P-52 Merlin                         |   3/1  * |   0/0    |   1/1    |   2/2    |   1/1    |   0/0    |   1/1    <<<
+  P-72 Archimedes                     |   4/0  * |   0/0    |   1/1    |   2/2    |   1/1    |   0/0    |   1/1    <<<
+  P-72 Archimedes Emerald             |   4/0  * |   0/0    |   1/1    |   2/2    |   1/1    |   0/0    |   1/1    <<<
+  PTV                                 |   0/0    |   0/0    |   0/0    |   1/1    |   1/1    |   0/0    |   0/0   
+  Paladin                             |   3/3    |   6/6    |   3/0  * |   2/0  * |   3/0  * |   1/1    |   3/0  * <<<
+  Perseus                             |  10/2  * |  22/22   |   2/2    |   2/2    |   2/2    |   1/1    |   1/1    <<<
+  Polaris                             |  22/1  * |   6/6    |   1/1    |   1/1    |   1/1    |   1/1    |   1/1    <<<
+  Prospector                          |   2/2    |   0/0    |   1/1    |   1/1    |   1/1    |   1/1    |   2/2   
+  Prowler                             |   3/3    |   0/0    |   4/4    |   2/2    |   1/1    |   1/1    |   1/1   
+  Prowler Utility                     |   3/3    |   0/0    |   4/4    |   2/2    |   1/1    |   1/1    |   1/1   
+  Pulse                               |   1/1    |   0/0    |   0/0    |   1/1    |   1/1    |   0/0    |   1/1   
+  Pulse LX                            |   0/0    |   0/0    |   0/0    |   1/1    |   1/1    |   0/0    |   1/1   
+  RAFT                                |   4/3  * |   0/0    |   2/2    |   2/2    |   2/2    |   1/1    |   1/1    <<<
+  ROC                                 |   0/0    |   0/0    |   0/0    |   1/1    |   2/2    |   0/0    |   1/1   
+  ROC-DS                              |   0/0    |   0/0    |   0/0    |   1/1    |   2/2    |   0/0    |   2/2   
+  Razor                               |   2/2    |   2/2    |   1/1    |   2/2    |   1/1    |   1/1    |   1/1   
+  Razor EX                            |   2/2    |   2/2    |   1/1    |   2/2    |   1/1    |   1/1    |   1/1   
+  Razor LX                            |   2/2    |   2/2    |   1/1    |   2/2    |   1/1    |   1/1    |   1/1   
+  Reclaimer                           |  14/6  * |   0/0    |   1/1    |   1/1    |   0/0    |   1/1    |   1/1    <<<
+  Redeemer                            |  10/6  * |   2/2    |   2/2    |   1/1    |   2/2    |   1/1    |   1/1    <<<
+  Reliant Kore                        |   5/4  * |   4/4    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1    <<<
+  Reliant Mako                        |   4/4    |   4/4    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  Reliant Sen                         |   4/4    |   4/4    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  Reliant Tana                        |   4/4    |   4/4    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  Retaliator                          |  10/0  * |   0/0    |   6/6    |   2/2    |   2/2    |   1/1    |   1/1    <<<
+  SRV                                 |   0/0    |   0/0    |   1/1    |   1/1    |   1/1    |   1/1    |   1/1   
+  STV                                 |   0/0    |   0/0    |   0/0    |   1/1    |   1/1    |   0/0    |   1/1   
+  Sabre                               |   4/4    |   2/2    |   2/2    |   2/2    |   2/2    |   1/1    |   1/1   
+  Sabre Comet                         |   4/4    |   2/2    |   2/2    |   2/2    |   2/2    |   1/1    |   1/1   
+  Sabre Firebird                      |   2/2    |   1/1    |   2/2    |   2/2    |   2/2    |   1/1    |   1/1   
+  Sabre Peregrine                     |   0/0    |   0/0    |   2/2    |   2/2    |   2/2    |   1/1    |   1/1   
+  Sabre Raven                         |   2/2    |   0/0    |   2/2    |   2/2    |   2/2    |   1/1    |   1/1   
+  Salvation                           |   2/2    |   0/0    |   2/2    |   1/1    |   1/1    |   1/1    |   1/1   
+  San'tok.yāi                         |   4/4    |   4/4    |   1/1    |   2/2    |   2/2    |   1/1    |   1/1   
+  Scorpius                            |   8/9  * |   4/4    |   1/1    |   2/2    |   2/2    |   1/1    |   1/1    <<<
+  Scorpius Antares                    |   4/8  * |   4/4    |   1/1    |   2/2    |   3/3    |   1/1    |   1/1    <<<
+  Scythe                              |   4/4    |   3/3    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  Shiv                                |   3/3    |   6/6    |   1/1    |   2/2    |   1/1    |   1/1    |   1/1   
+  Spartan                             |   1/1    |   0/0    |   2/2    |   1/1    |   1/1    |   0/0    |   1/1   
+  Starfarer                           |   8/0  * |   1/1    |   1/1    |   2/2    |   1/1    |   1/1    |   1/1    <<<
+  Starfarer Gemini                    |   8/0  * |   1/1    |   1/1    |   2/2    |   1/1    |   1/1    |   1/1    <<<
+  Starlancer MAX                      |   6/2  * |   4/4    |   1/1    |   2/2    |   2/2    |   1/1    |   1/1    <<<
+  Starlancer TAC                      |  10/2  * |   4/4    |   2/2    |   1/1    |   1/1    |   1/1    |   1/1    <<<
+  Stinger                             |   7/7    |   2/2    |   2/2    |   3/3    |   2/2    |   1/1    |   1/1   
+  Storm                               |   1/1    |   0/0    |   1/1    |   1/1    |   1/1    |   0/0    |   1/1   
+  Storm AA                            |   1/1    |   0/0    |   1/1    |   1/1    |   1/1    |   0/0    |   1/1   
+  Syulen                              |   3/3    |   3/3    |   2/2    |   1/1    |   1/1    |   1/1    |   1/1   
+  Talon                               |   2/2    |   4/4    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  Talon Shrike                        |   2/2    |   4/4    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1   
+  Terrapin                            |   1/2  * |   0/0    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1    <<<
+  Terrapin Medic                      |   1/2  * |   0/0    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1    <<<
+  Ursa                                |   2/2    |   0/0    |   1/1    |   1/1    |   1/1    |   0/0    |   1/1   
+  Ursa Fortuna                        |   2/2    |   0/0    |   1/1    |   1/1    |   1/1    |   0/0    |   1/1   
+  Ursa Medivac                        |   2/2    |   0/0    |   1/1    |   1/1    |   1/1    |   0/0    |   1/1   
+  Valkyrie                            |   7/3  * |   0/0    |   2/2    |   2/2    |   2/2    |   1/1    |   1/1    <<<
+  Vanguard Harbinger                  |   7/5  * |   5/5    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1    <<<
+  Vanguard Hoplite                    |   7/5  * |   2/2    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1    <<<
+  Vanguard Sentinel                   |   7/5  * |   4/4    |   2/2    |   2/2    |   2/2    |   1/1    |   1/1    <<<
+  Vanguard Warden                     |   7/5  * |   4/4    |   2/2    |   2/2    |   1/1    |   1/1    |   1/1    <<<
+  Vulture                             |   2/2    |   0/0    |   2/2    |   2/2    |   2/2    |   1/1    |   1/1   
+  X1                                  |   1/1    |   0/0    |   0/0    |   1/1    |   1/1    |   0/0    |   1/1   
+  X1 Force                            |   1/1    |   0/0    |   1/1    |   1/1    |   1/1    |   0/0    |   1/1   
+  X1 Velocity                         |   0/0    |   0/0    |   0/0    |   1/1    |   1/1    |   0/0    |   1/1   
+  Zeus Mk II CL                       |   3/2  * |   2/2    |   3/3    |   2/2    |   2/2    |   1/1    |   1/1    <<<
+  Zeus Mk II ES                       |   3/2  * |   2/2    |   4/4    |   2/2    |   2/2    |   1/1    |   1/1    <<<
+
+====================================================================================================
+  SUMMARY
+====================================================================================================
+  Ships audited: 208
+  Ships with slot count mismatches: 88
+  Total mismatches: 98

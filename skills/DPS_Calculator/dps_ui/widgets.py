@@ -53,9 +53,28 @@ class ComponentTable(QWidget):
         self._row_layout = QHBoxLayout(self)
         self._row_layout.setContentsMargins(0, 0, 0, 0)
         self._row_layout.setSpacing(0)
+        self._stat_labels: dict = {}  # key -> QLabel for in-place value updates
         self._build_row()
 
+    def update_stat(self, key: str, text: str) -> None:
+        """Update the displayed text for a stat column in-place (no row rebuild)."""
+        lbl = self._stat_labels.get(key)
+        if lbl:
+            lbl.setText(text)
+
+    def select_by_name(self, name: str) -> bool:
+        """Programmatically select a component by name. Returns True if found."""
+        for it in self._items:
+            if it.get("name") == name:
+                self._sel_item = it
+                self._sel_ref = it.get("ref", "")
+                self._build_row()
+                self._on_select(it)
+                return True
+        return False
+
     def _clear_row(self):
+        self._stat_labels.clear()
         while self._row_layout.count():
             item = self._row_layout.takeAt(0)
             w = item.widget()
@@ -109,6 +128,7 @@ class ComponentTable(QWidget):
                     f"padding: 0 2px; background: transparent;"
                 )
                 row_lay.addWidget(lbl)
+                self._stat_labels[key] = lbl  # track for in-place updates
         else:
             empty_lbl = QLabel("  " + _("(empty \u2014 click to select)"), container)
             empty_lbl.setStyleSheet(

@@ -51,7 +51,7 @@ class DetailCardManager:
     def _card_position(self, idx: int) -> Tuple[int, int]:
         pos = self._parent.pos()
         size = self._parent.size()
-        card_w, card_h = 430, 460
+        card_w, card_h = 500, 560
         base_x = pos.x() + (size.width() - card_w) // 2
         base_y = pos.y() + (size.height() - card_h) // 2
         return base_x + idx * 26, base_y + idx * 30
@@ -99,7 +99,7 @@ class DetailCardManager:
 
         idx = len(self._pinned_cards)
         cx, cy = self._card_position(idx)
-        popup.setGeometry(cx, cy, 430, 460)
+        popup.setGeometry(cx, cy, 500, 560)
 
         main_lay = QVBoxLayout(popup)
         main_lay.setContentsMargins(0, 0, 0, 0)
@@ -314,6 +314,11 @@ def _fill_item_card(dt: QTextEdit, kind: str, item: Any) -> None:
             w("  Buy Price:      ", "label"); w(f"{l.price:,.0f} aUEC\n", "value")
         else:
             w("  Buy Price:      ", "label"); w("Stock / Free\n", "positive")
+        if getattr(l, "buy_locations", None):
+            w("\n")
+            w("  WHERE TO BUY\n", "section")
+            for terminal, price in l.buy_locations:
+                w(f"  {terminal:<30}", "label"); w(f"{price:>12,.0f} aUEC\n", "value")
 
     elif kind == "module":
         m = item
@@ -362,6 +367,11 @@ def _fill_item_card(dt: QTextEdit, kind: str, item: Any) -> None:
         w("\n")
         if m.price > 0:
             w("  Buy Price:      ", "label"); w(f"{m.price:,.0f} aUEC\n", "value")
+        if getattr(m, "buy_locations", None):
+            w("\n")
+            w("  WHERE TO BUY\n", "section")
+            for terminal, price in m.buy_locations:
+                w(f"  {terminal:<30}", "label"); w(f"{price:>12,.0f} aUEC\n", "value")
 
     elif kind == "gadget":
         g = item
@@ -388,6 +398,11 @@ def _fill_item_card(dt: QTextEdit, kind: str, item: Any) -> None:
         w("\n")
         if g.price > 0:
             w("  Buy Price:      ", "label"); w(f"{g.price:,.0f} aUEC\n", "value")
+        if getattr(g, "buy_locations", None):
+            w("\n")
+            w("  WHERE TO BUY\n", "section")
+            for terminal, price in g.buy_locations:
+                w(f"  {terminal:<30}", "label"); w(f"{price:>12,.0f} aUEC\n", "value")
 
     dt.setTextCursor(cursor)
     dt.moveCursor(QTextCursor.Start)

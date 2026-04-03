@@ -101,6 +101,10 @@ if !errorlevel! neq 0 set "NEED_INSTALL=1"
 if !errorlevel! neq 0 set "NEED_INSTALL=1"
 "%PY%" -c "import pynput" >nul 2>&1
 if !errorlevel! neq 0 set "NEED_INSTALL=1"
+"%PY%" -c "import mss" >nul 2>&1
+if !errorlevel! neq 0 set "NEED_INSTALL=1"
+"%PY%" -c "import pytesseract" >nul 2>&1
+if !errorlevel! neq 0 set "NEED_INSTALL=1"
 
 if "!NEED_INSTALL!"=="1" (
     echo  Dependencies missing. Installing from requirements.txt...

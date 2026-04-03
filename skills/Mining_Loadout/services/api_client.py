@@ -146,6 +146,20 @@ def _build_price_map(raw: list) -> Dict[int, float]:
     return result
 
 
+def _build_location_map(raw: list) -> Dict[int, List[Tuple[str, float]]]:
+    """Build {item_id: [(terminal_name, price_buy), ...]} sorted by price."""
+    result: Dict[int, List[Tuple[str, float]]] = {}
+    for record in raw:
+        item_id = record.get("id_item", 0)
+        buy = float(record.get("price_buy") or 0)
+        terminal = (record.get("terminal_name") or "").strip()
+        if buy > 0 and item_id and terminal:
+            result.setdefault(item_id, []).append((terminal, buy))
+    for locs in result.values():
+        locs.sort(key=lambda x: x[1])
+    return result
+
+
 def _parse_power(val: str) -> Tuple[float, float]:
     """Parse '480-2400' -> (480.0, 2400.0). Single value -> (v, v)."""
     s = str(val).strip() if val else ""
@@ -233,6 +247,10 @@ def fetch_mining_data(
     mp = _build_price_map(raw_module_prices)
     gp = _build_price_map(raw_gadget_prices)
 
+    ll = _build_location_map(raw_laser_prices)
+    ml = _build_location_map(raw_module_prices)
+    gl = _build_location_map(raw_gadget_prices)
+
     # ── Build laser models ────────────────────────────────────────────────────
     lasers: List[LaserItem] = []
     for r in raw_lasers:
@@ -261,6 +279,7 @@ def fetch_mining_data(
             charge_rate=_float_attr(la, iid, ATTR_CHARGE_RATE),
             module_slots=int(ms if (ms := _float_attr(la, iid, ATTR_MODULE_SLOTS)) is not None else 2),
             price=lp.get(iid, 0),
+            buy_locations=ll.get(iid, []),
         ))
 
     # ── Build module models ───────────────────────────────────────────────────
@@ -285,6 +304,7 @@ def fetch_mining_data(
             uses=int(_float_attr(ma, iid, ATTR_USES) or 0),
             duration=_float_attr(ma, iid, ATTR_DURATION),
             price=mp.get(iid, 0),
+            buy_locations=ml.get(iid, []),
         ))
 
     # ── Build gadget models ───────────────────────────────────────────────────
@@ -302,6 +322,7 @@ def fetch_mining_data(
             resistance=_float_attr(ga, iid, ATTR_RESISTANCE),
             cluster=_float_attr(ga, iid, ATTR_CLUSTER),
             price=gp.get(iid, 0),
+            buy_locations=gl.get(iid, []),
         ))
 
     log.info("Fetched %d lasers, %d modules, %d gadgets", len(lasers), len(modules), len(gadgets))

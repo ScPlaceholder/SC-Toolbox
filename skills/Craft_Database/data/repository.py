@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from dataclasses import dataclass, field
 from typing import Callable
 
 from shared.api_config import CACHE_TTL_CRAFT
@@ -14,6 +15,20 @@ from data.api_client import CraftApiClient
 from data.cache import CraftCache
 
 log = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class BlueprintQuery:
+    """Immutable set of parameters for a blueprint fetch request."""
+    page: int = 1
+    limit: int = 50
+    search: str = ""
+    ownable: bool | None = True
+    resource: str = ""
+    mission_type: str = ""
+    location: str = ""
+    contractor: str = ""
+    category: str = ""
 
 
 class CraftRepository:
@@ -83,7 +98,7 @@ class CraftRepository:
             finally:
                 with self._lock:
                     self._loading = False
-                    self._loaded = self._error is None
+                    self._loaded = not self._error
                 if on_done:
                     on_done()
 
@@ -102,7 +117,7 @@ class CraftRepository:
         self._fetch_hints()
         if self._cancel.is_set():
             return
-        self._fetch_blueprints_page(page=1, limit=50, ownable=True)
+        self._fetch_blueprints_page(BlueprintQuery(page=1, limit=50, ownable=True))
         log.info("Initial data load complete")
 
     def _fetch_stats(self) -> None:
@@ -137,52 +152,34 @@ class CraftRepository:
 
     def fetch_blueprints(
         self,
-        page: int = 1,
-        limit: int = 50,
-        search: str = "",
-        ownable: bool | None = True,
-        resource: str = "",
-        mission_type: str = "",
-        location: str = "",
-        contractor: str = "",
-        category: str = "",
+        query: BlueprintQuery | None = None,
         on_done: Callable[[], None] | None = None,
     ) -> None:
         """Fetch a page of blueprints in a background thread."""
+        q = query or BlueprintQuery()
+
+        with self._lock:
+            self._error = None
 
         def _worker():
             try:
-                self._fetch_blueprints_page(
-                    page=page, limit=limit, search=search,
-                    ownable=ownable, resource=resource,
-                    mission_type=mission_type, location=location,
-                    contractor=contractor, category=category,
-                )
-            except Exception:
+                self._fetch_blueprints_page(q)
+            except Exception as exc:
                 log.exception("Blueprint fetch failed")
+                with self._lock:
+                    self._error = str(exc)
             finally:
                 if on_done:
                     on_done()
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _fetch_blueprints_page(
-        self,
-        page: int = 1,
-        limit: int = 50,
-        search: str = "",
-        ownable: bool | None = True,
-        resource: str = "",
-        mission_type: str = "",
-        location: str = "",
-        contractor: str = "",
-        category: str = "",
-    ) -> None:
+    def _fetch_blueprints_page(self, q: BlueprintQuery) -> None:
         result = self._api.fetch_blueprints(
-            page=page, limit=limit, search=search,
-            ownable=ownable, resource=resource,
-            mission_type=mission_type, location=location,
-            contractor=contractor, category=category,
+            page=q.page, limit=q.limit, search=q.search,
+            ownable=q.ownable, resource=q.resource,
+            mission_type=q.mission_type, location=q.location,
+            contractor=q.contractor, category=q.category,
         )
         if result.ok and isinstance(result.data, dict):
             items = result.data.get("items", [])
@@ -191,8 +188,9 @@ class CraftRepository:
             with self._lock:
                 self._blueprints = bps
                 self._pagination = Pagination.from_dict(pag)
+                pg_page, pg_pages = self._pagination.page, self._pagination.pages
             log.info("Loaded %d blueprints (page %d/%d)",
-                     len(bps), self._pagination.page, self._pagination.pages)
+                     len(bps), pg_page, pg_pages)
         else:
             log.warning("Blueprint fetch error: %s", result.error)
             with self._lock:

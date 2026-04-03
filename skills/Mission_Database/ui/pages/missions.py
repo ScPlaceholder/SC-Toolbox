@@ -11,6 +11,7 @@ from shared.qt.theme import P
 from shared.qt.fuzzy_combo import SCFuzzyCombo
 from shared.qt.search_bar import SCSearchBar
 from ui.theme import tag_colors, faction_initials, fmt_uec
+from services.filtering import is_blueprint
 from ui.components.virtual_grid import VirtualScrollGrid, MissionCard
 
 
@@ -423,6 +424,9 @@ class MissionsPage(QWidget):
         if prereqs.get("completedContractTags"):
             bg_c, fg_c = tag_colors("CHAIN")
             tags.append(("CHAIN", bg_c, fg_c, True))
+        if is_blueprint(c, self._data.blueprint_pools):
+            bg_c, fg_c = tag_colors("Blueprint")
+            tags.append(("\U0001f527 Blueprint", bg_c, fg_c, True))
 
         reward = c.get("rewardUEC")
         reward_text = fmt_uec(reward) if reward else "\u2014"

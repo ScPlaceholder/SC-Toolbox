@@ -17,6 +17,7 @@ from PySide6.QtCore import Qt, QTimer, Signal, QObject
 from PySide6.QtGui import QGuiApplication, QClipboard
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
+    QFileDialog,
 )
 
 
@@ -31,7 +32,7 @@ from shared.qt.dropdown import SCComboBox
 
 from models.items import (
     GadgetItem, LaserItem, ModuleItem,
-    NONE_GADGET, NONE_LASER, NONE_MODULE,
+    MAX_MODULE_SLOTS, NONE_GADGET, NONE_LASER, NONE_MODULE,
     SHIPS,
 )
 from services.calc_service import calc_stats, calc_loadout_price
@@ -115,6 +116,7 @@ class MiningLoadoutWindow(SCWindow):
         self._gadget_combo: Optional[SCComboBox] = None
         self._laser_combos: List[SCComboBox] = []
         self._module_combos: List[List[SCComboBox]] = []
+        self._module_slot_containers: List[List[Any]] = []
         self._ship_btns: Dict[str, Any] = {}
         self._card_manager: Optional[DetailCardManager] = None
         self._tutorial_bubble: Optional[TutorialBubble] = None
@@ -191,6 +193,8 @@ class MiningLoadoutWindow(SCWindow):
             on_close=lambda: self.hide(),
             on_refresh=self._do_refresh,
             on_tutorial=self._show_tutorial,
+            on_save_loadout=self._save_loadout,
+            on_load_loadout=self._load_loadout,
         )
         layout.addWidget(bar_refs["title_bar"])
         self._upd_label = bar_refs["upd_label"]
@@ -332,6 +336,7 @@ class MiningLoadoutWindow(SCWindow):
 
         self._laser_combos.clear()
         self._module_combos.clear()
+        self._module_slot_containers.clear()
 
         cfg = SHIPS[self.ship_name]
         n = cfg.turrets
@@ -341,7 +346,7 @@ class MiningLoadoutWindow(SCWindow):
         while len(self._turret_laser_selections) < n:
             self._turret_laser_selections.append(stock or NONE_LASER)
         while len(self._turret_module_selections) < n:
-            self._turret_module_selections.append([NONE_MODULE, NONE_MODULE])
+            self._turret_module_selections.append([NONE_MODULE] * MAX_MODULE_SLOTS)
 
         # Trim to current ship
         self._turret_laser_selections = self._turret_laser_selections[:n]
@@ -351,7 +356,7 @@ class MiningLoadoutWindow(SCWindow):
         if reset_to_stock:
             for i in range(n):
                 self._turret_laser_selections[i] = stock or NONE_LASER
-                for j in range(2):
+                for j in range(MAX_MODULE_SLOTS):
                     self._turret_module_selections[i][j] = NONE_MODULE
 
         for i in range(n):
@@ -366,6 +371,7 @@ class MiningLoadoutWindow(SCWindow):
             self._turret_area.addWidget(refs["widget"])
             self._laser_combos.append(refs["laser_combo"])
             self._module_combos.append(refs["module_combos"])
+            self._module_slot_containers.append(refs["module_slot_containers"])
 
         if self._data_loaded:
             self._populate_dropdowns()
@@ -403,7 +409,11 @@ class MiningLoadoutWindow(SCWindow):
                     mc.blockSignals(True)
                     mc.clear()
                     mc.addItems(module_names)
-                    cur = self._turret_module_selections[i][j]
+                    cur = (
+                        self._turret_module_selections[i][j]
+                        if i < len(self._turret_module_selections) and j < len(self._turret_module_selections[i])
+                        else NONE_MODULE
+                    )
                     idx = mc.findText(cur)
                     if idx >= 0:
                         mc.setCurrentIndex(idx)
@@ -438,22 +448,29 @@ class MiningLoadoutWindow(SCWindow):
                         self._turret_module_selections[i][j] = mc.currentText()
 
     def _update_module_slot_states(self) -> None:
-        cfg = SHIPS[self.ship_name]
-        for i in range(cfg.turrets):
-            lname = self._turret_laser_selections[i] if i < len(self._turret_laser_selections) else ""
-            laser = self._get_laser(lname)
-            slots = laser.module_slots if laser else 2
-            if i < len(self._module_combos):
-                for j, mc in enumerate(self._module_combos[i]):
-                    if j < slots:
-                        mc.setEnabled(True)
-                    else:
-                        mc.setEnabled(False)
-                        if i < len(self._turret_module_selections) and j < len(self._turret_module_selections[i]):
-                            self._turret_module_selections[i][j] = NONE_MODULE
-                            mc.blockSignals(True)
-                            mc.setCurrentIndex(0)
-                            mc.blockSignals(False)
+        try:
+            cfg = SHIPS[self.ship_name]
+            for i in range(cfg.turrets):
+                lname = self._turret_laser_selections[i] if i < len(self._turret_laser_selections) else ""
+                laser = self._get_laser(lname)
+                slots = laser.module_slots if laser else 2
+                log.debug("_update_module_slot_states: turret=%d laser=%r slots=%d combos=%d containers=%d",
+                          i, lname, slots,
+                          len(self._module_combos[i]) if i < len(self._module_combos) else -1,
+                          len(self._module_slot_containers[i]) if i < len(self._module_slot_containers) else -1)
+                if i < len(self._module_combos):
+                    for j, mc in enumerate(self._module_combos[i]):
+                        visible = j < slots
+                        if i < len(self._module_slot_containers) and j < len(self._module_slot_containers[i]):
+                            self._module_slot_containers[i][j].setVisible(visible)
+                        if not visible:
+                            if i < len(self._turret_module_selections) and j < len(self._turret_module_selections[i]):
+                                self._turret_module_selections[i][j] = NONE_MODULE
+                                mc.blockSignals(True)
+                                mc.setCurrentIndex(0)
+                                mc.blockSignals(False)
+        except Exception:
+            log.error("_update_module_slot_states crashed:\n%s", traceback.format_exc())
 
     def _get_laser(self, name: str) -> Optional[LaserItem]:
         return next((l for l in self.all_lasers if l.name == name), None)
@@ -476,8 +493,8 @@ class MiningLoadoutWindow(SCWindow):
             lname = self._turret_laser_selections[i] if i < len(self._turret_laser_selections) else ""
             laser_items.append(self._get_laser(lname))
             mods: List[Optional[ModuleItem]] = []
-            for j in range(2):
-                mname = self._turret_module_selections[i][j] if i < len(self._turret_module_selections) else ""
+            for j in range(MAX_MODULE_SLOTS):
+                mname = self._turret_module_selections[i][j] if i < len(self._turret_module_selections) and j < len(self._turret_module_selections[i]) else ""
                 mods.append(self._get_module(mname))
             module_items.append(mods)
 
@@ -598,7 +615,7 @@ class MiningLoadoutWindow(SCWindow):
             if i < len(self._turret_laser_selections):
                 self._turret_laser_selections[i] = stock or NONE_LASER
             if i < len(self._turret_module_selections):
-                for j in range(2):
+                for j in range(MAX_MODULE_SLOTS):
                     self._turret_module_selections[i][j] = NONE_MODULE
         if self._gadget_combo:
             self._gadget_combo.blockSignals(True)
@@ -615,9 +632,9 @@ class MiningLoadoutWindow(SCWindow):
         lines = [f"Mining Loadout \u2014 {self.ship_name}", ""]
         for i in range(n):
             lname = self._turret_laser_selections[i] if i < len(self._turret_laser_selections) else NONE_LASER
-            m1 = self._turret_module_selections[i][0] if i < len(self._turret_module_selections) else NONE_MODULE
-            m2 = self._turret_module_selections[i][1] if i < len(self._turret_module_selections) else NONE_MODULE
-            lines.append(f"{cfg.turret_names[i]}: {lname}  |  {m1}  |  {m2}")
+            mods = self._turret_module_selections[i] if i < len(self._turret_module_selections) else [NONE_MODULE] * MAX_MODULE_SLOTS
+            mod_str = "  |  ".join(str(m) for m in mods)
+            lines.append(f"{cfg.turret_names[i]}: {lname}  |  {mod_str}")
         gname = self._gadget_combo.currentText() if self._gadget_combo else NONE_GADGET
         lines.append(f"Gadget: {gname}")
         lines.append("")
@@ -792,14 +809,14 @@ class MiningLoadoutWindow(SCWindow):
         while len(self._turret_laser_selections) < n:
             self._turret_laser_selections.append(NONE_LASER)
         while len(self._turret_module_selections) < n:
-            self._turret_module_selections.append([NONE_MODULE, NONE_MODULE])
+            self._turret_module_selections.append([NONE_MODULE] * MAX_MODULE_SLOTS)
         for i in range(n):
             key = f"turret_{i}"
             if key in loadout:
                 td = loadout[key]
                 self._turret_laser_selections[i] = td.get("laser", NONE_LASER)
-                mods = td.get("modules", [NONE_MODULE, NONE_MODULE])
-                for j in range(2):
+                mods = td.get("modules", [NONE_MODULE] * MAX_MODULE_SLOTS)
+                for j in range(MAX_MODULE_SLOTS):
                     self._turret_module_selections[i][j] = mods[j] if j < len(mods) else NONE_MODULE
 
     def _save_config(self) -> None:
@@ -814,9 +831,108 @@ class MiningLoadoutWindow(SCWindow):
                 self._turret_module_selections[i][j]
                 if i < len(self._turret_module_selections) and j < len(self._turret_module_selections[i])
                 else NONE_MODULE
-                for j in range(2)
+                for j in range(MAX_MODULE_SLOTS)
             ]
             turret_modules.append(mods)
         gname = self._gadget_combo.currentText() if self._gadget_combo else NONE_GADGET
         save_config(self.ship_name, "", turret_lasers, turret_modules, gname)
+
+    # ── Save / Load loadout files ─────────────────────────────────────────────
+
+    def _save_loadout(self) -> None:
+        default_dir = os.path.join(os.path.expanduser("~"), "Documents", "SC Loadouts")
+        os.makedirs(default_dir, exist_ok=True)
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Mining Loadout",
+            os.path.join(default_dir, f"mining_{self.ship_name.lower()}.json"),
+            "JSON Files (*.json)",
+        )
+        if not path:
+            return
+        cfg = SHIPS.get(self.ship_name)
+        n = cfg.turrets if cfg else 1
+        turrets = []
+        for i in range(n):
+            lname = self._turret_laser_selections[i] if i < len(self._turret_laser_selections) else NONE_LASER
+            mods = [
+                self._turret_module_selections[i][j]
+                if i < len(self._turret_module_selections) and j < len(self._turret_module_selections[i])
+                else NONE_MODULE
+                for j in range(MAX_MODULE_SLOTS)
+            ]
+            turrets.append({"laser": lname, "modules": mods})
+        gname = self._gadget_combo.currentText() if self._gadget_combo else NONE_GADGET
+        data = {
+            "version": 1,
+            "ship": self.ship_name,
+            "turrets": turrets,
+            "gadget": gname,
+        }
+        try:
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(data, fh, indent=2)
+            if self._status_label:
+                self._status_label.setText("  Loadout saved.")
+            log.info("Loadout saved to %s", path)
+        except OSError:
+            log.error("Save loadout failed:\n%s", traceback.format_exc())
+            if self._status_label:
+                self._status_label.setText("  Save failed.")
+
+    def _load_loadout(self) -> None:
+        default_dir = os.path.join(os.path.expanduser("~"), "Documents", "SC Loadouts")
+        os.makedirs(default_dir, exist_ok=True)
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Load Mining Loadout",
+            default_dir,
+            "JSON Files (*.json)",
+        )
+        if not path:
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (OSError, json.JSONDecodeError):
+            log.error("Load loadout failed:\n%s", traceback.format_exc())
+            if self._status_label:
+                self._status_label.setText("  Load failed — invalid file.")
+            return
+
+        ship = data.get("ship", self.ship_name)
+        if ship not in SHIPS:
+            ship = self.ship_name
+
+        if ship != self.ship_name:
+            self.ship_name = ship
+            self._update_ship_btn_styles()
+
+        turrets = data.get("turrets", [])
+        cfg = SHIPS[self.ship_name]
+        n = cfg.turrets
+        while len(self._turret_laser_selections) < n:
+            self._turret_laser_selections.append(NONE_LASER)
+        while len(self._turret_module_selections) < n:
+            self._turret_module_selections.append([NONE_MODULE] * MAX_MODULE_SLOTS)
+        for i in range(n):
+            td = turrets[i] if i < len(turrets) else {}
+            self._turret_laser_selections[i] = td.get("laser", NONE_LASER)
+            mods = td.get("modules", [NONE_MODULE] * MAX_MODULE_SLOTS)
+            for j in range(MAX_MODULE_SLOTS):
+                self._turret_module_selections[i][j] = mods[j] if j < len(mods) else NONE_MODULE
+
+        gadget = data.get("gadget", NONE_GADGET)
+
+        self._rebuild_turret_panels(reset_to_stock=False)
+        if self._gadget_combo:
+            idx = self._gadget_combo.findText(gadget)
+            self._gadget_combo.blockSignals(True)
+            self._gadget_combo.setCurrentIndex(max(0, idx))
+            self._gadget_combo.blockSignals(False)
+        self._on_loadout_changed()
+
+        if self._status_label:
+            self._status_label.setText("  Loadout loaded.")
+        log.info("Loadout loaded from %s", path)
 

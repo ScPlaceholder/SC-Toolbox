@@ -16,6 +16,8 @@ def build_title_bar(
     on_close,
     on_refresh,
     on_tutorial=None,
+    on_save_loadout=None,
+    on_load_loadout=None,
 ) -> dict:
     """Build the mining loadout title bar.
 
@@ -71,6 +73,30 @@ def build_title_bar(
     if on_tutorial:
         tutorial_btn.mousePressEvent = lambda _: on_tutorial()
 
+    save_btn = QLabel("  \u2193 SAVE  ", title_bar)
+    save_btn.setStyleSheet(f"""
+        font-family: Consolas;
+        font-size: 8pt;
+        font-weight: bold;
+        color: {P.tool_mining};
+        background: transparent;
+    """)
+    save_btn.setCursor(Qt.PointingHandCursor)
+    if on_save_loadout:
+        save_btn.mousePressEvent = lambda _: on_save_loadout()
+
+    load_btn = QLabel("  \u2191 LOAD  ", title_bar)
+    load_btn.setStyleSheet(f"""
+        font-family: Consolas;
+        font-size: 8pt;
+        font-weight: bold;
+        color: {P.tool_mining};
+        background: transparent;
+    """)
+    load_btn.setCursor(Qt.PointingHandCursor)
+    if on_load_loadout:
+        load_btn.mousePressEvent = lambda _: on_load_loadout()
+
     # Insert before the stretch (index varies, insert near end before window controls)
     # The layout is: [stripe, icon, title, stretch, minimize_btn, close_btn]
     # We want to insert before the stretch
@@ -85,6 +111,8 @@ def build_title_bar(
         layout.insertWidget(stretch_idx + 1, src_label)
         layout.insertWidget(stretch_idx + 1, upd_label)
         layout.insertWidget(stretch_idx + 1, refresh_btn)
+        layout.insertWidget(stretch_idx + 1, save_btn)
+        layout.insertWidget(stretch_idx + 1, load_btn)
         layout.insertWidget(stretch_idx + 1, tutorial_btn)
 
     return {
