@@ -15,7 +15,7 @@ import json
 
 log = logging.getLogger(__name__)
 
-GITHUB_REPO = "ScPlaceholder/SC-Toolbox"
+GITHUB_REPO = "ScPlaceholder/SC-Toolbox-Beta-V2"
 RELEASES_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 TAGS_URL = f"https://api.github.com/repos/{GITHUB_REPO}/tags"
 REPO_URL = f"https://github.com/{GITHUB_REPO}"
@@ -30,6 +30,7 @@ class UpdateResult:
     current_version: str
     release_url: str
     error: str = ""
+    download_url: str = ""
 
 
 def _parse_version(v: str) -> Tuple[int, ...]:
@@ -90,7 +91,15 @@ def check_for_updates() -> UpdateResult:
         tag = data.get("tag_name", "")
         release_url = data.get("html_url", releases_url)
         if tag:
-            return _compare(tag, current, release_url)
+            # Look for a .zip asset first, fall back to zipball_url
+            dl_url = ""
+            for asset in data.get("assets", []):
+                if isinstance(asset, dict) and asset.get("name", "").endswith((".exe", ".zip")):
+                    dl_url = asset.get("browser_download_url", "")
+                    break
+            if not dl_url:
+                dl_url = data.get("zipball_url", "")
+            return _compare(tag, current, release_url, download_url=dl_url)
 
     # ── Attempt 2: Tags ──
     tags = _github_get(TAGS_URL)
@@ -108,7 +117,7 @@ def check_for_updates() -> UpdateResult:
     return UpdateResult(False, current, current, releases_url)
 
 
-def _compare(remote_tag: str, current: str, release_url: str) -> UpdateResult:
+def _compare(remote_tag: str, current: str, release_url: str, download_url: str = "") -> UpdateResult:
     latest_tuple = _parse_version(remote_tag)
     current_tuple = _parse_version(current)
     return UpdateResult(
@@ -116,6 +125,7 @@ def _compare(remote_tag: str, current: str, release_url: str) -> UpdateResult:
         latest_version=remote_tag.lstrip("vV"),
         current_version=current,
         release_url=release_url,
+        download_url=download_url,
     )
 
 

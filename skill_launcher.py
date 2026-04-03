@@ -30,6 +30,7 @@ import shared.path_setup  # noqa: E402  # centralised path config
 
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QTimer, QPoint
+from PySide6.QtGui import QIcon
 
 from shared.config_models import LauncherSettings, SkillConfig, WindowGeometry
 from shared.ipc import ipc_read_and_clear
@@ -205,6 +206,7 @@ class SCToolboxApp:
             scroll_on_hover=self._settings.scroll_on_hover,
             ui_scale=self._settings.ui_scale,
             hide_on_tool_active=self._settings.hide_on_tool_active,
+            on_restart=self._relaunch,
         )
 
         # ── Thread-safe dispatch queue ──
@@ -493,6 +495,7 @@ class SCToolboxApp:
             scroll_on_hover=self._settings.scroll_on_hover,
             ui_scale=self._settings.ui_scale,
             hide_on_tool_active=self._settings.hide_on_tool_active,
+            on_restart=self._relaunch,
         )
 
         # Restore tile states for any skills that are already running
@@ -697,6 +700,11 @@ def main() -> None:
 
     # Create QApplication first (required before any Qt widgets)
     qt_app = QApplication(sys.argv)
+
+    # Set app icon (taskbar, window title bar, Alt+Tab)
+    _ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sc_toolbox.ico")
+    if os.path.isfile(_ico):
+        qt_app.setWindowIcon(QIcon(_ico))
 
     # Apply MobiGlas theme
     apply_theme(qt_app)
