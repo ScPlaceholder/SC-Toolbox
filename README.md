@@ -20,8 +20,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ScPlaceholder/SC-Toolbox-Beta-V1.2/releases/latest">
-    <img src="https://img.shields.io/github/v/release/ScPlaceholder/SC-Toolbox-Beta-V1.2?label=Download&style=for-the-badge" alt="Download">
+  <a href="https://github.com/ScPlaceholder/SC-Toolbox-Beta-V2/releases/latest">
+    <img src="https://img.shields.io/github/v/release/ScPlaceholder/SC-Toolbox-Beta-V2?label=Download&style=for-the-badge" alt="Download">
   </a>
   <a href="https://discord.gg/D3hqGU5hNt">
     <img src="https://img.shields.io/badge/Discord-Join-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord">
@@ -32,7 +32,7 @@
 
 ## Download & Install
 
-**[Download the latest installer](https://github.com/ScPlaceholder/SC-Toolbox-Beta-V1.2/releases/latest)** — no Python required, everything is bundled.
+**[Download the latest installer](https://github.com/ScPlaceholder/SC-Toolbox-Beta-V2/releases/latest)** — no Python required, everything is bundled.
 
 1. Download `SC_Toolbox_Setup_X.Y.Z.exe`
 2. Run the installer

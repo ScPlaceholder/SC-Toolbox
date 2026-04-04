@@ -10,7 +10,7 @@
 #define MyAppName      "SC Toolbox"
 #define MyAppVersion   "1.2.0"
 #define MyAppPublisher "SC Toolbox"
-#define MyAppURL       "https://github.com/ScPlaceholder/SC-Toolbox"
+#define MyAppURL       "https://github.com/ScPlaceholder/SC-Toolbox-Beta-V2"
 
 [Setup]
 AppId={{8F3E2A7B-4C1D-4E5F-9A8B-6D2C7E1F0A3B}
