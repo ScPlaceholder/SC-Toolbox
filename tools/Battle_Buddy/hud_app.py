@@ -34,25 +34,44 @@ logger = logging.getLogger("battle_buddy")
 
 
 def _parse_args() -> dict:
-    """Parse the positional CLI args sent by the launcher.
+    """Parse CLI args from either launch path.
 
-    Standard order: x y w h [custom...] opacity cmd_file
-    (handled by the shared parse_cli_args helper).
+    skill_launcher sends positional:  x y w h opacity cmd_file
+    main.py (WingmanAI) sends named:  --x 60 --y 880 --opacity 0.92 ...
+
+    We detect which form by checking if the first arg starts with '--'.
     """
+    argv = sys.argv[1:]
+
+    if argv and argv[0].startswith("--"):
+        # Named flags from main.py
+        import argparse
+        p = argparse.ArgumentParser(description="Battle Buddy HUD subprocess")
+        p.add_argument("--x", type=int, default=60)
+        p.add_argument("--y", type=int, default=880)
+        p.add_argument("--opacity", type=float, default=0.92)
+        p.add_argument("--log-path", default="")
+        p.add_argument("--orientation", default="horizontal",
+                        choices=["horizontal", "vertical"])
+        p.add_argument("--cmd-file", default="")
+        ns = p.parse_args(argv)
+        return {
+            "x": ns.x, "y": ns.y, "opacity": ns.opacity,
+            "log_path": ns.log_path, "orientation": ns.orientation,
+            "cmd_file": ns.cmd_file,
+        }
+
+    # Positional args from skill_launcher
     _ROOT = os.path.dirname(os.path.dirname(_HERE))
     if _ROOT not in sys.path:
         sys.path.insert(0, _ROOT)
     from shared.data_utils import parse_cli_args
 
-    cli = parse_cli_args(sys.argv[1:])
+    cli = parse_cli_args(argv)
     return {
-        "x":            cli["x"],
-        "y":            cli["y"],
-        "opacity":      cli["opacity"],
-        "log_path":     "",
-        "orientation":  "horizontal",
-        "auto_show":    True,
-        "cmd_file":     cli["cmd_file"] or "",
+        "x": cli["x"], "y": cli["y"], "opacity": cli["opacity"],
+        "log_path": "", "orientation": "horizontal",
+        "cmd_file": cli["cmd_file"] or "",
     }
 
 
@@ -65,7 +84,6 @@ class BattleBuddyApp:
         saved = load_settings()
         log_path    = saved.get("log_path",    cfg["log_path"])
         orientation = saved.get("orientation", cfg["orientation"])
-        auto_show   = saved.get("auto_show_on_join", cfg["auto_show"])
 
         # Restore saved window position and opacity (overrides launcher args)
         x = int(saved.get("window_x", cfg["x"]))
@@ -92,7 +110,6 @@ class BattleBuddyApp:
             on_tutorial = self._show_tutorial,
         )
 
-        self._auto_show  = auto_show
         self._log_path   = log_path
         self._orientation = orientation
 
@@ -249,7 +266,7 @@ class BattleBuddyApp:
     # ── Callbacks ─────────────────────────────────────────────────────────────
 
     def _on_parser_event(self, event) -> None:
-        if event.event_type == "session_join" and self._auto_show:
+        if event.event_type == "session_join":
             # Show HUD when player loads into PU — must be on main thread
             QTimer.singleShot(0, lambda: (self._hud.show(), self._hud.raise_()))
 
@@ -267,7 +284,6 @@ class BattleBuddyApp:
     def _apply_options(self, settings: dict) -> None:
         new_log   = settings.get("log_path",    self._log_path)
         new_orient = settings.get("orientation", self._orientation)
-        self._auto_show = settings.get("auto_show_on_join", self._auto_show)
 
         # Restart log monitor if path changed
         if new_log != self._log_path:

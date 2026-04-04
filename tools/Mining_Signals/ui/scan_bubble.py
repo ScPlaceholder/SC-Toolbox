@@ -2,38 +2,43 @@
 
 Small frameless always-on-top popup positioned near the scan region.
 Auto-fades after a configurable duration, or stays until the next
-scan updates it.
+scan updates it.  Supports showing multiple matches when signal
+values overlap across resources.
 """
 
 from __future__ import annotations
 
-import ctypes
 import logging
 
 from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve
-from PySide6.QtGui import QColor, QPainter, QPen, QLinearGradient, QFont
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
+from PySide6.QtGui import QColor, QPainter, QPen, QLinearGradient
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel
 
 from shared.qt.theme import P
 from services.signal_matcher import SignalMatch
 
 log = logging.getLogger(__name__)
 
-# Rarity → (accent color, label)
 RARITY_COLORS: dict[str, str] = {
     "Common": "#8cc63f",
     "Uncommon": "#00bcd4",
     "Rare": "#ffc107",
     "Epic": "#aa66ff",
     "Legendary": "#ff9800",
+    "ROC": "#33ccdd",
+    "FPS": "#44aaff",
+    "Salvage": "#66ccff",
 }
 
-_FADE_DURATION_MS = 4000  # stay visible for 4 seconds
-_ANIMATION_MS = 300       # fade-out animation duration
+_FADE_DURATION_MS = 4000
+_ANIMATION_MS = 300
+_WIDTH = 280
+_ROW_HEIGHT = 24
+_PADDING = 20  # top + bottom padding
 
 
 class ScanBubble(QWidget):
-    """Floating HUD popup showing a detected mining resource."""
+    """Floating HUD popup showing detected mining resource(s)."""
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -43,80 +48,115 @@ class ScanBubble(QWidget):
             | Qt.Tool
         )
         self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.setFixedSize(260, 72)
 
         self._accent = QColor(P.green)
-        self._match: SignalMatch | None = None
+        self._matches: list[SignalMatch] = []
 
-        # Layout
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 10, 14, 10)
-        layout.setSpacing(2)
+        self._layout = QVBoxLayout(self)
+        self._layout.setContentsMargins(14, 10, 14, 10)
+        self._layout.setSpacing(2)
 
-        # Resource name (large)
-        self._name_label = QLabel("", self)
-        self._name_label.setStyleSheet(f"""
-            font-family: Electrolize, Consolas, monospace;
-            font-size: 14pt;
-            font-weight: bold;
-            color: {P.fg_bright};
-            background: transparent;
-        """)
-        layout.addWidget(self._name_label)
-
-        # Rarity + rock count (smaller)
-        self._detail_label = QLabel("", self)
-        self._detail_label.setStyleSheet(f"""
-            font-family: Consolas, monospace;
-            font-size: 9pt;
-            color: {P.fg_dim};
-            background: transparent;
-        """)
-        layout.addWidget(self._detail_label)
+        # Dynamic labels — created per show_matches call
+        self._labels: list[QLabel] = []
 
         # Auto-fade timer
         self._fade_timer = QTimer(self)
         self._fade_timer.setSingleShot(True)
         self._fade_timer.timeout.connect(self._start_fade_out)
 
-    def show_match(self, match: SignalMatch, anchor_x: int, anchor_y: int) -> None:
-        """Display a match result near the given screen position."""
-        self._match = match
-        accent = RARITY_COLORS.get(match.rarity, P.fg)
-        self._accent = QColor(accent)
+    def show_matches(self, matches: list[SignalMatch], anchor_x: int, anchor_y: int) -> None:
+        """Display one or more match results."""
+        if not matches:
+            return
 
-        self._name_label.setText(match.name)
-        self._name_label.setStyleSheet(f"""
-            font-family: Electrolize, Consolas, monospace;
-            font-size: 14pt;
-            font-weight: bold;
-            color: {accent};
-            background: transparent;
-        """)
+        self._matches = matches
+        self._accent = QColor(RARITY_COLORS.get(matches[0].rarity, P.fg))
 
-        rock_word = "Rock" if match.rock_count == 1 else "Rocks"
-        delta_text = ""
-        if match.delta > 0:
-            delta_text = f"  (~{match.delta})"
-        self._detail_label.setText(
-            f"{match.rarity}  \u00b7  {match.rock_count} {rock_word}{delta_text}"
-        )
+        # Clear old labels
+        for lbl in self._labels:
+            self._layout.removeWidget(lbl)
+            lbl.deleteLater()
+        self._labels.clear()
 
-        # Position at the user-chosen display location (Qt coords)
+        if len(matches) == 1:
+            # Single match — show name large, detail below
+            m = matches[0]
+            accent = RARITY_COLORS.get(m.rarity, P.fg)
+
+            name_lbl = QLabel(m.name, self)
+            name_lbl.setStyleSheet(f"""
+                font-family: Electrolize, Consolas, monospace;
+                font-size: 14pt; font-weight: bold;
+                color: {accent}; background: transparent;
+            """)
+            self._layout.addWidget(name_lbl)
+            self._labels.append(name_lbl)
+
+            rock_word = "Rock" if m.rock_count == 1 else "Rocks"
+            detail_lbl = QLabel(f"{m.rarity}  \u00b7  {m.rock_count} {rock_word}", self)
+            detail_lbl.setStyleSheet(f"""
+                font-family: Consolas, monospace;
+                font-size: 9pt; color: {P.fg_dim}; background: transparent;
+            """)
+            self._layout.addWidget(detail_lbl)
+            self._labels.append(detail_lbl)
+
+            total_height = _PADDING + 44  # name + detail
+        else:
+            # Multiple matches — compact list
+            for m in matches:
+                accent = RARITY_COLORS.get(m.rarity, P.fg)
+                rock_word = "Rock" if m.rock_count == 1 else "Rocks"
+                line = f"{m.name}  \u00b7  {m.rarity}  \u00b7  {m.rock_count} {rock_word}"
+                lbl = QLabel(line, self)
+                lbl.setStyleSheet(f"""
+                    font-family: Consolas, monospace;
+                    font-size: 9pt; font-weight: bold;
+                    color: {accent}; background: transparent;
+                """)
+                self._layout.addWidget(lbl)
+                self._labels.append(lbl)
+
+            total_height = _PADDING + len(matches) * _ROW_HEIGHT
+
+        self.setFixedSize(_WIDTH, total_height)
+
+        # Position and show
         self.move(anchor_x, anchor_y)
         self.setWindowOpacity(1.0)
         self.show()
         self.raise_()
-        log.info("show_match: %s at (%d,%d) actual=(%d,%d)",
-                 match.name, anchor_x, anchor_y, self.x(), self.y())
+
+        # Force topmost via Win32 API — fights borderless fullscreen games
+        try:
+            import ctypes
+            hwnd = int(self.winId())
+            HWND_TOPMOST = -1
+            SWP_NOMOVE = 0x0002
+            SWP_NOSIZE = 0x0001
+            SWP_SHOWWINDOW = 0x0040
+            SWP_NOACTIVATE = 0x0010
+            ctypes.windll.user32.SetWindowPos(
+                hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOACTIVATE,
+            )
+        except Exception:
+            pass
+
+        log.info("show_matches: %d match(es) at (%d,%d)",
+                 len(matches), anchor_x, anchor_y)
 
         # Reset fade timer
         self._fade_timer.stop()
         self._fade_timer.start(_FADE_DURATION_MS)
         self.update()
 
+    # Keep backward compat
+    def show_match(self, match: SignalMatch, anchor_x: int, anchor_y: int) -> None:
+        """Display a single match result."""
+        self.show_matches([match], anchor_x, anchor_y)
+
     def _start_fade_out(self) -> None:
-        """Gradually fade the bubble out."""
         self._anim = QPropertyAnimation(self, b"windowOpacity")
         self._anim.setDuration(_ANIMATION_MS)
         self._anim.setStartValue(1.0)

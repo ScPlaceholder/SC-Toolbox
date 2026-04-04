@@ -118,15 +118,14 @@ class BattleBuddy(Skill):
             color=LogType.INFO, server_only=True,
         )
 
-        if self._prop("launch_at_startup", True):
-            with _INSTANCES_LOCK:
-                self._launch_proc()
-            await asyncio.sleep(1.0)
-            if self._proc:
-                await printr.print_async(
-                    f"[BattleBuddy] HUD started (PID {self._proc.pid})",
-                    color=LogType.INFO, server_only=True,
-                )
+        with _INSTANCES_LOCK:
+            self._launch_proc()
+        await asyncio.sleep(1.0)
+        if self._proc:
+            await printr.print_async(
+                f"[BattleBuddy] HUD started (PID {self._proc.pid})",
+                color=LogType.INFO, server_only=True,
+            )
 
     def _launch_proc(self) -> None:
         if not self._python_exe:
@@ -167,7 +166,6 @@ class BattleBuddy(Skill):
             "--opacity", str(self._float_prop("opacity", 0.92)),
             "--log-path", self._prop("log_path", "C:/StarCitizen/LIVE/Game.log"),
             "--orientation", self._prop("orientation", "horizontal"),
-            "--auto-show", "1" if self._prop("auto_show_on_join", True) else "0",
             "--cmd-file", self._cmd_file,
         ]
 

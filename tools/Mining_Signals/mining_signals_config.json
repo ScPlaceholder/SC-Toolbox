@@ -1,14 +1,14 @@
 {
   "refresh_interval_minutes": 60,
-  "scan_interval_seconds": 3,
+  "scan_interval_seconds": 1,
   "ocr_region": {
-    "h": 170,
-    "w": 635,
-    "x": 1622,
-    "y": 712
+    "h": 107,
+    "w": 279,
+    "x": 1772,
+    "y": 455
   },
   "bubble_position": {
-    "x": 444,
-    "y": 268
+    "x": 718,
+    "y": 405
   }
 }

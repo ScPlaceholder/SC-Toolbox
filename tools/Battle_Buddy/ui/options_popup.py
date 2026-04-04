@@ -64,7 +64,6 @@ def load_settings() -> dict:
     defaults = {
         "log_path":          "C:/StarCitizen/LIVE/Game.log",
         "orientation":       "horizontal",
-        "auto_show_on_join": True,
         "opacity":           0.92,
     }
     try:
@@ -320,11 +319,6 @@ class OptionsPopup(QDialog):
             QCheckBox:hover {{ color: {ACCENT}; }}
         """
 
-        self._cb_auto_show = QCheckBox("Auto-show HUD when joining the Persistent Universe", w)
-        self._cb_auto_show.setStyleSheet(cb_style)
-        self._cb_auto_show.setChecked(self._settings.get("auto_show_on_join", True))
-        lay.addWidget(self._cb_auto_show)
-
         return w
 
     def _build_footer(self) -> QWidget:
@@ -385,7 +379,6 @@ class OptionsPopup(QDialog):
     def _save(self) -> None:
         self._settings["log_path"]          = self._log_path_edit.text().strip()
         self._settings["orientation"]       = "horizontal" if self._radio_h.isChecked() else "vertical"
-        self._settings["auto_show_on_join"] = self._cb_auto_show.isChecked()
         save_settings(self._settings)
         if self._on_save:
             self._on_save(dict(self._settings))

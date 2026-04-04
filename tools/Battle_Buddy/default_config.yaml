@@ -14,19 +14,7 @@ custom_properties:
     property_type: string
     value: "C:/StarCitizen/LIVE/Game.log"
 
-  - id: launch_at_startup
-    name: Launch at Startup
-    hint: "Start the HUD process when WingmanAI loads this skill"
-    property_type: boolean
-    value: true
-
-  - id: auto_show_on_join
-    name: Auto-show on Join PU
-    hint: "Automatically show the HUD when you load into the game"
-    property_type: boolean
-    value: true
-
-  - id: orientation
+- id: orientation
     name: HUD Orientation
     hint: "horizontal or vertical"
     property_type: string

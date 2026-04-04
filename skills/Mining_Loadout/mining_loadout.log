@@ -1131,3 +1131,26 @@
 2026-04-03 00:09:40 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='— No Laser —' slots=2 combos=3 containers=3
 2026-04-03 00:09:40 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='— No Laser —' slots=2 combos=3 containers=3
 2026-04-03 00:10:14 [DEBUG] MiningLoadout — IPC: {'type': 'quit'}
+2026-04-03 07:14:59 [INFO ] MiningLoadout — ============================================================
+2026-04-03 07:14:59 [INFO ] MiningLoadout — Mining Loadout starting — Python 3.14.2
+2026-04-03 07:14:59 [INFO ] MiningLoadout — Script: C:\Users\prjgn\AppData\Roaming\ShipBit\WingmanAI\custom_skills\SC_Toolbox_Beta_V1.2\skills\Mining_Loadout\controllers\app_controller.py
+2026-04-03 07:14:59 [INFO ] MiningLoadout — Args: x=100 y=100 w=1300 h=800 opacity=0.9490196078431372 cmd_file=C:\Users\prjgn\AppData\Local\Temp\sc_toolbox_mining_30368_1.jsonl
+2026-04-03 07:15:02 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-03 07:15:02 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-03 07:15:02 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-03 07:15:02 [INFO ] MiningLoadout — Window shown
+2026-04-03 07:15:02 [INFO ] MiningLoadout.api — Fetching mining data from UEX API...
+2026-04-03 07:15:02 [DEBUG] MiningLoadout.api — Cache hit: items/id_category/29
+2026-04-03 07:15:02 [DEBUG] MiningLoadout.api — Cache hit: items/id_category/30
+2026-04-03 07:15:02 [DEBUG] MiningLoadout.api — Cache hit: items/id_category/28
+2026-04-03 07:15:02 [DEBUG] MiningLoadout.api — Cache hit: items_attributes/id_category/29
+2026-04-03 07:15:02 [DEBUG] MiningLoadout.api — Cache hit: items_attributes/id_category/30
+2026-04-03 07:15:02 [DEBUG] MiningLoadout.api — Cache hit: items_attributes/id_category/28
+2026-04-03 07:15:02 [DEBUG] MiningLoadout.api — Cache hit: items_prices/id_category/29
+2026-04-03 07:15:02 [DEBUG] MiningLoadout.api — Cache hit: items_prices/id_category/30
+2026-04-03 07:15:02 [DEBUG] MiningLoadout.api — Cache hit: items_prices/id_category/28
+2026-04-03 07:15:02 [INFO ] MiningLoadout.api — Fetched 17 lasers, 26 modules, 6 gadgets
+2026-04-03 07:15:02 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-03 07:15:02 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-03 07:15:02 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-03 07:15:02 [INFO ] MiningLoadout — Data loaded: 17 lasers, 26 modules, 6 gadgets

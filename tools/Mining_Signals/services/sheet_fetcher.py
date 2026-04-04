@@ -33,9 +33,11 @@ _CACHE_FILE = os.path.join(
 _CACHE_VERSION = 1
 _DEFAULT_TTL = 3600  # 1 hour
 
-# Additional rows not in the spreadsheet (e.g. salvage signals)
+# Additional rows not in the spreadsheet
 _EXTRA_ROWS: list[dict] = [
-    {"name": "Salvage", "rarity": "Salvage", "1": 2000, "2": 4000, "3": 6000, "4": 8000, "5": 10000, "6": 12000},
+    {"name": "ROC Mineables",  "rarity": "ROC",     "1": 4000,  "2": 8000,  "3": 12000, "4": 16000, "5": 20000, "6": 24000, "7": 28000},
+    {"name": "FPS Mineables",  "rarity": "FPS",     "1": 3000,  "2": 6000,  "3": 9000,  "4": 12000, "5": 15000, "6": 18000, "7": 21000, "8": 24000, "9": 27000, "10": 30000},
+    {"name": "Salvage",        "rarity": "Salvage", "1": 2000,  "2": 4000,  "3": 6000,  "4": 8000,  "5": 10000, "6": 12000, "7": 14000, "8": 16000, "9": 18000, "10": 20000, "11": 22000, "12": 24000, "13": 26000, "14": 28000, "15": 30000},
 ]
 
 

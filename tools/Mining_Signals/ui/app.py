@@ -47,6 +47,9 @@ RARITY_FG: dict[str, str] = {
     "Rare": "#ffc107",
     "Epic": "#aa66ff",
     "Legendary": "#ff9800",
+    "ROC": "#33ccdd",
+    "FPS": "#44aaff",
+    "Salvage": "#66ccff",
 }
 
 
@@ -122,6 +125,10 @@ class MiningSignalsApp(SCWindow):
         self._matcher = SignalMatcher([])
         self._scan_timer: QTimer | None = None
         self._scan_bubble = ScanBubble()
+
+        # Consecutive-match consensus: require 2 agreeing reads before showing
+        self._last_ocr_value: int | None = None
+        self._confirmed_value: int | None = None
 
         # Services
         self._fetcher = SheetFetcher(
@@ -230,10 +237,20 @@ class MiningSignalsApp(SCWindow):
         """)
         ocr_layout.addWidget(self._btn_scan_toggle)
 
-        self._hotkey_hint = QLabel("Press Shift+9 to hide", self._ocr_row)
+        # Inline scan result — primary display, always visible
+        self._inline_result = QLabel("", self._ocr_row)
+        self._inline_result.setStyleSheet(f"""
+            font-family: Electrolize, Consolas, monospace;
+            font-size: 11pt; font-weight: bold;
+            color: {ACCENT}; background: transparent;
+            padding: 0 6px;
+        """)
+        ocr_layout.addWidget(self._inline_result)
+
+        self._hotkey_hint = QLabel("Shift+9 to hide", self._ocr_row)
         self._hotkey_hint.setStyleSheet(f"""
             font-family: Consolas, monospace;
-            font-size: 8pt; color: {P.fg_dim};
+            font-size: 7pt; color: {P.fg_dim};
             background: transparent;
         """)
         ocr_layout.addWidget(self._hotkey_hint)
@@ -252,6 +269,21 @@ class MiningSignalsApp(SCWindow):
         ocr_layout.addWidget(self._ocr_status)
 
         layout.addWidget(self._ocr_row)
+
+        # ── Scan hint (shown during scanning) ──
+        self._scan_hint = QLabel(
+            "Results can take several seconds to scan. Please stay on target and await results.",
+            self,
+        )
+        self._scan_hint.setStyleSheet(f"""
+            font-family: Consolas, monospace;
+            font-size: 8pt; font-weight: bold;
+            color: {P.fg_bright}; background: transparent;
+            padding: 2px 8px;
+        """)
+        self._scan_hint.setWordWrap(True)
+        self._scan_hint.setVisible(False)
+        layout.addWidget(self._scan_hint)
 
         # ── Status bar ──
         self._status_row = QWidget(self)
@@ -363,18 +395,18 @@ class MiningSignalsApp(SCWindow):
             self._search_result.setText("Enter a number")
             return
 
-        match = self._matcher.match(value, tolerance=200)
-        if match:
-            color = RARITY_FG.get(match.rarity, P.fg)
-            rock_word = "Rock" if match.rock_count == 1 else "Rocks"
-            delta = f" (~{match.delta})" if match.delta > 0 else ""
-            self._search_result.setText(
-                f"{match.name}  \u00b7  {match.rarity}  \u00b7  {match.rock_count} {rock_word}{delta}"
-            )
+        matches = self._matcher.match_all(value, tolerance=25)
+        if matches:
+            parts = []
+            for m in matches:
+                rock_word = "Rock" if m.rock_count == 1 else "Rocks"
+                parts.append(f"{m.name} ({m.rock_count}{rock_word[0]})")
+            color = RARITY_FG.get(matches[0].rarity, P.fg)
+            self._search_result.setText("  |  ".join(parts))
             self._search_result.setStyleSheet(f"""
                 font-family: Electrolize, Consolas, monospace;
-                font-size: 10pt; font-weight: bold;
-                color: {color}; background: transparent; padding: 0 8px;
+                font-size: 9pt; font-weight: bold;
+                color: {color}; background: transparent;
             """)
         else:
             self._search_result.setText("No match")
@@ -438,12 +470,18 @@ class MiningSignalsApp(SCWindow):
             for w in self._expanded_widgets:
                 w.setVisible(False)
 
-            # Shrink window to just title bar + scan controls
-            self.setMinimumHeight(80)
-            self.resize(280, 80)
+            # Shrink window to just title bar + scan controls + inline result + hint
+            self.setMinimumHeight(110)
+            self.resize(self.width(), 110)
+
+            # Reset consensus state
+            self._last_ocr_value = None
+            self._confirmed_value = None
+            self._inline_result.setText("")
+            self._scan_hint.setVisible(True)
 
             # Start scanning
-            interval = self._config.get("scan_interval_seconds", 3) * 1000
+            interval = self._config.get("scan_interval_seconds", 1) * 1000
             self._scan_timer = QTimer(self)
             self._scan_timer.timeout.connect(self._do_scan)
             self._scan_timer.start(interval)
@@ -453,6 +491,8 @@ class MiningSignalsApp(SCWindow):
             if self._scan_timer:
                 self._scan_timer.stop()
                 self._scan_timer = None
+
+            self._scan_hint.setVisible(False)
 
             # Restore expanded view
             for w in self._expanded_widgets:
@@ -480,27 +520,67 @@ class MiningSignalsApp(SCWindow):
 
     @Slot(int)
     def _on_scan_result(self, value: int) -> None:
-        log.info("Scan result: %d", value)
+        # Fuzzy consecutive-match: accept if two reads are within 5% of each other.
+        # This handles minor OCR variation while filtering icon misreads.
+        if self._last_ocr_value is not None:
+            diff = abs(value - self._last_ocr_value)
+            threshold = max(50, int(self._last_ocr_value * 0.05))
+            if diff <= threshold:
+                # Two reads agree (within tolerance) — use the average
+                confirmed = (value + self._last_ocr_value) // 2
+                self._last_ocr_value = value
+                if confirmed == self._confirmed_value:
+                    # Same value — refresh the bubble to prevent fade-out
+                    self._scan_bubble._fade_timer.start()
+                    return
+                self._confirmed_value = confirmed
+                value = confirmed
+                log.info("Confirmed: %d", value)
+            else:
+                # Reads disagree — store new value and wait
+                self._last_ocr_value = value
+                log.debug("Pending: %d (prev was %d, diff=%d)", value, self._last_ocr_value, diff)
+                return
+        else:
+            self._last_ocr_value = value
+            log.debug("First read: %d", value)
+            return
+
         self._search_input.setText(str(value))
-        match = self._matcher.match(value, tolerance=200)
-        if match:
-            log.info("Matched: %s (%s, %d rocks)", match.name, match.rarity, match.rock_count)
+        matches = self._matcher.match_all(value, tolerance=25)
+        if matches:
+            log.info("Matched %d result(s) for %d", len(matches), value)
+
+            # Update inline result label (always visible)
+            parts = []
+            for m in matches:
+                rock_word = "R" if m.rock_count == 1 else "R"
+                parts.append(f"{m.name} ({m.rock_count}{rock_word})")
+            color = RARITY_FG.get(matches[0].rarity, ACCENT)
+            inline_text = " | ".join(parts)
+            self._inline_result.setText(inline_text)
+            self._inline_result.setStyleSheet(f"""
+                font-family: Electrolize, Consolas, monospace;
+                font-size: 9pt; font-weight: bold;
+                color: {color}; background: transparent;
+            """)
+
+            # Also show floating bubble
             bubble_pos = self._config.get("bubble_position")
             if bubble_pos:
                 anchor_x = bubble_pos["x"]
                 anchor_y = bubble_pos["y"]
             else:
-                # Default: position near the scan region
                 region = self._config.get("ocr_region", {})
                 anchor_x = region.get("x", 500) + region.get("w", 200) + 10
                 anchor_y = region.get("y", 400)
             try:
-                self._scan_bubble.show_match(match, anchor_x, anchor_y)
-                log.info("Bubble shown at (%d, %d)", anchor_x, anchor_y)
+                self._scan_bubble.show_matches(matches, anchor_x, anchor_y)
             except Exception as exc:
-                log.error("Bubble show_match failed: %s", exc, exc_info=True)
+                log.error("Bubble show_matches failed: %s", exc, exc_info=True)
         else:
-            log.debug("No match for value %d", value)
+            self._inline_result.setText("")
+            log.debug("No match for confirmed value %d", value)
 
     def closeEvent(self, event) -> None:
         if self._scan_timer:

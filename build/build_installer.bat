@@ -99,8 +99,8 @@ if !errorlevel! neq 0 (
 )
 
 :: ── Step 6: Install runtime dependencies ──
-echo  [*] Installing PySide6, requests, pynput, mss, pytesseract...
-"%STAGE%\python\python.exe" -m pip install PySide6>=6.5.0 requests>=2.28.0 pynput>=1.7.6 mss>=9.0.0 pytesseract>=0.3.10 cryptography>=42.0.0 --no-warn-script-location --quiet
+echo  [*] Installing PySide6, requests, pynput, mss, pytesseract, Pillow...
+"%STAGE%\python\python.exe" -m pip install PySide6>=6.5.0 requests>=2.28.0 pynput>=1.7.6 mss>=9.0.0 pytesseract>=0.3.10 Pillow>=10.0.0 cryptography>=42.0.0 --no-warn-script-location --quiet
 if !errorlevel! neq 0 (
     echo  [!] Dependency installation failed.
     goto :fail

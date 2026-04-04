@@ -200,25 +200,9 @@ def capture_region(region: dict) -> Optional[object]:
             grab = sct.grab(monitor)
             img = Image.frombytes("RGB", grab.size, grab.bgra, "raw", "BGRX")
 
-            # Remove the pin/marker icon on the left side.
-            # Scan columns from the left: the icon is a solid colored blob.
-            # Find the first gap (dark column) after the icon, then keep
-            # everything to the right of it — that's where the digits start.
-            import numpy as np
-            arr = np.array(img.convert("L"))
-            col_brightness = arr.mean(axis=0)  # average brightness per column
-            # Find first dark column after any bright region (the icon)
-            in_icon = False
-            crop_x = 0
-            for x, brightness in enumerate(col_brightness):
-                if brightness > 40:
-                    in_icon = True
-                elif in_icon and brightness < 20:
-                    # Passed through the icon, now in the gap before digits
-                    crop_x = x
-                    break
-            if crop_x > 0:
-                img = img.crop((crop_x, 0, img.width, img.height))
+            # No blind crop — the icon is handled by the max-value
+            # stripping logic in extract_number() which strips leading
+            # digits if the OCR result exceeds the max plausible signal.
 
             return img
     except Exception as exc:
@@ -232,46 +216,35 @@ def _try_ocr(image, config: str) -> str:
     return pytesseract.image_to_string(image, config=config).strip()
 
 
-def _preprocess_variants(image) -> list:
-    """Generate multiple preprocessed versions of the image for OCR.
+def _preprocess_fast(image) -> list:
+    """Generate a small set of proven preprocessing variants.
 
-    The SC mining scanner shows text in various colors (white, green,
-    orange, red) on a dark game background.  We extract individual
-    color channels and apply thresholding at multiple levels to handle
-    all HUD text colors.
+    Optimized for speed — 4 variants covering all HUD text colors.
     """
-    from PIL import Image, ImageEnhance, ImageOps
+    from PIL import Image, ImageOps
+
+    scale = 3
+    r_ch, g_ch, b_ch = image.split()
 
     variants = []
-    scale = 4  # 4x upscale for better OCR accuracy
 
-    # Extract color channels — scanner text can be white, green,
-    # orange, or red depending on rarity/context
-    r_ch, g_ch, b_ch = image.split()
+    # 1. Red channel thresh 100 — best for yellow/green/orange text
+    t = r_ch.point(lambda p: 255 if p > 100 else 0)
+    variants.append(t.resize((t.width * scale, t.height * scale), Image.LANCZOS))
+
+    # 2. Green channel thresh 100 — good for green/cyan text
+    t = g_ch.point(lambda p: 255 if p > 100 else 0)
+    variants.append(t.resize((t.width * scale, t.height * scale), Image.LANCZOS))
+
+    # 3. Blue channel thresh 100 — cyan/white text
+    t = b_ch.point(lambda p: 255 if p > 100 else 0)
+    variants.append(t.resize((t.width * scale, t.height * scale), Image.LANCZOS))
+
+    # 4. Inverted gray thresh 80 — white/bright text on dark bg
     gray = image.convert("L")
-
-    # Best performers from testing:
-    # Green channel thresh 100-120 (works for orange/red/green text)
-    # Blue channel thresh 100-120 (backup)
-    # Gray inverted thresh 80 (works for white/bright text)
-    # Gray thresh 140 (bright pixel isolation)
-
-    for ch in (g_ch, b_ch, r_ch):
-        for thresh in (100, 120):
-            t = ch.point(lambda p, th=thresh: 255 if p > th else 0)
-            t = t.resize((t.width * scale, t.height * scale), Image.LANCZOS)
-            variants.append(t)
-
-    # Inverted grayscale (white text on dark bg)
     inv = ImageOps.invert(gray)
-    t_inv = inv.point(lambda p: 255 if p > 80 else 0)
-    t_inv = t_inv.resize((t_inv.width * scale, t_inv.height * scale), Image.LANCZOS)
-    variants.append(t_inv)
-
-    # Bright pixel isolation
-    t_bright = gray.point(lambda p: 255 if p > 140 else 0)
-    t_bright = t_bright.resize((t_bright.width * scale, t_bright.height * scale), Image.LANCZOS)
-    variants.append(t_bright)
+    t = inv.point(lambda p: 255 if p > 80 else 0)
+    variants.append(t.resize((t.width * scale, t.height * scale), Image.LANCZOS))
 
     return variants
 
@@ -279,37 +252,61 @@ def _preprocess_variants(image) -> list:
 def extract_number(image) -> Optional[int]:
     """Run digit-only OCR on *image* and return the extracted integer.
 
-    Tries multiple preprocessing variants and OCR configs to maximize
-    detection of gaming HUD numbers.  Returns None if no digits found.
+    Uses 3 preprocessing variants × 1 OCR config = 3 Tesseract calls
+    (~300ms total). Collects candidates and picks the most common
+    valid signal value.
     """
     if not _check_tesseract():
         return None
 
     try:
-        variants = _preprocess_variants(image)
+        variants = _preprocess_fast(image)
 
-        configs = [
-            "--psm 6 -c tessedit_char_whitelist=0123456789",   # block of text, digits
-            "--psm 7 -c tessedit_char_whitelist=0123456789",   # single line, digits
-            "--psm 8 -c tessedit_char_whitelist=0123456789",   # single word, digits
-        ]
+        # PSM 6 (block) is the most reliable from testing
+        config = "--psm 6 -c tessedit_char_whitelist=0123456789"
 
-        for i, img_variant in enumerate(variants):
-            for config in configs:
-                raw = _try_ocr(img_variant, config)
-                if raw:
-                    digits = re.findall(r"\d+", raw)
-                    if digits:
-                        best = max(digits, key=len)
-                        if len(best) >= 3:  # signal values are 4-5 digits
-                            result = int(best)
-                            log.debug(
-                                "screen_reader: extracted %d (variant=%d, config=%r, raw=%r)",
-                                result, i, config, raw,
-                            )
-                            return result
+        MAX_SIGNAL = 35000
+        MIN_SIGNAL = 1000
 
-        log.debug("screen_reader: no digits found across all variants")
+        candidates: list[int] = []
+
+        for v in variants:
+            raw = _try_ocr(v, config)
+            if not raw:
+                continue
+            digits = re.findall(r"\d+", raw)
+            if not digits:
+                continue
+            best = max(digits, key=len)
+            if len(best) < 3:
+                continue
+
+            # Find the longest valid number by stripping leading digits
+            # (icon artifacts are prepended, so strip from left only)
+            s = best
+            while len(s) >= 3:
+                val = int(s)
+                if MIN_SIGNAL <= val <= MAX_SIGNAL:
+                    candidates.append(val)
+                    break  # take the LONGEST valid match, don't keep stripping
+                s = s[1:]
+
+        if candidates:
+            # Vote by frequency. Among ties, prefer the longest number
+            # (real signals are longer than fragments, but frequency
+            # takes priority over length to avoid misreads winning).
+            from collections import Counter
+            counts = Counter(candidates).most_common()
+            top_count = counts[0][1]
+            # Get all candidates tied for most frequent
+            tied = [val for val, cnt in counts if cnt == top_count]
+            # Among ties, prefer longest
+            best = max(tied, key=lambda v: len(str(v)))
+            log.debug("screen_reader: extracted %d (candidates=%s, counts=%s)",
+                       best, candidates, counts[:5])
+            return best
+
+        log.debug("screen_reader: no digits found")
         return None
     except Exception as exc:
         log.error("screen_reader: OCR failed: %s", exc)
