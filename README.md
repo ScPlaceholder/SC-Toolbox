@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <strong>We got featured by CIG!!! Thank you everyone! We wouldn't be here if it wasn't for your testing, feedback and support!!!</strong>
+  <strong>Currently debugging Mining Signals. We apologize for the inconvenience. We got featured by CIG!!! Thank you everyone! We wouldn't be here if it wasn't for your testing, feedback and support!!!</strong>
 </p>
 
 <p align="center">
