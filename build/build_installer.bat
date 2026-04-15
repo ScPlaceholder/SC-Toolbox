@@ -357,36 +357,28 @@ if exist "%PADDLE_PY%" (
 :: Inno Setup respects. Prune them to make the installer buildable.
 echo  [*] Pruning Paddle sidecar bloat (modelscope, paddle headers, etc.)...
 set "PY313_SP=%PADDLE_DIR%\Lib\site-packages"
-:: modelscope is a speech/vision model hub — NOT used by PaddleOCR's
-:: text recognition pipeline. ~29 MB with 280+ char paths.
-if exist "%PY313_SP%\modelscope" rmdir /s /q "%PY313_SP%\modelscope"
-:: paddle C++ headers — only needed to compile custom ops, never at
-:: runtime. ~200 MB with 270+ char paths.
+:: Narrow, safe prune — ONLY files that are guaranteed unused at
+:: runtime. Aggressive pruning of subpackages like paddlex/modules,
+:: paddle/distributed, or deleting modelscope wholesale breaks
+:: paddleocr's import chain (learned the hard way in v2.3.0).
+::
+:: 1. paddle C++ headers — only needed to compile custom ops,
+::    never imported by Python at runtime. ~200 MB of .h files.
 if exist "%PY313_SP%\paddle\include" rmdir /s /q "%PY313_SP%\paddle\include"
-:: paddle GPU compiler configs (NVIDIA CINN tile configs) — we run on
-:: CPU, never used. Deep paths (270+ chars).
-if exist "%PY313_SP%\paddle\cinn_config" rmdir /s /q "%PY313_SP%\paddle\cinn_config"
-:: paddle distributed training — inference-only build, never used.
-if exist "%PY313_SP%\paddle\distributed" rmdir /s /q "%PY313_SP%\paddle\distributed"
-if exist "%PY313_SP%\paddle\incubate" rmdir /s /q "%PY313_SP%\paddle\incubate"
-:: paddlex non-OCR inference tasks (doc VLM, open-vocab detection,
-:: segmentation, serving, training pipelines, dataset checkers) —
-:: we call PaddleOCR directly for text recognition.
-if exist "%PY313_SP%\paddlex\configs" rmdir /s /q "%PY313_SP%\paddlex\configs"
-if exist "%PY313_SP%\paddlex\modules" rmdir /s /q "%PY313_SP%\paddlex\modules"
-if exist "%PY313_SP%\paddlex\inference\models\doc_vlm" rmdir /s /q "%PY313_SP%\paddlex\inference\models\doc_vlm"
-if exist "%PY313_SP%\paddlex\inference\models\open_vocabulary_detection" rmdir /s /q "%PY313_SP%\paddlex\inference\models\open_vocabulary_detection"
-if exist "%PY313_SP%\paddlex\inference\models\open_vocabulary_segmentation" rmdir /s /q "%PY313_SP%\paddlex\inference\models\open_vocabulary_segmentation"
-if exist "%PY313_SP%\paddlex\inference\serving" rmdir /s /q "%PY313_SP%\paddlex\inference\serving"
-if exist "%PY313_SP%\paddlex\inference\pipelines" rmdir /s /q "%PY313_SP%\paddlex\inference\pipelines"
-:: test / example / doc subtrees across common packages
-for %%P in (paddle paddleocr paddlex numpy pandas scipy sklearn matplotlib) do (
+:: 2. modelscope's custom_datasets subtree — dataset loaders for
+::    non-OCR tasks (image quality assessment, video segmentation,
+::    etc.). Not imported by PaddleOCR's text recognition pipeline
+::    and has the deepest paths (312 chars) that bust MAX_PATH.
+if exist "%PY313_SP%\modelscope\msdatasets\dataset_cls\custom_datasets" rmdir /s /q "%PY313_SP%\modelscope\msdatasets\dataset_cls\custom_datasets"
+:: 3. tests / examples / docs subtrees — never imported.
+for %%P in (paddle paddleocr paddlex numpy pandas) do (
     if exist "%PY313_SP%\%%P\tests" rmdir /s /q "%PY313_SP%\%%P\tests"
     if exist "%PY313_SP%\%%P\test" rmdir /s /q "%PY313_SP%\%%P\test"
     if exist "%PY313_SP%\%%P\examples" rmdir /s /q "%PY313_SP%\%%P\examples"
     if exist "%PY313_SP%\%%P\docs" rmdir /s /q "%PY313_SP%\%%P\docs"
 )
-:: __pycache__ dirs inside the sidecar
+:: 4. __pycache__ dirs — regenerated on first import, saves ~100 MB
+::    and these are the files with the very longest paths.
 powershell -Command "Get-ChildItem -Path '%PADDLE_DIR%' -Recurse -Directory -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq '__pycache__' } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue"
 
 :: ── Step 7c: Validate critical runtime components ──
