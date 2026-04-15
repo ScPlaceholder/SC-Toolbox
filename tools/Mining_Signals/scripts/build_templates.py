@@ -29,7 +29,10 @@ from PIL import Image
 # ── Paths ──
 THIS_DIR = Path(__file__).parent.resolve()
 TOOL_DIR = THIS_DIR.parent
-TRAINING_DIR = TOOL_DIR / "training_data"
+# Prefer the hand-curated + fixture-extracted clean corpus; fall back
+# to the raw training_data/ if the clean one is missing.
+_CLEAN_DIR = TOOL_DIR / "training_data_clean"
+TRAINING_DIR = _CLEAN_DIR if _CLEAN_DIR.is_dir() else TOOL_DIR / "training_data"
 OUT_DIR = TOOL_DIR / "ocr" / "sc_templates"
 OUT_PATH = OUT_DIR / "digits.npz"
 
@@ -62,6 +65,10 @@ def _load_class(class_dir: Path) -> np.ndarray | None:
             if img.size != (TEMPLATE_W, TEMPLATE_H):
                 img = img.resize((TEMPLATE_W, TEMPLATE_H), Image.LANCZOS)
             raw = np.asarray(img, dtype=np.uint8)
+            # Canonicalize polarity: force text to BRIGHT on DARK bg.
+            # Mixed-polarity inputs were ruining the template average.
+            if np.median(raw) > 127:
+                raw = 255 - raw
             # Per-sample Otsu binarization (NumPy histogram-based)
             hist, _ = np.histogram(raw.ravel(), bins=256, range=(0, 256))
             total = raw.size
@@ -81,7 +88,39 @@ def _load_class(class_dir: Path) -> np.ndarray | None:
                 if var > max_var:
                     max_var, thr = var, t
             binary = (raw > thr).astype(np.float32)
-            arrs.append(binary)
+            # Normalize position + size: center the glyph within the
+            # 28x28 frame. Samples come from different HUD captures
+            # with variable positions/pad ratios — if we don't center
+            # them, the averaged template is smeared across positions.
+            ys, xs = np.where(binary > 0)
+            if len(ys) == 0 or len(xs) == 0:
+                continue
+            y1, y2 = int(ys.min()), int(ys.max()) + 1
+            x1, x2 = int(xs.min()), int(xs.max()) + 1
+            gh, gw = y2 - y1, x2 - x1
+            if gh < 3 or gw < 1:
+                continue
+            # Resize the bounding box to a fixed canonical inner size
+            # (20px tall) preserving aspect ratio, then center in 28x28.
+            INNER_H = 22
+            from PIL import Image as _Im
+            new_w = max(1, round(gw * INNER_H / gh))
+            inner_pil = _Im.fromarray(
+                (binary[y1:y2, x1:x2] * 255).astype(np.uint8), mode="L"
+            ).resize((new_w, INNER_H), _Im.LANCZOS)
+            inner = np.asarray(inner_pil, dtype=np.float32) / 255.0
+            inner = (inner > 0.5).astype(np.float32)
+            # Place centered
+            canvas = np.zeros((TEMPLATE_H, TEMPLATE_W), dtype=np.float32)
+            y0 = (TEMPLATE_H - INNER_H) // 2
+            if new_w >= TEMPLATE_W:
+                x_src = (new_w - TEMPLATE_W) // 2
+                canvas[y0:y0 + INNER_H, :] = inner[:, x_src:x_src + TEMPLATE_W]
+            else:
+                x0 = (TEMPLATE_W - new_w) // 2
+                canvas[y0:y0 + INNER_H, x0:x0 + new_w] = inner
+            arrs.append(canvas)
+            continue  # skip the original binary append below
         except Exception as exc:
             print(f"  skipped {p.name}: {exc}", file=sys.stderr)
     if not arrs:
@@ -116,31 +155,17 @@ def build() -> None:
             print(f"  '{cls}': no samples, skipping")
             continue
 
-        # Pick the MEDOID sample: the single sample whose pairwise
-        # correlation with all other samples is highest. This gives
-        # us the most "representative" real glyph without the smearing
-        # that averaging across variable positions/scales produces.
-        #
-        # Samples are already binarized (0/1) from _load_class, so
-        # correlation between two samples is just the dot product
-        # after centering.
-        N = samples.shape[0]
-        if N == 1:
-            prototype = samples[0]
-        else:
-            # Flatten each sample and center
-            flat = samples.reshape(N, -1).astype(np.float32)
-            flat = flat - flat.mean(axis=1, keepdims=True)
-            norms = np.sqrt((flat * flat).sum(axis=1, keepdims=True))
-            norms[norms < 1e-6] = 1.0
-            flat = flat / norms
-            # Pairwise cosine similarity → (N, N)
-            sim = flat @ flat.T
-            # Average similarity to all peers (exclude self)
-            np.fill_diagonal(sim, 0)
-            mean_sim = sim.sum(axis=1) / (N - 1)
-            best_i = int(np.argmax(mean_sim))
-            prototype = samples[best_i]
+        # Samples are now canonicalized (polarity + centered + scaled
+        # to consistent inner size), so averaging across them produces
+        # a sharp template that captures the class's shared strokes.
+        # Pixels that are "on" in most samples stay bright; noise
+        # averages toward zero.
+        mean_img = samples.mean(axis=0)
+        # Threshold at 0.4 to keep pixels that are on in >=40% of
+        # samples. Lower than 0.5 because class-internal variation
+        # (slight position/thickness differences) means not every
+        # stroke pixel is on in EVERY sample.
+        prototype = (mean_img > 0.4).astype(np.float32)
         # Pre-normalize for NCC
         normalized = _normalize(prototype)
 
