@@ -199,6 +199,44 @@ for %%T in (Battle_Buddy Mining_Signals) do (
     )
 )
 
+:: Sanitize Mining_Signals config — the dev config contains personal
+:: screen coordinates (hud_region, ocr_region) and personal filesystem
+:: paths (ship_loadouts, ledger_file). Replace it with a clean default
+:: so new installs start with null regions and prompt the user to set
+:: them up via the in-app region selectors.
+echo  [*] Sanitizing Mining_Signals config (stripping personal data)...
+(
+    echo {
+    echo   "refresh_interval_minutes": 60,
+    echo   "scan_interval_seconds": 1,
+    echo   "ocr_region": null,
+    echo   "hud_region": null,
+    echo   "refinery_ocr_region": null,
+    echo   "ship_loadouts": {},
+    echo   "active_ship": null,
+    echo   "gadget_quantities": {
+    echo     "Okunis": 10,
+    echo     "BoreMax": 10,
+    echo     "OptiMax": 10,
+    echo     "Sabir": 10,
+    echo     "Stalwart": 10,
+    echo     "Waveshift": 10
+    echo   },
+    echo   "always_use_best_gadget": false,
+    echo   "calc_mode": "fleet",
+    echo   "bubble_position": null,
+    echo   "break_bubble_position": null,
+    echo   "ledger_file": null,
+    echo   "game_dir": null
+    echo }
+) > "%STAGE%\tools\Mining_Signals\mining_signals_config.json"
+
+:: Also strip any personal ledger / fleet / loadout data that may
+:: have been xcopy'd alongside the source.
+del /q "%STAGE%\tools\Mining_Signals\mining_ledger.json" 2>nul
+del /q "%STAGE%\tools\Mining_Signals\fleet_snapshots.json" 2>nul
+del /q "%STAGE%\tools\Mining_Signals\refinery_orders.json" 2>nul
+
 :: Global cleanup — remove all __pycache__, .pytest_cache, and tests/ dirs
 echo  [*] Cleaning staging directory...
 powershell -Command "Get-ChildItem -Path '%STAGE%' -Recurse -Directory -Force | Where-Object { $_.Name -in @('__pycache__','.pytest_cache','tests') } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue"
