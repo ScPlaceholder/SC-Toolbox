@@ -1,0 +1,483 @@
+{
+  "owned": {
+    "BP_CRAFT_kap_combat_light_helmet_01_01_01|fe6ecbc9-a063-4c1c-9249-d3203aa08619": {
+      "guid": "9ad2c193-7246-4a14-a79d-642e0854fb13",
+      "tag": "BP_CRAFT_kap_combat_light_helmet_01_01_01",
+      "productEntityClass": "fe6ecbc9-a063-4c1c-9249-d3203aa08619",
+      "type": "armour",
+      "subtype": "stealth",
+      "tiers": [
+        {
+          "craftTimeSeconds": 150,
+          "slots": [
+            {
+              "name": "Segment Paneling",
+              "options": [
+                {
+                  "type": "resource",
+                  "quantity": 0.02,
+                  "minQuality": 0,
+                  "resourceName": "Taranite"
+                }
+              ],
+              "modifiers": [
+                {
+                  "startQuality": 0,
+                  "endQuality": 1000,
+                  "modifierAtStart": 0.9,
+                  "modifierAtEnd": 1.1,
+                  "propertyName": "Damage Mitigation",
+                  "propertyKey": "armor_damagemitigation"
+                }
+              ]
+            },
+            {
+              "name": "Insulative Liner",
+              "options": [
+                {
+                  "type": "resource",
+                  "quantity": 0.01,
+                  "minQuality": 0,
+                  "resourceName": "Aslarite"
+                }
+              ],
+              "modifiers": [
+                {
+                  "startQuality": 0,
+                  "endQuality": 1000,
+                  "modifierAtStart": 0.8,
+                  "modifierAtEnd": 1.2,
+                  "propertyName": "Max Temp",
+                  "propertyKey": "armor_temperaturemax"
+                },
+                {
+                  "startQuality": 0,
+                  "endQuality": 1000,
+                  "modifierAtStart": 0.8,
+                  "modifierAtEnd": 1.2,
+                  "propertyName": "Min Temp",
+                  "propertyKey": "armor_temperaturemin"
+                }
+              ]
+            },
+            {
+              "name": "Panel Covering",
+              "options": [
+                {
+                  "type": "resource",
+                  "quantity": 0.02,
+                  "minQuality": 0,
+                  "resourceName": "Stileron"
+                }
+              ],
+              "modifiers": [
+                {
+                  "startQuality": 0,
+                  "endQuality": 1000,
+                  "modifierAtStart": 0.95,
+                  "modifierAtEnd": 1.05,
+                  "propertyName": "Damage Mitigation",
+                  "propertyKey": "armor_damagemitigation"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "productName": "Geist Armor Helmet"
+    },
+    "BP_CRAFT_kap_combat_light_legs_01_01_01|7cc3a072-0145-459e-b76e-1401f7e6dfc6": {
+      "guid": "73ded5e4-44c7-4eb0-a293-87a0e785b1da",
+      "tag": "BP_CRAFT_kap_combat_light_legs_01_01_01",
+      "productEntityClass": "7cc3a072-0145-459e-b76e-1401f7e6dfc6",
+      "type": "armour",
+      "subtype": "stealth",
+      "tiers": [
+        {
+          "craftTimeSeconds": 150,
+          "slots": [
+            {
+              "name": "Segment Paneling",
+              "options": [
+                {
+                  "type": "resource",
+                  "quantity": 0.03,
+                  "minQuality": 0,
+                  "resourceName": "Taranite"
+                }
+              ],
+              "modifiers": [
+                {
+                  "startQuality": 0,
+                  "endQuality": 1000,
+                  "modifierAtStart": 0.9,
+                  "modifierAtEnd": 1.1,
+                  "propertyName": "Damage Mitigation",
+                  "propertyKey": "armor_damagemitigation"
+                }
+              ]
+            },
+            {
+              "name": "Insulative Liner",
+              "options": [
+                {
+                  "type": "resource",
+                  "quantity": 0.02,
+                  "minQuality": 0,
+                  "resourceName": "Aslarite"
+                }
+              ],
+              "modifiers": [
+                {
+                  "startQuality": 0,
+                  "endQuality": 1000,
+                  "modifierAtStart": 0.8,
+                  "modifierAtEnd": 1.2,
+                  "propertyName": "Max Temp",
+                  "propertyKey": "armor_temperaturemax"
+                },
+                {
+                  "startQuality": 0,
+                  "endQuality": 1000,
+                  "modifierAtStart": 0.8,
+                  "modifierAtEnd": 1.2,
+                  "propertyName": "Min Temp",
+                  "propertyKey": "armor_temperaturemin"
+                }
+              ]
+            },
+            {
+              "name": "Panel Covering",
+              "options": [
+                {
+                  "type": "resource",
+                  "quantity": 0.03,
+                  "minQuality": 0,
+                  "resourceName": "Stileron"
+                }
+              ],
+              "modifiers": [
+                {
+                  "startQuality": 0,
+                  "endQuality": 1000,
+                  "modifierAtStart": 0.95,
+                  "modifierAtEnd": 1.05,
+                  "propertyName": "Damage Mitigation",
+                  "propertyKey": "armor_damagemitigation"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "productName": "Geist Armor Legs"
+    },
+    "BP_CRAFT_volt_lmg_energy_01_tint01|dc6043c9-6080-4e03-b95b-6ab79c736215": {
+      "guid": "b0b3fdea-eb1a-46e8-bdf8-9662f0e7c997",
+      "tag": "BP_CRAFT_volt_lmg_energy_01_tint01",
+      "productEntityClass": "dc6043c9-6080-4e03-b95b-6ab79c736215",
+      "type": "weapons",
+      "subtype": "lmg",
+      "tiers": [
+        {
+          "craftTimeSeconds": 270,
+          "slots": [
+            {
+              "name": "Frame",
+              "options": [
+                {
+                  "type": "resource",
+                  "quantity": 0.06,
+                  "minQuality": 0,
+                  "resourceName": "Tungsten"
+                }
+              ],
+              "modifiers": [
+                {
+                  "startQuality": 0,
+                  "endQuality": 1000,
+                  "modifierAtStart": 1.4,
+                  "modifierAtEnd": 0.6,
+                  "propertyName": "Recoil Smoothness",
+                  "propertyKey": "weapon_recoil_smoothness"
+                },
+                {
+                  "startQuality": 0,
+                  "endQuality": 1000,
+                  "modifierAtStart": 1.4,
+                  "modifierAtEnd": 0.6,
+                  "propertyName": "Recoil Handling",
+                  "propertyKey": "weapon_recoil_handling"
+                },
+                {
+                  "startQuality": 0,
+                  "endQuality": 1000,
+                  "modifierAtStart": 1.4,
+                  "modifierAtEnd": 0.6,
+                  "propertyName": "Recoil Kick",
+                  "propertyKey": "weapon_recoil_kick"
+                }
+              ]
+            },
+            {
+              "name": "Cabling",
+              "options": [
+                {
+                  "type": "resource",
+                  "quantity": 0.02,
+                  "minQuality": 0,
+                  "resourceName": "Gold"
+                }
+              ],
+              "modifiers": [
+                {
+                  "startQuality": 0,
+                  "endQuality": 1000,
+                  "modifierAtStart": 0.9,
+                  "modifierAtEnd": 1.1,
+                  "propertyName": "Impact Force",
+                  "propertyKey": "weapon_damage"
+                }
+              ]
+            },
+            {
+              "name": "Power Regulator",
+              "options": [
+                {
+                  "type": "item",
+                  "quantity": 1,
+                  "minQuality": 0,
+                  "modifiers": null,
+                  "itemName": "Janalite"
+                }
+              ],
+              "modifiers": [
+                {
+                  "startQuality": 0,
+                  "endQuality": 1000,
+                  "modifierAtStart": 0.9,
+                  "modifierAtEnd": 1.1,
+                  "propertyName": "Impact Force",
+                  "propertyKey": "weapon_damage"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "productName": "Fresnel \"Molten\" Energy LMG"
+    },
+    "BP_CRAFT_klwe_pistol_energy_01_green01|20d6478d-2cf5-4fe7-8f24-4d29e2ae1b88": {
+      "guid": "685cd29c-0308-48fe-bebc-859806afad5d",
+      "tag": "BP_CRAFT_klwe_pistol_energy_01_green01",
+      "productEntityClass": "20d6478d-2cf5-4fe7-8f24-4d29e2ae1b88",
+      "type": "weapons",
+      "subtype": "pistol",
+      "tiers": [
+        {
+          "craftTimeSeconds": 90,
+          "slots": [
+            {
+              "name": "Frame",
+              "options": [
+                {
+                  "type": "resource",
+                  "quantity": 0.02,
+                  "minQuality": 0,
+                  "resourceName": "Lindinium"
+                }
+              ],
+              "modifiers": [
+                {
+                  "startQuality": 0,
+                  "endQuality": 1000,
+                  "modifierAtStart": 1.4,
+                  "modifierAtEnd": 0.6,
+                  "propertyName": "Recoil Smoothness",
+                  "propertyKey": "weapon_recoil_smoothness"
+                },
+                {
+                  "startQuality": 0,
+                  "endQuality": 1000,
+                  "modifierAtStart": 1.4,
+                  "modifierAtEnd": 0.6,
+                  "propertyName": "Recoil Handling",
+                  "propertyKey": "weapon_recoil_handling"
+                },
+                {
+                  "startQuality": 0,
+                  "endQuality": 1000,
+                  "modifierAtStart": 1.4,
+                  "modifierAtEnd": 0.6,
+                  "propertyName": "Recoil Kick",
+                  "propertyKey": "weapon_recoil_kick"
+                }
+              ]
+            },
+            {
+              "name": "Wiring",
+              "options": [
+                {
+                  "type": "resource",
+                  "quantity": 0.01,
+                  "minQuality": 0,
+                  "resourceName": "Copper"
+                }
+              ],
+              "modifiers": [
+                {
+                  "startQuality": 0,
+                  "endQuality": 1000,
+                  "modifierAtStart": 0.88,
+                  "modifierAtEnd": 1.12,
+                  "propertyName": "Fire Rate",
+                  "propertyKey": "weapon_firerate"
+                }
+              ]
+            },
+            {
+              "name": "Lenses",
+              "options": [
+                {
+                  "type": "item",
+                  "quantity": 4,
+                  "minQuality": 0,
+                  "modifiers": null,
+                  "itemName": "Dolivine"
+                }
+              ],
+              "modifiers": [
+                {
+                  "startQuality": 0,
+                  "endQuality": 1000,
+                  "modifierAtStart": 0.925,
+                  "modifierAtEnd": 1.075,
+                  "propertyName": "Impact Force",
+                  "propertyKey": "weapon_damage"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "productName": "Arclight \"Warhawk\" Pistol"
+    },
+    "BP_CRAFT_volt_sniper_energy_01_tint01|7e37741d-8090-48b3-ab84-b60fd138761d": {
+      "guid": "d7b36a9b-cf60-49a4-b822-a6271e8a7323",
+      "tag": "BP_CRAFT_volt_sniper_energy_01_tint01",
+      "productEntityClass": "7e37741d-8090-48b3-ab84-b60fd138761d",
+      "type": "weapons",
+      "subtype": "sniper",
+      "tiers": [
+        {
+          "craftTimeSeconds": 210,
+          "slots": [
+            {
+              "name": "Frame",
+              "options": [
+                {
+                  "type": "resource",
+                  "quantity": 0.06,
+                  "minQuality": 0,
+                  "resourceName": "Taranite"
+                }
+              ],
+              "modifiers": [
+                {
+                  "startQuality": 0,
+                  "endQuality": 1000,
+                  "modifierAtStart": 1.4,
+                  "modifierAtEnd": 0.6,
+                  "propertyName": "Recoil Smoothness",
+                  "propertyKey": "weapon_recoil_smoothness"
+                },
+                {
+                  "startQuality": 0,
+                  "endQuality": 1000,
+                  "modifierAtStart": 1.4,
+                  "modifierAtEnd": 0.6,
+                  "propertyName": "Recoil Handling",
+                  "propertyKey": "weapon_recoil_handling"
+                },
+                {
+                  "startQuality": 0,
+                  "endQuality": 1000,
+                  "modifierAtStart": 1.4,
+                  "modifierAtEnd": 0.6,
+                  "propertyName": "Recoil Kick",
+                  "propertyKey": "weapon_recoil_kick"
+                }
+              ]
+            },
+            {
+              "name": "Cabling",
+              "options": [
+                {
+                  "type": "resource",
+                  "quantity": 0.02,
+                  "minQuality": 0,
+                  "resourceName": "Gold"
+                }
+              ],
+              "modifiers": [
+                {
+                  "startQuality": 0,
+                  "endQuality": 1000,
+                  "modifierAtStart": 0.94,
+                  "modifierAtEnd": 1.06,
+                  "propertyName": "Impact Force",
+                  "propertyKey": "weapon_damage"
+                }
+              ]
+            },
+            {
+              "name": "Power Regulator",
+              "options": [
+                {
+                  "type": "item",
+                  "quantity": 1,
+                  "minQuality": 0,
+                  "modifiers": null,
+                  "itemName": "Janalite"
+                }
+              ],
+              "modifiers": [
+                {
+                  "startQuality": 0,
+                  "endQuality": 1000,
+                  "modifierAtStart": 0.9,
+                  "modifierAtEnd": 1.1,
+                  "propertyName": "Impact Force",
+                  "propertyKey": "weapon_damage"
+                }
+              ]
+            },
+            {
+              "name": "Precision Parts",
+              "options": [
+                {
+                  "type": "item",
+                  "quantity": 1,
+                  "minQuality": 0,
+                  "modifiers": null,
+                  "itemName": "Sadaryx"
+                }
+              ],
+              "modifiers": [
+                {
+                  "startQuality": 0,
+                  "endQuality": 1000,
+                  "modifierAtStart": 0.96,
+                  "modifierAtEnd": 1.04,
+                  "propertyName": "Impact Force",
+                  "propertyKey": "weapon_damage"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "productName": "Zenith \"Darkwave\" Laser Sniper Rifle"
+    }
+  }
+}

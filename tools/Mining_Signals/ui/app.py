@@ -1779,7 +1779,10 @@ class MiningSignalsApp(SCWindow):
             self._refinery_monitor.stop()
             self._refinery_monitor = None
 
-        game_dir = self._config.get("game_dir", "")
+        # Use `or ""` so a null value in the shipped sanitized config
+        # falls back to empty string — dict.get("game_dir", "") would
+        # return None since the key is present with value null.
+        game_dir = self._config.get("game_dir") or ""
         if not game_dir:
             self._refinery_status.setText("No game directory set — click 'Set Log Path'.")
             return

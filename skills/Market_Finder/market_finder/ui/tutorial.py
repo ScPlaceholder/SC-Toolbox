@@ -132,9 +132,26 @@ _TABS = [
 
 
 class TutorialBubble(QWidget):
-    """Floating, draggable tutorial popup for Market Finder."""
+    """Floating, draggable tutorial popup for Market Finder.
+
+    Singleton: a second call just raises the existing window.
+    """
+
+    _instance: "TutorialBubble | None" = None
+
+    def __new__(cls, parent: QWidget | None = None):
+        if cls._instance is not None and cls._instance.isVisible():
+            cls._instance.raise_()
+            cls._instance.activateWindow()
+            return cls._instance
+        instance = super().__new__(cls)
+        cls._instance = instance
+        return instance
 
     def __init__(self, parent: QWidget | None = None) -> None:
+        if getattr(self, "_initialised", False):
+            return
+        self._initialised = True
         super().__init__(
             parent,
             Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint,
@@ -246,6 +263,11 @@ class TutorialBubble(QWidget):
             self.move(max(0, x), max(0, y))
 
         self.show()
+
+    def closeEvent(self, event):
+        TutorialBubble._instance = None
+        self._initialised = False
+        super().closeEvent(event)
 
     # Drag support
     def mousePressEvent(self, event):

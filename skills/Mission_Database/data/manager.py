@@ -37,6 +37,7 @@ class MissionDataManager:
         self.scopes: dict = {}
         self.availability_pools: list = []
         self.faction_rewards_pools: list = []
+        self.resource_pools: dict = {}
         self.partial_reward_pools: list = []
 
         # Derived lookups
@@ -216,6 +217,7 @@ class MissionDataManager:
         """Fetch crafting_blueprints and crafting_items JSONs for the current version."""
         with self._lock:
             if self.crafting_loading:
+                log.debug("load_crafting: already in progress, skipping")
                 return
             self.crafting_loading = True
 
@@ -230,7 +232,7 @@ class MissionDataManager:
         def _run():
             try:
                 bp_data = api.fetch_crafting_blueprints(ver)
-                items_data = api.fetch_crafting_items(ver)
+                items_data = api.fetch_crafting_items(ver) if bp_data else None
 
                 # Build all data in local variables first
                 _blueprints = bp_data.get("blueprints", []) if bp_data else []
@@ -363,6 +365,7 @@ class MissionDataManager:
             self.scopes = indexed["scopes"]
             self.availability_pools = indexed["availability_pools"]
             self.faction_rewards_pools = indexed["faction_rewards_pools"]
+            self.resource_pools = indexed["resource_pools"]
             self.partial_reward_pools = indexed["partial_reward_pools"]
             self.faction_by_guid = indexed["faction_by_guid"]
             self.all_categories = indexed["all_categories"]

@@ -110,16 +110,28 @@ class MissionsPage(QWidget):
         # Category
         section("CATEGORY")
         self._cat_btns = {}
-        cat_row = QHBoxLayout()
-        cat_row.setContentsMargins(8, 0, 8, 2)
-        for cat in ["career", "story"]:
+        cat_row1 = QHBoxLayout()
+        cat_row1.setContentsMargins(8, 0, 8, 2)
+        for cat in ["career", "story", "wikelo", "asd"]:
             btn = self._make_toggle_btn(cat.title(), "category", cat)
-            cat_row.addWidget(btn)
-        cat_row.addStretch(1)
-        w = QWidget()
-        w.setStyleSheet("background: transparent;")
-        w.setLayout(cat_row)
-        sb.addWidget(w)
+            cat_row1.addWidget(btn)
+        cat_row1.addStretch(1)
+        w1 = QWidget()
+        w1.setStyleSheet("background: transparent;")
+        w1.setLayout(cat_row1)
+        sb.addWidget(w1)
+
+        cat_row2 = QHBoxLayout()
+        cat_row2.setContentsMargins(8, 0, 8, 2)
+        bp_btn = self._make_toggle_btn("\U0001f527 Blueprints", "category", "blueprints")
+        cat_row2.addWidget(bp_btn)
+        ace_btn = self._make_toggle_btn("ACE", "category", "ace")
+        cat_row2.addWidget(ace_btn)
+        cat_row2.addStretch(1)
+        w2 = QWidget()
+        w2.setStyleSheet("background: transparent;")
+        w2.setLayout(cat_row2)
+        sb.addWidget(w2)
 
         # System
         section("STAR SYSTEM")
@@ -137,14 +149,14 @@ class MissionsPage(QWidget):
 
         # Mission type
         section("MISSION TYPE")
-        self._type_combo = SCFuzzyCombo(placeholder="All types")
+        self._type_combo = SCFuzzyCombo(placeholder="All types", max_visible=25)
         self._type_combo.addItem("All types")
         self._type_combo.currentIndexChanged.connect(lambda _: self.on_filter_change())
         sb.addWidget(self._type_combo)
 
         # Faction
         section("FACTION")
-        self._faction_combo = SCFuzzyCombo(placeholder="All factions")
+        self._faction_combo = SCFuzzyCombo(placeholder="All factions", max_visible=25)
         self._faction_combo.addItem("All factions")
         self._faction_combo.currentIndexChanged.connect(lambda _: self.on_filter_change())
         sb.addWidget(self._faction_combo)
@@ -169,7 +181,7 @@ class MissionsPage(QWidget):
         self._sharing = "all"
         shr_row = QHBoxLayout()
         shr_row.setContentsMargins(8, 0, 8, 2)
-        self._shr_btns = {}
+        self._sha_btns = {}
         for val, text in [("all", "All"), ("sharable", "Sharable"), ("solo", "Solo")]:
             btn = self._make_radio_btn(text, "sharing", val)
             shr_row.addWidget(btn)
@@ -181,10 +193,10 @@ class MissionsPage(QWidget):
 
         # Availability
         section("AVAILABILITY")
-        self._avail = "all"
+        self._availability = "all"
         av_row = QHBoxLayout()
         av_row.setContentsMargins(8, 0, 8, 2)
-        self._avail_btns = {}
+        self._ava_btns = {}
         for val, text in [("all", "All"), ("unique", "Unique"), ("repeatable", "Repeatable")]:
             btn = self._make_radio_btn(text, "availability", val)
             av_row.addWidget(btn)
@@ -196,11 +208,49 @@ class MissionsPage(QWidget):
 
         # Rank
         section("RANK INDEX")
-        self._rank_slider = QSlider(Qt.Horizontal)
-        self._rank_slider.setRange(0, 6)
-        self._rank_slider.setValue(6)
-        self._rank_slider.valueChanged.connect(lambda _: self.on_filter_change())
-        sb.addWidget(self._rank_slider)
+        rank_w = QWidget()
+        rank_w.setStyleSheet("background: transparent;")
+        rank_lay = QVBoxLayout(rank_w)
+        rank_lay.setContentsMargins(8, 0, 8, 2)
+        rank_lay.setSpacing(2)
+
+        # Min rank row
+        min_row = QHBoxLayout()
+        min_row.setSpacing(4)
+        min_lbl = QLabel("Min")
+        min_lbl.setStyleSheet(f"font-family: Consolas; font-size: 8pt; color: {P.fg_dim}; background: transparent;")
+        min_lbl.setFixedWidth(28)
+        min_row.addWidget(min_lbl)
+        self._rank_min_slider = QSlider(Qt.Horizontal)
+        self._rank_min_slider.setRange(0, 6)
+        self._rank_min_slider.setValue(0)
+        self._rank_min_slider.valueChanged.connect(self._on_rank_min_changed)
+        min_row.addWidget(self._rank_min_slider)
+        self._rank_min_label = QLabel("0")
+        self._rank_min_label.setFixedWidth(16)
+        self._rank_min_label.setStyleSheet(f"font-family: Consolas; font-size: 8pt; color: {P.accent}; background: transparent;")
+        min_row.addWidget(self._rank_min_label)
+        rank_lay.addLayout(min_row)
+
+        # Max rank row
+        max_row = QHBoxLayout()
+        max_row.setSpacing(4)
+        max_lbl = QLabel("Max")
+        max_lbl.setStyleSheet(f"font-family: Consolas; font-size: 8pt; color: {P.fg_dim}; background: transparent;")
+        max_lbl.setFixedWidth(28)
+        max_row.addWidget(max_lbl)
+        self._rank_max_slider = QSlider(Qt.Horizontal)
+        self._rank_max_slider.setRange(0, 6)
+        self._rank_max_slider.setValue(6)
+        self._rank_max_slider.valueChanged.connect(self._on_rank_max_changed)
+        max_row.addWidget(self._rank_max_slider)
+        self._rank_max_label = QLabel("6")
+        self._rank_max_label.setFixedWidth(16)
+        self._rank_max_label.setStyleSheet(f"font-family: Consolas; font-size: 8pt; color: {P.accent}; background: transparent;")
+        max_row.addWidget(self._rank_max_label)
+        rank_lay.addLayout(max_row)
+
+        sb.addWidget(rank_w)
 
         # Reward range
         section("REWARD UEC")
@@ -270,12 +320,24 @@ class MissionsPage(QWidget):
         if group == "legality":
             self._leg_btns[value] = btn
         elif group == "sharing":
-            self._shr_btns[value] = btn
+            self._sha_btns[value] = btn
         elif group == "availability":
-            self._avail_btns[value] = btn
+            self._ava_btns[value] = btn
         return btn
 
     # ── Public API ──
+
+    def _on_rank_min_changed(self, val):
+        self._rank_min_label.setText(str(val))
+        if val > self._rank_max_slider.value():
+            self._rank_max_slider.setValue(val)
+        self.on_filter_change()
+
+    def _on_rank_max_changed(self, val):
+        self._rank_max_label.setText(str(val))
+        if val < self._rank_min_slider.value():
+            self._rank_min_slider.setValue(val)
+        self.on_filter_change()
 
     def populate_dropdowns(self):
         self._type_combo.clear()
@@ -354,8 +416,9 @@ class MissionsPage(QWidget):
             factions=factions,
             legality="" if self._legality == "all" else self._legality,
             sharing="" if self._sharing == "all" else self._sharing,
-            availability="" if self._avail == "all" else self._avail,
-            rank_max=self._rank_slider.value(),
+            availability="" if self._availability == "all" else self._availability,
+            rank_min=self._rank_min_slider.value(),
+            rank_max=self._rank_max_slider.value(),
             reward_min=reward_min,
             reward_max=reward_max,
         )
@@ -382,9 +445,9 @@ class MissionsPage(QWidget):
         self._faction_combo.setCurrentIndex(0)
         self._legality = "all"
         self._sharing = "all"
-        self._avail = "all"
+        self._availability = "all"
         # Reset radio button styles
-        for group_name, btns in [("leg", self._leg_btns), ("shr", self._shr_btns), ("avail", self._avail_btns)]:
+        for group_name, btns in [("leg", self._leg_btns), ("sha", self._sha_btns), ("ava", self._ava_btns)]:
             for v, b in btns.items():
                 active = v == "all"
                 b.setStyleSheet(f"""
@@ -393,7 +456,8 @@ class MissionsPage(QWidget):
                                   font-family: Consolas; font-size: 8pt; padding: 2px 6px; }}
                     QPushButton:hover {{ color: {P.fg}; }}
                 """)
-        self._rank_slider.setValue(6)
+        self._rank_min_slider.setValue(0)
+        self._rank_max_slider.setValue(6)
         self._reward_min.setText("0")
         self._reward_max.setText("9999999")
         self.on_filter_change()

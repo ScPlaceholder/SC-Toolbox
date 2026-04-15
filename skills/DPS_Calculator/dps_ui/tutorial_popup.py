@@ -77,9 +77,26 @@ def _build_tab(widgets: list[QWidget]) -> QScrollArea:
 
 
 class TutorialPopup(QDialog):
-    """Multi-tab tutorial popup for the DPS Calculator.  Draggable."""
+    """Multi-tab tutorial popup for the DPS Calculator.  Draggable.
+
+    Singleton: a second call just raises the existing window.
+    """
+
+    _instance: "TutorialPopup | None" = None
+
+    def __new__(cls, parent=None):
+        if cls._instance is not None and cls._instance.isVisible():
+            cls._instance.raise_()
+            cls._instance.activateWindow()
+            return cls._instance
+        instance = super().__new__(cls)
+        cls._instance = instance
+        return instance
 
     def __init__(self, parent=None):
+        if getattr(self, "_initialised", False):
+            return
+        self._initialised = True
         super().__init__(parent)
         self.setWindowFlags(
             Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
@@ -304,6 +321,11 @@ class TutorialPopup(QDialog):
             event.accept()
         else:
             super().mouseReleaseEvent(event)
+
+    def closeEvent(self, event):
+        TutorialPopup._instance = None
+        self._initialised = False
+        super().closeEvent(event)
 
     def show_relative_to(self, widget: QWidget) -> None:
         """Position the popup near *widget*, then show (non-modal)."""

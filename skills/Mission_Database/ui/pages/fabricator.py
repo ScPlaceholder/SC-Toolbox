@@ -4,7 +4,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QPushButton,
-    QScrollArea,
+    QScrollArea, QSlider, QSpinBox,
 )
 
 from shared.qt.theme import P
@@ -26,10 +26,12 @@ _ALL_SUBTYPES = sorted(set().union(*_SUBTYPES_BY_TYPE.values()))
 class FabricatorPage(QWidget):
     """Fabricator page with sidebar filters and blueprint card grid."""
 
-    def __init__(self, parent, data_mgr):
+    def __init__(self, parent, data_mgr, on_open_detail=None):
         super().__init__(parent)
         self._data = data_mgr
         self._fab_all_results = []
+        self._on_open_detail = on_open_detail
+        self._global_quality = 750
         self._build()
 
     def _build(self):
@@ -177,8 +179,41 @@ class FabricatorPage(QWidget):
         right.setContentsMargins(0, 0, 0, 0)
         right.setSpacing(0)
 
+        # Global quality control bar
+        qbar = QWidget()
+        qbar.setFixedHeight(32)
+        qbar.setStyleSheet(f"background: {P.bg_primary};")
+        qbar_l = QHBoxLayout(qbar)
+        qbar_l.setContentsMargins(10, 4, 10, 4)
+        qbar_l.setSpacing(8)
+        qlbl = QLabel("GLOBAL QUALITY")
+        qlbl.setStyleSheet(f"font-family: Consolas; font-size: 8pt; font-weight: bold; color: {P.accent}; background: transparent;")
+        qbar_l.addWidget(qlbl)
+        self._q_slider = QSlider(Qt.Horizontal)
+        self._q_slider.setRange(0, 1000)
+        self._q_slider.setValue(self._global_quality)
+        self._q_slider.setFixedWidth(240)
+        self._q_slider.setStyleSheet(
+            f"QSlider::groove:horizontal {{ background: {P.bg_input}; height: 4px; border-radius: 2px; }}"
+            f"QSlider::handle:horizontal {{ background: {P.accent}; width: 12px; margin: -4px 0; border-radius: 6px; }}"
+        )
+        self._q_slider.valueChanged.connect(self._on_global_quality_changed)
+        qbar_l.addWidget(self._q_slider)
+        self._q_spin = QSpinBox()
+        self._q_spin.setRange(0, 1000)
+        self._q_spin.setValue(self._global_quality)
+        self._q_spin.setFixedWidth(64)
+        self._q_spin.setStyleSheet(
+            f"QSpinBox {{ background: {P.bg_input}; color: {P.fg}; border: 1px solid {P.border};"
+            f" font-family: Consolas; font-size: 9pt; padding: 1px 3px; }}"
+        )
+        self._q_spin.valueChanged.connect(self._on_global_quality_spin)
+        qbar_l.addWidget(self._q_spin)
+        qbar_l.addStretch(1)
+        right.addWidget(qbar)
+
         self._count_label = QLabel("Loading crafting data...")
-        self._count_label.setFixedHeight(28)
+        self._count_label.setFixedHeight(24)
         self._count_label.setStyleSheet(f"font-family: Consolas; font-size: 9pt; color: {P.fg_dim}; padding-left: 10px; background: {P.bg_primary};")
         right.addWidget(self._count_label)
 
@@ -348,6 +383,24 @@ class FabricatorPage(QWidget):
 
         card.set_data(name, bp_type.title(), type_color, type_fg, bp_sub, res_text, time_text)
 
+    def _on_global_quality_changed(self, val: int):
+        self._global_quality = val
+        if self._q_spin.value() != val:
+            self._q_spin.blockSignals(True)
+            self._q_spin.setValue(val)
+            self._q_spin.blockSignals(False)
+
+    def _on_global_quality_spin(self, val: int):
+        self._global_quality = val
+        if self._q_slider.value() != val:
+            self._q_slider.blockSignals(True)
+            self._q_slider.setValue(val)
+            self._q_slider.blockSignals(False)
+
     def _on_fab_click(self, bp, idx):
+        if self._on_open_detail is not None:
+            self._on_open_detail(bp, self._global_quality)
+            return
         from ui.modals.blueprint_detail import BlueprintDetailModal
-        BlueprintDetailModal(self.window(), bp, self._data)
+        BlueprintDetailModal(self.window(), bp, self._data,
+                             initial_quality=self._global_quality)

@@ -46,6 +46,7 @@ def index_contracts(data: dict) -> dict:
     scopes = data.get("scopes", {})
     availability_pools = data.get("availabilityPools", [])
     faction_rewards_pools = data.get("factionRewardsPools", [])
+    resource_pools = data.get("resourcePools", {})
     partial_reward_pools = data.get("partialRewardPayoutPools", [])
 
     # Build faction GUID lookup
@@ -88,6 +89,7 @@ def index_contracts(data: dict) -> dict:
         "scopes": scopes,
         "availability_pools": availability_pools,
         "faction_rewards_pools": faction_rewards_pools,
+        "resource_pools": resource_pools,
         "partial_reward_pools": partial_reward_pools,
         "faction_by_guid": faction_by_guid,
         "all_categories": sorted(cats),

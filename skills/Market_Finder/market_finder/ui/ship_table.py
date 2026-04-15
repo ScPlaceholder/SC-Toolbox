@@ -104,7 +104,7 @@ class ShipTable(QWidget):
             ColumnDef("Ship", "name", width=180, fg_color=P.fg),
             ColumnDef("Manufacturer", "company_name", width=120, fg_color=P.fg_dim),
             ColumnDef("Size", "pad_type", width=45, fg_color=P.fg_dim),
-            ColumnDef("Buy Price", "_best_buy_str", width=80, fg_color=P.green),
+            ColumnDef("Buy Price", "_best_buy", width=80, fg_color=P.green, fmt=lambda v: _fmt_num(v)),
             ColumnDef("SCU", "scu", width=50, fg_color=P.accent, fmt=lambda v: _fmt_num(v)),
             ColumnDef("Crew", "crew", width=45, fg_color=P.fg_dim, fmt=lambda v: str(v) if v else "\u2014"),
             ColumnDef("QT Fuel", "fuel_quantum", width=55, fg_color=P.fg_dim, fmt=lambda v: _fmt_num(v)),
@@ -180,7 +180,7 @@ class ShipTable(QWidget):
         # Annotate with best buy price string for display
         for v in items:
             best = self._get_best_buy(v)
-            v["_best_buy_str"] = _fmt_num(best) if best else "\u2014"
+            v["_best_buy"] = best
 
         self._filtered = items
         self._count_lbl.setText(f"{len(items)} ships")

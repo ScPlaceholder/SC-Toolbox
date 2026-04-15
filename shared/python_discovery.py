@@ -111,12 +111,20 @@ def find_python(*, force_refresh: bool = False) -> Optional[str]:
     if _cache_checked and not force_refresh:
         return _cached_python
 
+    # Bundled Python is guaranteed to have PySide6 — trust it without probing.
+    # Running a subprocess probe against it can fail silently on AV-heavy machines
+    # (the import triggers a scan, the 8-second timeout expires, find_python returns
+    # None, and Launch silently does nothing).
+    _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _bundled = os.path.normcase(os.path.join(_project_root, "python", "python.exe"))
+
     for exe in _candidate_paths():
         if "WindowsApps" in exe:
             continue
         if not os.path.isfile(exe):
             continue
-        if _has_pyside6(exe):
+        # Skip the PySide6 probe for the bundled interpreter — it is guaranteed valid
+        if os.path.normcase(exe) == _bundled or _has_pyside6(exe):
             log.info("Python discovery: using %s", exe)
             _cached_python = exe
             _cache_checked = True

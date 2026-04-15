@@ -1,0 +1,519 @@
+{
+  "foreman_name": "Foreman",
+  "foreman_pos": {
+    "x": 632.1524999999999,
+    "y": 67.22499999999998
+  },
+  "foreman_ships": [
+    {
+      "loadout_path": "C:\\Users\\prjgn\\Documents\\SC Loadouts\\consumes.json",
+      "ship_name": "consumes",
+      "ship_type": "MOLE",
+      "crew": [],
+      "_pos": {
+        "x": 281.9200624999999,
+        "y": 189.20970625
+      },
+      "model_crew": 0,
+      "unique_id": "f27f7108",
+      "mothership_id": "",
+      "strike_group": ""
+    },
+    {
+      "loadout_path": "",
+      "ship_name": "Polaris (Mothership)",
+      "ship_type": "Mothership",
+      "crew": [],
+      "_pos": {
+        "x": 783.0825,
+        "y": 290.80000000000007
+      },
+      "model_crew": 12,
+      "unique_id": "bf5b971c",
+      "mothership_id": "",
+      "strike_group": ""
+    },
+    {
+      "loadout_path": "",
+      "ship_name": "Perseus",
+      "ship_type": "Escort",
+      "crew": [
+        "fred",
+        "test",
+        "bla"
+      ],
+      "_pos": {
+        "x": 704.6666249999997,
+        "y": 494.9293750000001
+      },
+      "model_crew": 7,
+      "unique_id": "c80d76be",
+      "mothership_id": "bf5b971c",
+      "strike_group": "Strike Group 1"
+    },
+    {
+      "loadout_path": "C:\\Users\\prjgn\\Documents\\SC Loadouts\\mining_golem.json",
+      "ship_name": "mining_golem",
+      "ship_type": "Golem",
+      "crew": [],
+      "_pos": {
+        "x": 704.6666249999997,
+        "y": 554.9293750000002
+      },
+      "model_crew": 0,
+      "unique_id": "0a1a6674",
+      "mothership_id": "bf5b971c",
+      "strike_group": "Strike Group 1"
+    },
+    {
+      "loadout_path": "C:\\Users\\prjgn\\Documents\\SC Loadouts\\consumes.json",
+      "ship_name": "consumes",
+      "ship_type": "MOLE",
+      "crew": [],
+      "_pos": {
+        "x": 704.6666249999997,
+        "y": 614.9293750000002
+      },
+      "model_crew": 0,
+      "unique_id": "c4151048",
+      "mothership_id": "bf5b971c",
+      "strike_group": "Strike Group 1"
+    },
+    {
+      "loadout_path": "C:\\Users\\prjgn\\Documents\\SC Loadouts\\mining_golem.json",
+      "ship_name": "mining_golem",
+      "ship_type": "Golem",
+      "crew": [],
+      "_pos": {
+        "x": 700.6439106249996,
+        "y": 674.9293750000002
+      },
+      "model_crew": 0,
+      "unique_id": "7726d73c",
+      "mothership_id": "bf5b971c",
+      "strike_group": "Strike Group 1"
+    },
+    {
+      "loadout_path": "",
+      "ship_name": "Perseus",
+      "ship_type": "Escort",
+      "crew": [
+        "frank"
+      ],
+      "_pos": {
+        "x": 1097.83,
+        "y": 721.7
+      },
+      "model_crew": 7,
+      "unique_id": "0c8ffb60",
+      "mothership_id": "bf5b971c",
+      "strike_group": "Strike Group 2"
+    },
+    {
+      "loadout_path": "C:\\Users\\prjgn\\Documents\\SC Loadouts\\consumes.json",
+      "ship_name": "consumes",
+      "ship_type": "MOLE",
+      "crew": [],
+      "_pos": {
+        "x": 1097.83,
+        "y": 781.7
+      },
+      "model_crew": 0,
+      "unique_id": "6295140d",
+      "mothership_id": "bf5b971c",
+      "strike_group": "Strike Group 2"
+    },
+    {
+      "loadout_path": "C:\\Users\\prjgn\\Documents\\SC Loadouts\\consumes.json",
+      "ship_name": "consumes",
+      "ship_type": "MOLE",
+      "crew": [],
+      "_pos": {
+        "x": 1097.83,
+        "y": 841.7
+      },
+      "model_crew": 0,
+      "unique_id": "5b4808ed",
+      "mothership_id": "bf5b971c",
+      "strike_group": "Strike Group 2"
+    },
+    {
+      "loadout_path": "C:\\Users\\prjgn\\Documents\\SC Loadouts\\mining_prospector_default.json",
+      "ship_name": "mining_prospector_default",
+      "ship_type": "Prospector",
+      "crew": [],
+      "_pos": {
+        "x": 632.1524999999999,
+        "y": 777.2249999999999
+      },
+      "model_crew": 0,
+      "unique_id": "aab44c57",
+      "mothership_id": "",
+      "strike_group": ""
+    },
+    {
+      "loadout_path": "C:\\Users\\prjgn\\Documents\\SC Loadouts\\mining_prospector Hof.json",
+      "ship_name": "mining_prospector Hof",
+      "ship_type": "Prospector",
+      "crew": [
+        "asdasdasdasdasdsad"
+      ],
+      "_pos": {
+        "x": 1097.83,
+        "y": 901.7
+      },
+      "model_crew": 0,
+      "unique_id": "c3b5ffea",
+      "mothership_id": "bf5b971c",
+      "strike_group": "Strike Group 2"
+    }
+  ],
+  "teams": [
+    {
+      "name": "lucy's Team",
+      "leader": "lucy",
+      "ships": [
+        {
+          "loadout_path": "C:\\Users\\prjgn\\Documents\\SC Loadouts\\mining_mole.json",
+          "ship_name": "mining_mole",
+          "ship_type": "MOLE",
+          "crew": [
+            "lucy",
+            "ascsacasc",
+            "ascsasca",
+            "ascascsa"
+          ],
+          "_pos": {
+            "x": 193.38574999999986,
+            "y": 535.9326249999999
+          },
+          "model_crew": 0,
+          "unique_id": "0993a1db",
+          "mothership_id": "",
+          "strike_group": ""
+        },
+        {
+          "loadout_path": "C:\\Users\\prjgn\\Documents\\SC Loadouts\\consumes.json",
+          "ship_name": "consumes",
+          "ship_type": "MOLE",
+          "crew": [
+            "adcac",
+            "asdascc",
+            "ascasc",
+            "csacasc"
+          ],
+          "_pos": {
+            "x": 190.12074999999987,
+            "y": 609.3276250000001
+          },
+          "model_crew": 0,
+          "unique_id": "b94cbad4",
+          "mothership_id": "",
+          "strike_group": ""
+        },
+        {
+          "loadout_path": "C:\\Users\\prjgn\\Documents\\SC Loadouts\\mining_mole.json",
+          "ship_name": "mining_mole",
+          "ship_type": "MOLE",
+          "crew": [
+            "asdsads",
+            "asd",
+            "cascascsac",
+            "ascacvv"
+          ],
+          "_pos": {
+            "x": 190.12074999999987,
+            "y": 679.3276250000001
+          },
+          "model_crew": 0,
+          "unique_id": "2d2e5b2e",
+          "mothership_id": "",
+          "strike_group": ""
+        },
+        {
+          "loadout_path": "C:\\Users\\prjgn\\Documents\\SC Loadouts\\mining_mole.json",
+          "ship_name": "mining_mole",
+          "ship_type": "MOLE",
+          "crew": [
+            "asdasdasda",
+            "asdasdasd",
+            "assadsdas"
+          ],
+          "_pos": {
+            "x": 190.12074999999987,
+            "y": 749.3276250000001
+          },
+          "model_crew": 0,
+          "unique_id": "00712331",
+          "mothership_id": "",
+          "strike_group": ""
+        }
+      ],
+      "_pos": {
+        "x": 190.12074999999987,
+        "y": 459.327625
+      },
+      "parent_leader": "",
+      "cluster": "A"
+    },
+    {
+      "name": "frank's Team",
+      "leader": "frank",
+      "ships": [
+        {
+          "loadout_path": "",
+          "ship_name": "Hauling Ship 1",
+          "ship_type": "Hauling",
+          "crew": [],
+          "_pos": {
+            "x": 105.53199374999986,
+            "y": 960.3696749999995
+          },
+          "model_crew": 0,
+          "unique_id": "1d73d55f",
+          "mothership_id": "",
+          "strike_group": ""
+        },
+        {
+          "loadout_path": "",
+          "ship_name": "Perseus (Escort)",
+          "ship_type": "Escort",
+          "crew": [],
+          "_pos": {
+            "x": 339.7707499999998,
+            "y": 946.227625
+          },
+          "model_crew": 7,
+          "unique_id": "27a4bcec",
+          "mothership_id": "",
+          "strike_group": ""
+        }
+      ],
+      "_pos": {
+        "x": 91.37074999999982,
+        "y": 821.527625
+      },
+      "parent_leader": "lucy",
+      "cluster": ""
+    },
+    {
+      "name": "test's Team",
+      "leader": "test",
+      "ships": [
+        {
+          "loadout_path": "C:\\Users\\prjgn\\Documents\\SC Loadouts\\mining_prospector.json",
+          "ship_name": "mining_prospector",
+          "ship_type": "Prospector",
+          "crew": [],
+          "_pos": {
+            "x": 1347.8425,
+            "y": 344.99
+          },
+          "model_crew": 0,
+          "unique_id": "94ad2ec3",
+          "mothership_id": "",
+          "strike_group": ""
+        },
+        {
+          "loadout_path": "C:\\Users\\prjgn\\Documents\\SC Loadouts\\mining_golem.json",
+          "ship_name": "mining_golem",
+          "ship_type": "Golem",
+          "crew": [],
+          "_pos": {
+            "x": 1357.7425,
+            "y": 520.8399999999999
+          },
+          "model_crew": 0,
+          "unique_id": "170a49d2",
+          "mothership_id": "",
+          "strike_group": ""
+        },
+        {
+          "loadout_path": "",
+          "ship_name": "Starfarer (Refuel)",
+          "ship_type": "Refuel",
+          "crew": [],
+          "_pos": {
+            "x": 1346.8171691871455,
+            "y": 417.7436862003781
+          },
+          "model_crew": 8,
+          "unique_id": "db25032e",
+          "mothership_id": "",
+          "strike_group": ""
+        }
+      ],
+      "_pos": {
+        "x": 1292.4925,
+        "y": 240.44000000000005
+      },
+      "parent_leader": "",
+      "cluster": "E"
+    }
+  ],
+  "players": [
+    {
+      "name": "bla",
+      "is_leader": false,
+      "profession": ""
+    },
+    {
+      "name": "fred",
+      "is_leader": false,
+      "profession": ""
+    },
+    {
+      "name": "test",
+      "is_leader": true,
+      "profession": ""
+    },
+    {
+      "name": "frank",
+      "is_leader": true,
+      "profession": ""
+    },
+    {
+      "name": "lucy",
+      "is_leader": true,
+      "profession": ""
+    },
+    {
+      "name": "asdasdasdasdasdsad",
+      "is_leader": false,
+      "profession": ""
+    },
+    {
+      "name": "asd",
+      "is_leader": false,
+      "profession": ""
+    },
+    {
+      "name": "asdsads",
+      "is_leader": false,
+      "profession": ""
+    },
+    {
+      "name": "assadsdas",
+      "is_leader": false,
+      "profession": ""
+    },
+    {
+      "name": "asdasdasd",
+      "is_leader": false,
+      "profession": "Box Monkey"
+    },
+    {
+      "name": "asdasdasda",
+      "is_leader": false,
+      "profession": "Box Monkey"
+    },
+    {
+      "name": "adcac",
+      "is_leader": false,
+      "profession": ""
+    },
+    {
+      "name": "cascascsac",
+      "is_leader": false,
+      "profession": "Miner"
+    },
+    {
+      "name": "ascacvv",
+      "is_leader": false,
+      "profession": ""
+    },
+    {
+      "name": "asdascc",
+      "is_leader": false,
+      "profession": ""
+    },
+    {
+      "name": "csacasc",
+      "is_leader": false,
+      "profession": ""
+    },
+    {
+      "name": "ascasc",
+      "is_leader": false,
+      "profession": ""
+    },
+    {
+      "name": "ascsacasc",
+      "is_leader": false,
+      "profession": ""
+    },
+    {
+      "name": "ascsasca",
+      "is_leader": false,
+      "profession": ""
+    },
+    {
+      "name": "ascascsa",
+      "is_leader": false,
+      "profession": ""
+    }
+  ],
+  "fleet_support_ships": [
+    {
+      "name": "Hauling Ship 1",
+      "support_type": "Hauling",
+      "ship_model": "",
+      "model_crew": 2
+    },
+    {
+      "name": "Polaris",
+      "support_type": "Mothership",
+      "ship_model": "Polaris",
+      "model_crew": 12
+    },
+    {
+      "name": "Starfarer",
+      "support_type": "Refuel",
+      "ship_model": "Starfarer",
+      "model_crew": 8
+    },
+    {
+      "name": "Perseus",
+      "support_type": "Escort",
+      "ship_model": "Perseus",
+      "model_crew": 7
+    }
+  ],
+  "unassigned_ships": [
+    {
+      "loadout_path": "C:\\Users\\prjgn\\Documents\\SC Loadouts\\mining_prospector Hof.json",
+      "ship_name": "mining_prospector Hof",
+      "ship_type": "Prospector",
+      "crew": [],
+      "_pos": {
+        "x": 629.0,
+        "y": 482.0
+      },
+      "model_crew": 0,
+      "unique_id": "5aa85b08",
+      "mothership_id": "",
+      "strike_group": ""
+    }
+  ],
+  "assigned_user": "asdasdasdasdasdsad",
+  "strike_groups": [
+    {
+      "name": "Strike Group 1",
+      "mothership_id": "bf5b971c",
+      "leader": "bla",
+      "_pos": {
+        "x": 704.6666249999997,
+        "y": 446.9293750000001
+      }
+    },
+    {
+      "name": "Strike Group 2",
+      "mothership_id": "bf5b971c",
+      "leader": "",
+      "_pos": {
+        "x": 1097.83,
+        "y": 673.7
+      }
+    }
+  ]
+}

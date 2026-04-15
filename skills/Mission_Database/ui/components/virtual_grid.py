@@ -9,7 +9,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable, List, Optional
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import Qt, QTimer, Signal, QMimeData, QPoint
+from PySide6.QtGui import QDrag, QPixmap
 from PySide6.QtWidgets import (
     QFrame, QGridLayout, QHBoxLayout, QLabel, QScrollArea,
     QSizePolicy, QVBoxLayout, QWidget, QScrollBar,
@@ -168,15 +169,55 @@ class MissionCard(QFrame):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            if self._on_click and self._data is not None:
-                try:
-                    self._on_click(self._data, self._index)
-                except Exception:
-                    log.exception("[Card] click handler failed for index=%s", self._index)
-            else:
-                log.warning("[Card] click ignored: on_click=%s, data=%s, index=%s",
-                            bool(self._on_click), self._data is not None, self._index)
+            # Store press position + snapshot of data for potential drag
+            self._press_pos = event.pos()
+            self._press_data = self._data
+            self._press_index = self._index
         super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if (event.buttons() & Qt.LeftButton
+                and hasattr(self, '_press_pos') and self._press_pos is not None
+                and self._press_data is not None):
+            dist = (event.pos() - self._press_pos).manhattanLength()
+            if dist >= 12:  # drag threshold
+                self._start_drag()
+                self._press_pos = None
+                return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if (event.button() == Qt.LeftButton
+                and hasattr(self, '_press_pos') and self._press_pos is not None):
+            # Still near start position → it's a click, not a drag
+            if self._on_click and self._press_data is not None:
+                try:
+                    self._on_click(self._press_data, self._press_index)
+                except Exception:
+                    log.exception("[Card] click handler failed for index=%s", self._press_index)
+            self._press_pos = None
+        super().mouseReleaseEvent(event)
+
+    def _start_drag(self):
+        """Initiate a QDrag with a pixmap snapshot of this card."""
+        data = self._press_data
+        if data is None:
+            return
+        pixmap = self.grab()  # snapshot before card might be recycled
+        drag = QDrag(self)
+        mime = QMimeData()
+        # Store a reference — QMimeData can't hold arbitrary Python objects
+        # so we use a custom format and stash the data on the drag object
+        mime.setData("application/x-sctoolbox-card", b"1")
+        drag.setMimeData(mime)
+        drag.setPixmap(pixmap.scaled(
+            pixmap.width() // 2, pixmap.height() // 2,
+            Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        drag.setHotSpot(QPoint(drag.pixmap().width() // 2,
+                               drag.pixmap().height() // 2))
+        # Stash the Python object so drop targets can retrieve it
+        drag.setProperty("drag_item", data)
+        drag.exec(Qt.MoveAction)
 
 
 class FabCard(MissionCard):
@@ -195,6 +236,34 @@ class FabCard(MissionCard):
         self._bottom_lbl.setStyleSheet(
             f"color: {P.fg_dim}; font-size: 9pt; background: transparent;"
         )
+        # Reset folder styling if previously used as a folder card
+        self.setStyleSheet(_CARD_SS)
+
+    def set_folder_data(self, folder_name: str, bp_count: int,
+                        subfolder_count: int) -> None:
+        """Render this card as a folder entry."""
+        self.clear_tags()
+        self._title_lbl.setText(f"\U0001f4c1  {folder_name}")
+        count_parts = []
+        if bp_count:
+            count_parts.append(f"{bp_count} blueprint{'s' if bp_count != 1 else ''}")
+        if subfolder_count:
+            count_parts.append(f"{subfolder_count} folder{'s' if subfolder_count != 1 else ''}")
+        self._desc_lbl.setText("  \u2022  ".join(count_parts) if count_parts else "Empty")
+        self._bottom_lbl.setText("")
+        self._bottom_lbl.setStyleSheet(
+            f"color: {P.fg_dim}; font-size: 9pt; background: transparent;"
+        )
+        self.setStyleSheet(f"""
+            QFrame#mcard {{
+                background-color: {P.bg_secondary};
+                border: 1px solid {P.yellow};
+                border-radius: 3px;
+            }}
+            QFrame#mcard:hover {{
+                border-color: {P.fg};
+            }}
+        """)
 
     def clear_content(self):
         """Reset for recycling."""
@@ -211,6 +280,9 @@ class FabCard(MissionCard):
 
 # ── Virtual Scroll Grid ─────────────────────────────────────────────────────
 
+_MIME_TYPE = "application/x-sctoolbox-card"
+
+
 class VirtualScrollGrid(QWidget):
     """True virtualized scrollable grid of cards.
 
@@ -219,6 +291,9 @@ class VirtualScrollGrid(QWidget):
     detached and reused for newly-visible rows. This keeps the widget
     count at ~30-50 regardless of total item count.
     """
+
+    # Emitted when a card is dropped onto another card (dragged_item, target_item)
+    card_dropped = Signal(object, object)
 
     def __init__(
         self,
@@ -230,6 +305,7 @@ class VirtualScrollGrid(QWidget):
         card_class: type = MissionCard,
     ):
         super().__init__(parent)
+        self.setAcceptDrops(True)
         self._card_width = card_width
         self._row_height = row_height
         self._fill_fn = fill_fn
@@ -376,6 +452,99 @@ class VirtualScrollGrid(QWidget):
                 card.setVisible(False)
                 self._pool.append(card)
         self._visible_cards.clear()
+
+    # ── Drag-and-drop support ─────────────────────────────────────────────
+
+    def _card_at_container_pos(self, pos):
+        """Return the card (and its data) under *pos* in container coords."""
+        for row_cards in self._visible_cards.values():
+            for card in row_cards:
+                if card.isVisible() and card.geometry().contains(pos):
+                    return card
+        return None
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasFormat(_MIME_TYPE):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        if not event.mimeData().hasFormat(_MIME_TYPE):
+            event.ignore()
+            return
+        event.acceptProposedAction()
+        # Highlight folder card under cursor
+        container_pos = self._container.mapFrom(self, event.position().toPoint())
+        card = self._card_at_container_pos(container_pos)
+        # Reset previous highlight
+        if hasattr(self, '_drag_highlight') and self._drag_highlight is not None:
+            old = self._drag_highlight
+            # Re-fill original style
+            if old.isVisible() and old._data is not None and self._fill_fn:
+                idx = old._index
+                try:
+                    self._fill_fn(old, old._data, idx)
+                except Exception:
+                    pass
+            self._drag_highlight = None
+
+        if card is not None and card._data is not None:
+            # Only highlight folder cards
+            if isinstance(card._data, dict) and card._data.get("_is_folder"):
+                card.setStyleSheet(f"""
+                    QFrame#mcard {{
+                        background-color: #1a3030;
+                        border: 2px solid {P.accent};
+                        border-radius: 3px;
+                    }}
+                """)
+                self._drag_highlight = card
+
+    def dragLeaveEvent(self, event):
+        if hasattr(self, '_drag_highlight') and self._drag_highlight is not None:
+            card = self._drag_highlight
+            if card.isVisible() and card._data is not None and self._fill_fn:
+                try:
+                    self._fill_fn(card, card._data, card._index)
+                except Exception:
+                    pass
+            self._drag_highlight = None
+        event.accept()
+
+    def dropEvent(self, event):
+        if not event.mimeData().hasFormat(_MIME_TYPE):
+            event.ignore()
+            return
+        # Clean up highlight
+        if hasattr(self, '_drag_highlight') and self._drag_highlight is not None:
+            card = self._drag_highlight
+            if card.isVisible() and card._data is not None and self._fill_fn:
+                try:
+                    self._fill_fn(card, card._data, card._index)
+                except Exception:
+                    pass
+            self._drag_highlight = None
+
+        # Resolve dragged item from the QDrag object
+        source = event.source()
+        dragged_item = None
+        if source is not None:
+            # Walk up to find the QDrag's property
+            drag = source  # source is the widget that started the drag
+            # The data was stashed via mousePressEvent → _press_data
+            dragged_item = getattr(source, '_press_data', None)
+
+        # Resolve target card
+        container_pos = self._container.mapFrom(self, event.position().toPoint())
+        target_card = self._card_at_container_pos(container_pos)
+        target_item = target_card._data if target_card is not None else None
+
+        if dragged_item is not None and target_item is not None:
+            self.card_dropped.emit(dragged_item, target_item)
+            event.acceptProposedAction()
+        else:
+            event.ignore()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

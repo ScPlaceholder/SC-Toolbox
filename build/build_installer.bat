@@ -433,6 +433,23 @@ if !errorlevel!==0 (
     set "VALIDATION_OK=0"
 )
 
+:: Smoke test: catch the class of bug that shipped in v2.2.1 —
+:: code like `config.get("ledger_file", default)` returns None
+:: when the shipped config has `"ledger_file": null`, because the
+:: key is present. That None later crashed os.path.isfile(None).
+:: The safe pattern is `config.get(...) or default`.
+:: Scan all staged .py files for the buggy pattern on null-able
+:: keys.
+echo  [*] Smoke-testing config null-handling...
+findstr /R /S /C:"config\.get(\"ledger_file\"," /C:"config\.get(\"game_dir\"," /C:"config\.get('ledger_file'," /C:"config\.get('game_dir'," "%STAGE%\tools\Mining_Signals\*.py" "%STAGE%\tools\Mining_Signals\ui\*.py" "%STAGE%\tools\Mining_Signals\services\*.py" "%STAGE%\tools\Mining_Signals\ocr\*.py" 2>nul
+if !errorlevel!==0 (
+    echo  [!] SMOKE TEST FAILED — found `config.get("<nullable_key>", default^)` pattern.
+    echo      Use `config.get(...^) or default` instead so null values fall back.
+    set "VALIDATION_OK=0"
+) else (
+    echo  [OK] No buggy config.get-with-default patterns found.
+)
+
 if "!VALIDATION_OK!"=="0" (
     echo.
     echo  [!] Staging validation FAILED — see errors above.

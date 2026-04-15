@@ -204,7 +204,13 @@ class MissionDetailModal(ModalBase):
                 if not isinstance(ho, dict):
                     continue
                 res_obj = ho.get("resource")
-                res = res_obj.get("name", "Unknown cargo") if isinstance(res_obj, dict) else str(res_obj or "Unknown cargo")
+                if isinstance(res_obj, dict):
+                    res = res_obj.get("name", "Unknown cargo")
+                elif isinstance(res_obj, str) and res_obj:
+                    pool_entry = self._data.resource_pools.get(res_obj, {})
+                    res = pool_entry.get("name", res_obj) if isinstance(pool_entry, dict) else str(res_obj)
+                else:
+                    res = "Unknown cargo"
                 mn = ho.get("minSCU", 0)
                 mx = ho.get("maxSCU", 0)
                 self._info(lay, f"  {res}: {mn}\u2013{mx} SCU", P.orange)

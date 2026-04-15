@@ -440,14 +440,12 @@ class MarketFinderApp(SCWindow):
 
         is_rental = self._current_tab == "Rentals"
         is_ships = self._current_tab == "Ships"
-
-        self._item_table.setVisible(not is_rental and not is_ships)
-        self._rental_table.setVisible(is_rental)
-        self._ship_table.setVisible(is_ships)
-
         query = self._search_bar.text().lower().strip()
 
         if is_rental:
+            self._item_table.hide()
+            self._ship_table.hide()
+            self._rental_table.show()
             vehicles = self.data.vehicles
             if query:
                 vehicles = [
@@ -457,6 +455,9 @@ class MarketFinderApp(SCWindow):
                 ]
             self._rental_table.set_vehicles(vehicles)
         elif is_ships:
+            self._item_table.hide()
+            self._rental_table.hide()
+            self._ship_table.show()
             vehicles = self.data.vehicles
             if query:
                 vehicles = [
@@ -467,8 +468,26 @@ class MarketFinderApp(SCWindow):
                 ]
             self._ship_table.set_vehicles(vehicles)
         else:
+            self._rental_table.hide()
             filtered = self._get_filtered_items()
             self._item_table.set_items(filtered)
+            self._item_table.show()
+
+            # Auto-populate ship results when query matches vehicles
+            if query:
+                matching_vehicles = [
+                    v for v in self.data.vehicles
+                    if query in (v.get("name") or "").lower()
+                    or query in (v.get("name_full") or "").lower()
+                    or query in (v.get("company_name") or "").lower()
+                ]
+                if matching_vehicles:
+                    self._ship_table.set_vehicles(matching_vehicles)
+                    self._ship_table.show()
+                else:
+                    self._ship_table.hide()
+            else:
+                self._ship_table.hide()
 
     def _get_filtered_items(self) -> list[dict]:
         tab = self._current_tab
@@ -516,6 +535,14 @@ class MarketFinderApp(SCWindow):
                 matches.append(it)
                 if len(matches) >= 30:
                     break
+        # Include vehicles/ships in search results
+        for v in self.data.vehicles:
+            if (query in (v.get("name") or "").lower()
+                    or query in (v.get("name_full") or "").lower()
+                    or query in (v.get("company_name") or "").lower()):
+                matches.append({**v, "_is_vehicle": True})
+                if len(matches) >= 40:
+                    break
         return matches
 
     def _show_bubble(self, results: list[dict]) -> None:
@@ -533,9 +560,13 @@ class MarketFinderApp(SCWindow):
 
     def _on_bubble_select(self, item: dict) -> None:
         self._dismiss_bubble()
-        tab = item_tab(item)
-        self._select_tab(tab)
-        self._detail_panel.show_item(item)
+        if item.get("_is_vehicle"):
+            self._select_tab("Ships")
+            self._detail_panel.show_ship(item)
+        else:
+            tab = item_tab(item)
+            self._select_tab(tab)
+            self._detail_panel.show_item(item)
 
     # -- Item / ship selection -----------------------------------------------
 

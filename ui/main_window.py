@@ -24,7 +24,7 @@ from shared.qt.base_window import SCWindow
 from shared.qt.title_bar import SCTitleBar
 from shared.qt.hud_widgets import HUDPanel, GlowEffect
 from shared.qt.animated_button import SCButton
-from shared.update_checker import UpdateResult, check_for_updates_async
+from shared.update_checker import UpdateResult, check_for_updates_async, get_current_version
 from ui.tiles import SkillTile, build_tile_grid
 from ui.settings_panel import SettingsPopup
 
@@ -361,19 +361,45 @@ class LauncherWindow(SCWindow):
         # ── Title bar ──
         self._title_bar = SCTitleBar(
             window=self,
-            title="SC Toolbox",
+            title=f"SC Toolbox  v{get_current_version()}",
             icon_text="",
             accent_color=P.accent,
             hotkey_text=get_hotkey_display(launcher_hotkey),
             show_minimize=True,
-            extra_buttons=[
-                (_t("GITHUB"), lambda: webbrowser.open("https://github.com/ScPlaceholder/SC-Toolbox")),
-                (_t("UPDATE"), self._check_for_updates),
-            ],
         )
         self._title_bar.minimize_clicked.connect(self.showMinimized)
         self._title_bar.close_clicked.connect(self._on_close)
         self.content_layout.addWidget(self._title_bar)
+
+        # ── Button bar (GITHUB / UPDATE) ──
+        btn_bar = QWidget(self)
+        btn_bar.setFixedHeight(26)
+        btn_bar.setStyleSheet(f"background-color: {P.bg_deepest};")
+        btn_bar_layout = QHBoxLayout(btn_bar)
+        btn_bar_layout.setContentsMargins(10, 2, 10, 2)
+        btn_bar_layout.setSpacing(6)
+        btn_bar_layout.addStretch(1)
+        for label, cb in [
+            (_t("GITHUB"), lambda: webbrowser.open("https://github.com/ScPlaceholder/SC-Toolbox")),
+            (_t("UPDATE"), self._check_for_updates),
+        ]:
+            b = QPushButton(label, btn_bar)
+            b.setCursor(Qt.PointingHandCursor)
+            b.setStyleSheet(f"""
+                QPushButton {{
+                    font-family: Consolas, monospace;
+                    font-size: 7pt; font-weight: bold;
+                    color: {P.accent};
+                    background: transparent;
+                    border: 1px solid {P.accent};
+                    border-radius: 3px;
+                    padding: 1px 8px;
+                }}
+                QPushButton:hover {{ background: rgba(68,170,255,0.15); }}
+            """)
+            b.clicked.connect(cb)
+            btn_bar_layout.addWidget(b)
+        self.content_layout.addWidget(btn_bar)
 
         # ── Header info bar ──
         self._header = header = QWidget(self)

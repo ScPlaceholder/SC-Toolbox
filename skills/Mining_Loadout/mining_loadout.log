@@ -1154,3 +1154,353 @@
 2026-04-03 07:15:02 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='— No Laser —' slots=2 combos=3 containers=3
 2026-04-03 07:15:02 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='— No Laser —' slots=2 combos=3 containers=3
 2026-04-03 07:15:02 [INFO ] MiningLoadout — Data loaded: 17 lasers, 26 modules, 6 gadgets
+2026-04-04 16:05:28 [INFO ] MiningLoadout — ============================================================
+2026-04-04 16:05:28 [INFO ] MiningLoadout — Mining Loadout starting — Python 3.14.2
+2026-04-04 16:05:28 [INFO ] MiningLoadout — Script: C:\Users\prjgn\AppData\Roaming\ShipBit\WingmanAI\custom_skills\SC_Toolbox_Beta_V1.2\skills\Mining_Loadout\controllers\app_controller.py
+2026-04-04 16:05:28 [INFO ] MiningLoadout — Args: x=100 y=100 w=1300 h=800 opacity=0.9490196078431372 cmd_file=C:\Users\prjgn\AppData\Local\Temp\sc_toolbox_mining_46740_1.jsonl
+2026-04-04 16:05:30 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-04 16:05:30 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-04 16:05:30 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-04 16:05:31 [INFO ] MiningLoadout — Window shown
+2026-04-04 16:05:31 [INFO ] MiningLoadout.api — Fetching mining data from UEX API...
+2026-04-04 16:05:34 [INFO ] MiningLoadout.api — Fetched 17 lasers, 26 modules, 6 gadgets
+2026-04-04 16:05:34 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-04 16:05:34 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-04 16:05:34 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-04 16:05:34 [INFO ] MiningLoadout — Data loaded: 17 lasers, 26 modules, 6 gadgets
+2026-04-05 19:23:49 [INFO ] MiningLoadout — ============================================================
+2026-04-05 19:23:49 [INFO ] MiningLoadout — Mining Loadout starting — Python 3.14.2
+2026-04-05 19:23:49 [INFO ] MiningLoadout — Script: C:\Users\prjgn\AppData\Roaming\ShipBit\WingmanAI\custom_skills\SC_Toolbox_Beta_V1.2\skills\Mining_Loadout\controllers\app_controller.py
+2026-04-05 19:23:49 [INFO ] MiningLoadout — Args: x=100 y=100 w=1300 h=800 opacity=0.9490196078431372 cmd_file=C:\Users\prjgn\AppData\Local\Temp\sc_toolbox_mining_21792_1.jsonl
+2026-04-05 19:23:50 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 19:23:50 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 19:23:50 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 19:23:50 [INFO ] MiningLoadout — Window shown
+2026-04-05 19:23:51 [INFO ] MiningLoadout.api — Fetching mining data from UEX API...
+2026-04-05 19:23:51 [DEBUG] MiningLoadout.api — Cache hit: items/id_category/29
+2026-04-05 19:23:51 [DEBUG] MiningLoadout.api — Cache hit: items/id_category/30
+2026-04-05 19:23:51 [DEBUG] MiningLoadout.api — Cache hit: items/id_category/28
+2026-04-05 19:23:51 [DEBUG] MiningLoadout.api — Cache hit: items_attributes/id_category/29
+2026-04-05 19:23:51 [DEBUG] MiningLoadout.api — Cache hit: items_attributes/id_category/30
+2026-04-05 19:23:51 [DEBUG] MiningLoadout.api — Cache hit: items_attributes/id_category/28
+2026-04-05 19:23:51 [DEBUG] MiningLoadout.api — Cache hit: items_prices/id_category/29
+2026-04-05 19:23:51 [DEBUG] MiningLoadout.api — Cache hit: items_prices/id_category/30
+2026-04-05 19:23:51 [DEBUG] MiningLoadout.api — Cache hit: items_prices/id_category/28
+2026-04-05 19:23:51 [INFO ] MiningLoadout.api — Fetched 17 lasers, 26 modules, 6 gadgets
+2026-04-05 19:23:51 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 19:23:51 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 19:23:51 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 19:23:51 [INFO ] MiningLoadout — Data loaded: 17 lasers, 26 modules, 6 gadgets
+2026-04-05 19:23:52 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='Arbor MH1 Mining Laser' slots=1 combos=3 containers=3
+2026-04-05 19:23:52 [INFO ] MiningLoadout — Ship changed to Prospector
+2026-04-05 19:23:59 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='Arbor MH1 Mining Laser' slots=1 combos=3 containers=3
+2026-04-05 19:24:08 [INFO ] MiningLoadout — Loadout saved to C:/Users/prjgn/Documents/SC Loadouts/mining_prospector.json
+2026-04-05 19:24:09 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-05 19:24:09 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-05 19:24:09 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-05 19:24:09 [INFO ] MiningLoadout — Ship changed to MOLE
+2026-04-05 19:24:13 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-05 19:24:13 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-05 19:24:13 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-05 19:24:14 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-05 19:24:14 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-05 19:24:14 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-05 19:24:15 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-05 19:24:15 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-05 19:24:15 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-05 19:24:17 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-05 19:24:17 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-05 19:24:17 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-05 19:24:18 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-05 19:24:18 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-05 19:24:18 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-05 19:24:19 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-05 19:24:19 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-05 19:24:19 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-05 19:24:28 [INFO ] MiningLoadout — Loadout saved to C:/Users/prjgn/Documents/SC Loadouts/mining_mole.json
+2026-04-05 19:24:29 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='Pitman Mining Laser' slots=2 combos=3 containers=3
+2026-04-05 19:24:29 [INFO ] MiningLoadout — Ship changed to Golem
+2026-04-05 19:24:31 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='Lancet MH1 Mining Laser' slots=1 combos=3 containers=3
+2026-04-05 19:24:34 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='Pitman Mining Laser' slots=2 combos=3 containers=3
+2026-04-05 19:24:43 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='Pitman Mining Laser' slots=2 combos=3 containers=3
+2026-04-05 19:24:46 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='Pitman Mining Laser' slots=2 combos=3 containers=3
+2026-04-05 19:24:52 [INFO ] MiningLoadout — Loadout saved to C:/Users/prjgn/Documents/SC Loadouts/mining_golem.json
+2026-04-05 19:25:17 [DEBUG] MiningLoadout — IPC: {'type': 'quit'}
+2026-04-05 19:26:05 [INFO ] MiningLoadout — ============================================================
+2026-04-05 19:26:05 [INFO ] MiningLoadout — Mining Loadout starting — Python 3.14.2
+2026-04-05 19:26:05 [INFO ] MiningLoadout — Script: C:\Users\prjgn\AppData\Roaming\ShipBit\WingmanAI\custom_skills\SC_Toolbox_Beta_V1.2\skills\Mining_Loadout\controllers\app_controller.py
+2026-04-05 19:26:05 [INFO ] MiningLoadout — Args: x=100 y=100 w=1300 h=800 opacity=0.9490196078431372 cmd_file=C:\Users\prjgn\AppData\Local\Temp\sc_toolbox_mining_89500_1.jsonl
+2026-04-05 19:26:06 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 19:26:06 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 19:26:06 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 19:26:06 [INFO ] MiningLoadout — Window shown
+2026-04-05 19:26:07 [INFO ] MiningLoadout.api — Fetching mining data from UEX API...
+2026-04-05 19:26:07 [DEBUG] MiningLoadout.api — Cache hit: items/id_category/29
+2026-04-05 19:26:07 [DEBUG] MiningLoadout.api — Cache hit: items/id_category/30
+2026-04-05 19:26:07 [DEBUG] MiningLoadout.api — Cache hit: items/id_category/28
+2026-04-05 19:26:07 [DEBUG] MiningLoadout.api — Cache hit: items_attributes/id_category/29
+2026-04-05 19:26:07 [DEBUG] MiningLoadout.api — Cache hit: items_attributes/id_category/30
+2026-04-05 19:26:07 [DEBUG] MiningLoadout.api — Cache hit: items_attributes/id_category/28
+2026-04-05 19:26:07 [DEBUG] MiningLoadout.api — Cache hit: items_prices/id_category/29
+2026-04-05 19:26:07 [DEBUG] MiningLoadout.api — Cache hit: items_prices/id_category/30
+2026-04-05 19:26:07 [DEBUG] MiningLoadout.api — Cache hit: items_prices/id_category/28
+2026-04-05 19:26:07 [INFO ] MiningLoadout.api — Fetched 17 lasers, 26 modules, 6 gadgets
+2026-04-05 19:26:07 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 19:26:07 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 19:26:07 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 19:26:07 [INFO ] MiningLoadout — Data loaded: 17 lasers, 26 modules, 6 gadgets
+2026-04-05 19:27:33 [DEBUG] MiningLoadout — IPC: {'type': 'quit'}
+2026-04-05 19:34:16 [INFO ] MiningLoadout — ============================================================
+2026-04-05 19:34:16 [INFO ] MiningLoadout — Mining Loadout starting — Python 3.14.2
+2026-04-05 19:34:16 [INFO ] MiningLoadout — Script: C:\Users\prjgn\AppData\Roaming\ShipBit\WingmanAI\custom_skills\SC_Toolbox_Beta_V1.2\skills\Mining_Loadout\controllers\app_controller.py
+2026-04-05 19:34:16 [INFO ] MiningLoadout — Args: x=100 y=100 w=1300 h=800 opacity=0.9490196078431372 cmd_file=C:\Users\prjgn\AppData\Local\Temp\sc_toolbox_mining_47324_1.jsonl
+2026-04-05 19:34:17 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 19:34:17 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 19:34:17 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 19:34:17 [INFO ] MiningLoadout — Window shown
+2026-04-05 19:34:17 [INFO ] MiningLoadout.api — Fetching mining data from UEX API...
+2026-04-05 19:34:17 [DEBUG] MiningLoadout.api — Cache hit: items/id_category/29
+2026-04-05 19:34:17 [DEBUG] MiningLoadout.api — Cache hit: items/id_category/30
+2026-04-05 19:34:17 [DEBUG] MiningLoadout.api — Cache hit: items/id_category/28
+2026-04-05 19:34:17 [DEBUG] MiningLoadout.api — Cache hit: items_attributes/id_category/29
+2026-04-05 19:34:17 [DEBUG] MiningLoadout.api — Cache hit: items_attributes/id_category/30
+2026-04-05 19:34:17 [DEBUG] MiningLoadout.api — Cache hit: items_attributes/id_category/28
+2026-04-05 19:34:17 [DEBUG] MiningLoadout.api — Cache hit: items_prices/id_category/29
+2026-04-05 19:34:17 [DEBUG] MiningLoadout.api — Cache hit: items_prices/id_category/30
+2026-04-05 19:34:17 [DEBUG] MiningLoadout.api — Cache hit: items_prices/id_category/28
+2026-04-05 19:34:17 [INFO ] MiningLoadout.api — Fetched 17 lasers, 26 modules, 6 gadgets
+2026-04-05 19:34:17 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 19:34:17 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 19:34:17 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 19:34:17 [INFO ] MiningLoadout — Data loaded: 17 lasers, 26 modules, 6 gadgets
+2026-04-05 19:34:24 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-05 19:34:24 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-05 19:34:24 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-05 19:34:24 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-05 19:34:24 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-05 19:34:24 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-05 19:34:24 [INFO ] MiningLoadout — Loadout loaded from C:/Users/prjgn/Documents/SC Loadouts/mining_mole.json
+2026-04-05 19:35:09 [DEBUG] MiningLoadout — IPC: {'type': 'hide'}
+2026-04-05 19:35:09 [DEBUG] MiningLoadout — IPC: {'type': 'show'}
+2026-04-05 19:35:31 [DEBUG] MiningLoadout — IPC: {'type': 'quit'}
+2026-04-05 19:38:15 [INFO ] MiningLoadout — ============================================================
+2026-04-05 19:38:15 [INFO ] MiningLoadout — Mining Loadout starting — Python 3.14.2
+2026-04-05 19:38:15 [INFO ] MiningLoadout — Script: C:\Users\prjgn\AppData\Roaming\ShipBit\WingmanAI\custom_skills\SC_Toolbox_Beta_V1.2\skills\Mining_Loadout\controllers\app_controller.py
+2026-04-05 19:38:15 [INFO ] MiningLoadout — Args: x=100 y=100 w=1300 h=800 opacity=0.9490196078431372 cmd_file=C:\Users\prjgn\AppData\Local\Temp\sc_toolbox_mining_26676_1.jsonl
+2026-04-05 19:38:17 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 19:38:17 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 19:38:17 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 19:38:17 [INFO ] MiningLoadout — Window shown
+2026-04-05 19:38:17 [DEBUG] MiningLoadout — IPC: {'type': 'hide'}
+2026-04-05 19:38:17 [DEBUG] MiningLoadout — IPC: {'type': 'show'}
+2026-04-05 19:38:18 [INFO ] MiningLoadout.api — Fetching mining data from UEX API...
+2026-04-05 19:38:18 [DEBUG] MiningLoadout.api — Cache hit: items/id_category/29
+2026-04-05 19:38:18 [DEBUG] MiningLoadout.api — Cache hit: items/id_category/30
+2026-04-05 19:38:18 [DEBUG] MiningLoadout.api — Cache hit: items/id_category/28
+2026-04-05 19:38:18 [DEBUG] MiningLoadout.api — Cache hit: items_attributes/id_category/29
+2026-04-05 19:38:18 [DEBUG] MiningLoadout.api — Cache hit: items_attributes/id_category/30
+2026-04-05 19:38:18 [DEBUG] MiningLoadout.api — Cache hit: items_attributes/id_category/28
+2026-04-05 19:38:18 [DEBUG] MiningLoadout.api — Cache hit: items_prices/id_category/29
+2026-04-05 19:38:18 [DEBUG] MiningLoadout.api — Cache hit: items_prices/id_category/30
+2026-04-05 19:38:18 [DEBUG] MiningLoadout.api — Cache hit: items_prices/id_category/28
+2026-04-05 19:38:18 [INFO ] MiningLoadout.api — Fetched 17 lasers, 26 modules, 6 gadgets
+2026-04-05 19:38:18 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 19:38:18 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 19:38:18 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 19:38:18 [INFO ] MiningLoadout — Data loaded: 17 lasers, 26 modules, 6 gadgets
+2026-04-05 19:43:29 [DEBUG] MiningLoadout — IPC: {'type': 'quit'}
+2026-04-05 21:33:49 [INFO ] MiningLoadout — ============================================================
+2026-04-05 21:33:49 [INFO ] MiningLoadout — Mining Loadout starting — Python 3.14.2
+2026-04-05 21:33:49 [INFO ] MiningLoadout — Script: C:\Users\prjgn\AppData\Roaming\ShipBit\WingmanAI\custom_skills\SC_Toolbox_Beta_V1.2\skills\Mining_Loadout\controllers\app_controller.py
+2026-04-05 21:33:49 [INFO ] MiningLoadout — Args: x=100 y=100 w=1300 h=800 opacity=0.9490196078431372 cmd_file=C:\Users\prjgn\AppData\Local\Temp\sc_toolbox_mining_30152_1.jsonl
+2026-04-05 21:33:50 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 21:33:50 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 21:33:50 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 21:33:50 [INFO ] MiningLoadout — Window shown
+2026-04-05 21:33:50 [INFO ] MiningLoadout.api — Fetching mining data from UEX API...
+2026-04-05 21:33:50 [DEBUG] MiningLoadout.api — Cache hit: items/id_category/29
+2026-04-05 21:33:50 [DEBUG] MiningLoadout.api — Cache hit: items/id_category/30
+2026-04-05 21:33:50 [DEBUG] MiningLoadout.api — Cache hit: items/id_category/28
+2026-04-05 21:33:50 [DEBUG] MiningLoadout.api — Cache hit: items_attributes/id_category/29
+2026-04-05 21:33:50 [DEBUG] MiningLoadout.api — Cache hit: items_attributes/id_category/30
+2026-04-05 21:33:50 [DEBUG] MiningLoadout.api — Cache hit: items_attributes/id_category/28
+2026-04-05 21:33:50 [DEBUG] MiningLoadout.api — Cache hit: items_prices/id_category/29
+2026-04-05 21:33:50 [DEBUG] MiningLoadout.api — Cache hit: items_prices/id_category/30
+2026-04-05 21:33:50 [DEBUG] MiningLoadout.api — Cache hit: items_prices/id_category/28
+2026-04-05 21:33:50 [INFO ] MiningLoadout.api — Fetched 17 lasers, 26 modules, 6 gadgets
+2026-04-05 21:33:50 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 21:33:50 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 21:33:50 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 21:33:50 [INFO ] MiningLoadout — Data loaded: 17 lasers, 26 modules, 6 gadgets
+2026-04-05 21:33:54 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='Arbor MH1 Mining Laser' slots=1 combos=3 containers=3
+2026-04-05 21:33:54 [INFO ] MiningLoadout — Ship changed to Prospector
+2026-04-05 21:34:06 [INFO ] MiningLoadout — Loadout saved to C:/Users/prjgn/Documents/SC Loadouts/mining_prospector_default.json
+2026-04-05 21:38:54 [DEBUG] MiningLoadout — IPC: {'type': 'quit'}
+2026-04-05 21:53:16 [INFO ] MiningLoadout — ============================================================
+2026-04-05 21:53:16 [INFO ] MiningLoadout — Mining Loadout starting — Python 3.14.2
+2026-04-05 21:53:16 [INFO ] MiningLoadout — Script: C:\Users\prjgn\AppData\Roaming\ShipBit\WingmanAI\custom_skills\SC_Toolbox_Beta_V1.2\skills\Mining_Loadout\controllers\app_controller.py
+2026-04-05 21:53:16 [INFO ] MiningLoadout — Args: x=100 y=100 w=1300 h=800 opacity=0.9490196078431372 cmd_file=C:\Users\prjgn\AppData\Local\Temp\sc_toolbox_mining_71392_1.jsonl
+2026-04-05 21:53:17 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 21:53:17 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 21:53:17 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 21:53:17 [INFO ] MiningLoadout — Window shown
+2026-04-05 21:53:17 [INFO ] MiningLoadout.api — Fetching mining data from UEX API...
+2026-04-05 21:53:17 [DEBUG] MiningLoadout.api — Cache hit: items/id_category/29
+2026-04-05 21:53:17 [DEBUG] MiningLoadout.api — Cache hit: items/id_category/30
+2026-04-05 21:53:17 [DEBUG] MiningLoadout.api — Cache hit: items/id_category/28
+2026-04-05 21:53:17 [DEBUG] MiningLoadout.api — Cache hit: items_attributes/id_category/29
+2026-04-05 21:53:17 [DEBUG] MiningLoadout.api — Cache hit: items_attributes/id_category/30
+2026-04-05 21:53:17 [DEBUG] MiningLoadout.api — Cache hit: items_attributes/id_category/28
+2026-04-05 21:53:17 [DEBUG] MiningLoadout.api — Cache hit: items_prices/id_category/29
+2026-04-05 21:53:17 [DEBUG] MiningLoadout.api — Cache hit: items_prices/id_category/30
+2026-04-05 21:53:17 [DEBUG] MiningLoadout.api — Cache hit: items_prices/id_category/28
+2026-04-05 21:53:17 [INFO ] MiningLoadout.api — Fetched 17 lasers, 26 modules, 6 gadgets
+2026-04-05 21:53:17 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 21:53:17 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 21:53:17 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 21:53:17 [INFO ] MiningLoadout — Data loaded: 17 lasers, 26 modules, 6 gadgets
+2026-04-05 21:53:20 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 21:53:20 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 21:53:20 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 21:53:23 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 21:53:23 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 21:53:23 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 21:53:24 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 21:53:24 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 21:53:24 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 21:53:26 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 21:53:26 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 21:53:26 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 21:54:03 [DEBUG] MiningLoadout — IPC: {'type': 'quit'}
+2026-04-05 23:03:18 [INFO ] MiningLoadout — ============================================================
+2026-04-05 23:03:18 [INFO ] MiningLoadout — Mining Loadout starting — Python 3.14.2
+2026-04-05 23:03:18 [INFO ] MiningLoadout — Script: C:\Users\prjgn\AppData\Roaming\ShipBit\WingmanAI\custom_skills\SC_Toolbox_Beta_V1.2\skills\Mining_Loadout\controllers\app_controller.py
+2026-04-05 23:03:18 [INFO ] MiningLoadout — Args: x=100 y=100 w=1300 h=800 opacity=0.9490196078431372 cmd_file=C:\Users\prjgn\AppData\Local\Temp\sc_toolbox_mining_90200_1.jsonl
+2026-04-05 23:03:19 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 23:03:19 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 23:03:19 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 23:03:19 [INFO ] MiningLoadout — Window shown
+2026-04-05 23:03:20 [INFO ] MiningLoadout.api — Fetching mining data from UEX API...
+2026-04-05 23:03:20 [DEBUG] MiningLoadout.api — Cache hit: items/id_category/29
+2026-04-05 23:03:20 [DEBUG] MiningLoadout.api — Cache hit: items/id_category/30
+2026-04-05 23:03:20 [DEBUG] MiningLoadout.api — Cache hit: items/id_category/28
+2026-04-05 23:03:20 [DEBUG] MiningLoadout.api — Cache hit: items_attributes/id_category/29
+2026-04-05 23:03:20 [DEBUG] MiningLoadout.api — Cache hit: items_attributes/id_category/30
+2026-04-05 23:03:20 [DEBUG] MiningLoadout.api — Cache hit: items_attributes/id_category/28
+2026-04-05 23:03:20 [DEBUG] MiningLoadout.api — Cache hit: items_prices/id_category/29
+2026-04-05 23:03:20 [DEBUG] MiningLoadout.api — Cache hit: items_prices/id_category/30
+2026-04-05 23:03:20 [DEBUG] MiningLoadout.api — Cache hit: items_prices/id_category/28
+2026-04-05 23:03:20 [INFO ] MiningLoadout.api — Fetched 17 lasers, 26 modules, 6 gadgets
+2026-04-05 23:03:20 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 23:03:20 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 23:03:20 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 23:03:20 [INFO ] MiningLoadout — Data loaded: 17 lasers, 26 modules, 6 gadgets
+2026-04-05 23:03:21 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 23:03:21 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 23:03:21 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 23:03:24 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 23:03:24 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 23:03:24 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 23:03:29 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 23:03:29 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 23:03:29 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 23:04:44 [INFO ] MiningLoadout — ============================================================
+2026-04-05 23:04:44 [INFO ] MiningLoadout — Mining Loadout starting — Python 3.14.2
+2026-04-05 23:04:44 [INFO ] MiningLoadout — Script: C:\Users\prjgn\AppData\Roaming\ShipBit\WingmanAI\custom_skills\SC_Toolbox_Beta_V1.2\skills\Mining_Loadout\controllers\app_controller.py
+2026-04-05 23:04:44 [INFO ] MiningLoadout — Args: x=100 y=100 w=1300 h=800 opacity=0.9490196078431372 cmd_file=C:\Users\prjgn\AppData\Local\Temp\sc_toolbox_mining_57304_1.jsonl
+2026-04-05 23:04:45 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 23:04:45 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 23:04:45 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 23:04:45 [INFO ] MiningLoadout — Window shown
+2026-04-05 23:04:45 [INFO ] MiningLoadout.api — Fetching mining data from UEX API...
+2026-04-05 23:04:45 [DEBUG] MiningLoadout.api — Cache hit: items/id_category/29
+2026-04-05 23:04:45 [DEBUG] MiningLoadout.api — Cache hit: items/id_category/30
+2026-04-05 23:04:45 [DEBUG] MiningLoadout.api — Cache hit: items/id_category/28
+2026-04-05 23:04:45 [DEBUG] MiningLoadout.api — Cache hit: items_attributes/id_category/29
+2026-04-05 23:04:45 [DEBUG] MiningLoadout.api — Cache hit: items_attributes/id_category/30
+2026-04-05 23:04:45 [DEBUG] MiningLoadout.api — Cache hit: items_attributes/id_category/28
+2026-04-05 23:04:45 [DEBUG] MiningLoadout.api — Cache hit: items_prices/id_category/29
+2026-04-05 23:04:45 [DEBUG] MiningLoadout.api — Cache hit: items_prices/id_category/30
+2026-04-05 23:04:45 [DEBUG] MiningLoadout.api — Cache hit: items_prices/id_category/28
+2026-04-05 23:04:45 [INFO ] MiningLoadout.api — Fetched 17 lasers, 26 modules, 6 gadgets
+2026-04-05 23:04:45 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 23:04:45 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 23:04:45 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-05 23:04:45 [INFO ] MiningLoadout — Data loaded: 17 lasers, 26 modules, 6 gadgets
+2026-04-05 23:04:51 [INFO ] MiningLoadout — Loadout saved to C:/Users/prjgn/Documents/SC Loadouts/Meep.json
+2026-04-06 00:23:16 [INFO ] MiningLoadout — ============================================================
+2026-04-06 00:23:16 [INFO ] MiningLoadout — Mining Loadout starting — Python 3.14.2
+2026-04-06 00:23:16 [INFO ] MiningLoadout — Script: C:\Users\prjgn\AppData\Roaming\ShipBit\WingmanAI\custom_skills\SC_Toolbox_Beta_V1.2\skills\Mining_Loadout\controllers\app_controller.py
+2026-04-06 00:23:16 [INFO ] MiningLoadout — Args: x=100 y=100 w=1300 h=800 opacity=0.9490196078431372 cmd_file=C:\Users\prjgn\AppData\Local\Temp\sc_toolbox_mining_103340_1.jsonl
+2026-04-06 00:23:17 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-06 00:23:17 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-06 00:23:17 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-06 00:23:17 [INFO ] MiningLoadout — Window shown
+2026-04-06 00:23:18 [INFO ] MiningLoadout.api — Fetching mining data from UEX API...
+2026-04-06 00:23:18 [DEBUG] MiningLoadout.api — Cache hit: items/id_category/29
+2026-04-06 00:23:18 [DEBUG] MiningLoadout.api — Cache hit: items/id_category/30
+2026-04-06 00:23:18 [DEBUG] MiningLoadout.api — Cache hit: items/id_category/28
+2026-04-06 00:23:18 [DEBUG] MiningLoadout.api — Cache hit: items_attributes/id_category/29
+2026-04-06 00:23:18 [DEBUG] MiningLoadout.api — Cache hit: items_attributes/id_category/30
+2026-04-06 00:23:18 [DEBUG] MiningLoadout.api — Cache hit: items_attributes/id_category/28
+2026-04-06 00:23:18 [DEBUG] MiningLoadout.api — Cache hit: items_prices/id_category/29
+2026-04-06 00:23:18 [DEBUG] MiningLoadout.api — Cache hit: items_prices/id_category/30
+2026-04-06 00:23:18 [DEBUG] MiningLoadout.api — Cache hit: items_prices/id_category/28
+2026-04-06 00:23:18 [INFO ] MiningLoadout.api — Fetched 17 lasers, 26 modules, 6 gadgets
+2026-04-06 00:23:18 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-06 00:23:18 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-06 00:23:18 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-06 00:23:18 [INFO ] MiningLoadout — Data loaded: 17 lasers, 26 modules, 6 gadgets
+2026-04-06 00:23:37 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-06 00:23:37 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-06 00:23:37 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-06 00:23:38 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-06 00:23:38 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-06 00:23:38 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-06 00:23:40 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-06 00:23:40 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-06 00:23:40 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-06 00:23:44 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-06 00:23:44 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-06 00:23:44 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-06 00:23:48 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-06 00:23:48 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-06 00:23:48 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-06 00:23:53 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-06 00:23:53 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-06 00:23:53 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-06 00:23:56 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-06 00:23:56 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-06 00:23:56 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-06 00:24:00 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-06 00:24:00 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-06 00:24:00 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-06 00:24:04 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-06 00:24:04 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-06 00:24:04 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='Arbor MH2 Mining Laser' slots=2 combos=3 containers=3
+2026-04-06 00:24:17 [INFO ] MiningLoadout — Loadout saved to C:/Users/prjgn/Documents/SC Loadouts/consumes.json
+2026-04-06 00:24:49 [DEBUG] MiningLoadout — IPC: {'type': 'quit'}
+2026-04-11 23:17:49 [INFO ] MiningLoadout — ============================================================
+2026-04-11 23:17:49 [INFO ] MiningLoadout — Mining Loadout starting — Python 3.14.2
+2026-04-11 23:17:49 [INFO ] MiningLoadout — Script: C:\Users\prjgn\AppData\Roaming\ShipBit\WingmanAI\custom_skills\SC_Toolbox_Beta_V1.2\skills\Mining_Loadout\controllers\app_controller.py
+2026-04-11 23:17:49 [INFO ] MiningLoadout — Args: x=100 y=100 w=1300 h=800 opacity=0.9490196078431372 cmd_file=C:\Users\prjgn\AppData\Local\Temp\sc_toolbox_mining_114348_1.jsonl
+2026-04-11 23:17:51 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-11 23:17:51 [DEBUG] MiningLoadout — _update_module_slot_states: turret=1 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-11 23:17:51 [DEBUG] MiningLoadout — _update_module_slot_states: turret=2 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-11 23:17:51 [INFO ] MiningLoadout — Window shown
+2026-04-11 23:17:51 [INFO ] MiningLoadout.api — Fetching mining data from UEX API...
+2026-04-11 23:17:53 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-11 23:17:53 [INFO ] MiningLoadout — Ship changed to Prospector
+2026-04-11 23:17:54 [INFO ] MiningLoadout.api — Fetched 17 lasers, 26 modules, 6 gadgets
+2026-04-11 23:17:54 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='— No Laser —' slots=2 combos=3 containers=3
+2026-04-11 23:17:54 [INFO ] MiningLoadout — Data loaded: 17 lasers, 26 modules, 6 gadgets
+2026-04-11 23:18:02 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='Arbor MH1 Mining Laser' slots=1 combos=3 containers=3
+2026-04-11 23:18:07 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='Arbor MH1 Mining Laser' slots=1 combos=3 containers=3
+2026-04-11 23:18:21 [INFO ] MiningLoadout — Loadout saved to C:/Users/prjgn/Documents/SC Loadouts/mining_prospector arbor.json
+2026-04-11 23:18:59 [DEBUG] MiningLoadout — IPC: {'type': 'hide'}
+2026-04-11 23:19:00 [DEBUG] MiningLoadout — IPC: {'type': 'show'}
+2026-04-11 23:19:20 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='S00 Hofstede' slots=2 combos=3 containers=3
+2026-04-11 23:19:24 [DEBUG] MiningLoadout — _update_module_slot_states: turret=0 laser='Hofstede-S1 Mining Laser' slots=1 combos=3 containers=3
+2026-04-11 23:20:19 [DEBUG] MiningLoadout — IPC: {'type': 'hide'}
+2026-04-11 23:20:21 [DEBUG] MiningLoadout — IPC: {'type': 'show'}
+2026-04-11 23:20:32 [INFO ] MiningLoadout — Loadout saved to C:/Users/prjgn/Documents/SC Loadouts/mining_prospector Hof.json

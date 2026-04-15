@@ -41,20 +41,27 @@ from dps_ui.constants import (
     SIZE_COLORS, TYPE_STRIPE,
     API_BASE, API_HEADERS, CACHE_FILE,
     WEAPON_TABLE_COLS, MISSILE_TABLE_COLS, SHIELD_TABLE_COLS,
-    COOLER_TABLE_COLS, RADAR_TABLE_COLS, PP_COLS, QD_COLS,
+    COOLER_TABLE_COLS, RADAR_TABLE_COLS, PP_COLS, QD_COLS, MOUNT_TABLE_COLS,
+    EMP_TABLE_COLS, QED_TABLE_COLS, BOMB_TABLE_COLS,
+    MINING_LASER_TABLE_COLS, CML_TABLE_COLS, MISSILE_RACK_TABLE_COLS,
+    TOOL_ARM_TABLE_COLS, SALVAGE_HEAD_TABLE_COLS,
+    MINING_MODIFIER_TABLE_COLS, SALVAGE_MODIFIER_TABLE_COLS,
+    ORE_POD_TABLE_COLS, FUEL_TANK_TABLE_COLS, ERKUL_MODULE_TABLE_COLS,
 )
 from dps_ui.helpers import _port_label, group_short, pct, _fy_slug, _fy_hp_group, fmt_sig
 from dps_ui.widgets import ComponentTable, ComponentPickerPopup, _picker_btn
 from dps_ui.power_widget import PowerAllocatorWidget as PowerAllocator
 from data.repository import ComponentRepository
-from services.slot_extractor import extract_slots_by_type
+from services.slot_extractor import (
+    extract_slots_by_type, extract_mount_slots, extract_mining_laser_slots,
+    extract_utility_slots, extract_salvage_head_slots, extract_fuel_pod_slots,
+)
 from services.stat_computation import (
     compute_shield_stats, compute_cooler_stats, compute_radar_stats,
     compute_powerplant_stats, compute_qdrive_stats, compute_thruster_stats,
     compute_powerplant_stats_erkul, compute_qdrive_stats_erkul,
 )
 from services.loadout_aggregator import compute_footer_totals, compute_raw_signatures
-from services.dps_calculator import dps_sustained
 
 _log = logging.getLogger(__name__)
 
@@ -113,7 +120,8 @@ class DpsCalcApp(SCWindow):
         self._ammo_load_mult = 1.0
         self._regen_per_sec_mult = 1.0
         self._power_ratio_mult = 1.0
-        self._turret_slot_ids: set = set()
+        self._turret_slot_ids: set  = set()
+        self._slot_gun_counts: dict = {}
         self._flight_mode = "scm"
         self._ship_data: Optional[dict] = None
         self._pending_ship: Optional[str] = None
@@ -122,12 +130,19 @@ class DpsCalcApp(SCWindow):
         self._sig_vars: dict = {}
 
         self._sel: dict = {
-            "weapons": {}, "missiles": {}, "defenses": {}, "components": {},
-            "propulsion": {},
+            "weapons": {}, "missiles": {}, "missile_racks": {},
+            "defenses": {}, "components": {},
+            "propulsion": {}, "mounts": {}, "emps": {}, "qeds": {}, "bombs": {},
+            "mining_lasers": {},
+            "tool_arms": {}, "salvage_heads": {}, "ore_pods": {},
+            "fuel_tanks": {}, "erkul_modules": {},
         }
         self._slot_tables: dict = {}
         self._rows: dict = {
-            k: [] for k in ("weapons", "missiles", "defenses", "components", "propulsion")
+            k: [] for k in ("weapons", "missiles", "missile_racks", "defenses", "components",
+                            "propulsion", "mounts", "emps", "qeds", "bombs", "mining_lasers",
+                            "tool_arms", "salvage_heads", "ore_pods",
+                            "fuel_tanks", "erkul_modules")
         }
         self._cooler_rows = []
         self._radar_rows = []
@@ -650,7 +665,8 @@ class DpsCalcApp(SCWindow):
     # -- Table-based section builders ------------------------------------------
 
     def _build_table_slot(self, parent_layout, section_key, slot, list_fn, find_fn,
-                          table_cols, type_color) -> ComponentTable:
+                          table_cols, type_color, *, indent=False,
+                          gun_count: int = 1) -> ComponentTable:
         sid = slot["id"]
         max_sz = slot["max_size"] or 1
 
@@ -663,7 +679,8 @@ class DpsCalcApp(SCWindow):
         # Slot header
         sh = QWidget()
         sh_lay = QHBoxLayout(sh)
-        sh_lay.setContentsMargins(4, 4, 4, 0)
+        left_pad = 24 if indent else 4
+        sh_lay.setContentsMargins(left_pad, 4, 4, 0)
         sh_lay.setSpacing(6)
         sz_bg = SIZE_COLORS.get(max_sz, SIZE_COLORS[1])
         sz_lbl = QLabel(f"S{max_sz}", sh)
@@ -679,6 +696,13 @@ class DpsCalcApp(SCWindow):
             f"color: {FG_DIM}; font-family: Consolas; font-size: 8pt; background: transparent;"
         )
         sh_lay.addWidget(slot_lbl)
+        if gun_count > 1:
+            mult_lbl = QLabel(f"\u00d7{gun_count}", sh)   # ×N
+            mult_lbl.setStyleSheet(
+                f"color: {GREEN}; font-family: Consolas; font-size: 8pt; "
+                f"font-weight: bold; background: transparent;"
+            )
+            sh_lay.addWidget(mult_lbl)
         sh_lay.addStretch(1)
         parent_layout.insertWidget(parent_layout.count() - 1, sh)
 
@@ -705,7 +729,7 @@ class DpsCalcApp(SCWindow):
         # Create a parent widget for the ComponentTable
         tbl_container = QWidget()
         tbl_lay = QVBoxLayout(tbl_container)
-        tbl_lay.setContentsMargins(0, 0, 0, 0)
+        tbl_lay.setContentsMargins(24 if indent else 0, 0, 0, 0)
 
         tbl = ComponentTable(tbl_container, table_cols, items, _on_sel,
                              current_ref=stock_ref, type_color=type_color,
@@ -891,36 +915,151 @@ class DpsCalcApp(SCWindow):
         self._current_ship = ship
         self._slot_tables = {}
 
-        # -- LEFT PANEL: weapons + missiles --
+        # -- LEFT PANEL --
         self._clear_layout(self._left_layout)
-        self._rows["weapons"] = []
-        self._rows["missiles"] = []
+        for k in ("weapons", "missiles", "missile_racks", "mounts", "emps", "qeds", "bombs",
+                  "mining_lasers",
+                  "tool_arms", "salvage_heads", "ore_pods"):
+            self._rows[k] = []
 
+        # ── Weapons + Gimbals/Mounts (unified per Erkul style) ─────────────────
+        # Each weapon hardpoint shows: [optional gimbal row] + [weapon row]
         all_weapon_slots = extract_slots_by_type(loadout, {"WeaponGun", "Turret"})
         for s in all_weapon_slots:
-            lr = s.get("local_ref", "")
+            lr     = s.get("local_ref", "")    # resolved inner weapon ref
+            or_ref = s.get("outer_ref", "")    # what's directly in the port
+            s["mount_ref"]           = ""
+            s["mount_required_tags"] = ""
+            s["weapon_max_size"]     = s["max_size"]
+
+            # Detect gimbal: outer_ref resolves to a mount (not a weapon)
+            mount_stats = None
+            if or_ref:
+                mount_stats = (self._data.find_mount(or_ref, max_size=s["max_size"])
+                               or self._data.find_mount(or_ref))
+
+            if mount_stats:
+                s["mount_ref"]           = or_ref
+                s["mount_required_tags"] = mount_stats.get("required_tags", "")
+                # When hardpoint maxSize is None, derive hardpoint size from mount size
+                s["max_size"]            = mount_stats.get("size", s["max_size"]) or s["max_size"]
+                s["weapon_max_size"]     = mount_stats.get("port_max_size", s["max_size"])
+
+            # Stamp weapon required_tags from the inner weapon
+            found = None
             if lr:
-                found = self._data.find_weapon(lr, max_size=s["max_size"])
-                if not found:
-                    found = self._data.find_weapon(lr)
+                wsz = s["weapon_max_size"]
+                found = self._data.find_weapon(lr, max_size=wsz) or self._data.find_weapon(lr)
                 if not found:
                     s["local_ref"] = ""
-        gun_slots = [s for s in all_weapon_slots if " / " not in s["label"]]
-        turret_slots = [s for s in all_weapon_slots if " / " in s["label"]]
+            s["required_tags"] = found.get("required_tags", "") if found else ""
+
+        # Slots that came from housing recursion have "/" in their label.
+        # Grouped housing slots (gun_count > 1) have no "/" but still belong
+        # in the TURRETS section.
+        gun_slots    = [s for s in all_weapon_slots
+                        if " / " not in s["label"] and "gun_count" not in s]
+        turret_slots = [s for s in all_weapon_slots
+                        if " / "     in s["label"] or  "gun_count" in s]
         self._rebuild_weapons_section(self._left_layout, gun_slots, turret_slots)
 
+        # ── Missiles + Missile Racks (unified per Erkul style) ─────────────────
+        # Each missile hardpoint shows: [rack hardware row] + [per-missile rows]
         missile_slots_raw = extract_slots_by_type(loadout, {"MissileLauncher"})
         gun_ids = {s["id"] for s in gun_slots + turret_slots}
-        missile_slots = [s for s in missile_slots_raw if s["id"] not in gun_ids]
-        for s in missile_slots:
+        all_missile_slots = [s for s in missile_slots_raw if s["id"] not in gun_ids]
+
+        for s in all_missile_slots:
             lr = s.get("local_ref", "")
-            if lr:
-                found = self._data.find_missile(lr, max_size=s["max_size"])
-                if not found:
-                    found = self._data.find_missile(lr)
+            if not lr:
+                continue
+            if s.get("is_rack"):
+                found = (self._data.find_missile_rack(lr, max_size=s["max_size"])
+                         or self._data.find_missile_rack(lr))
                 if not found:
                     s["local_ref"] = ""
-        self._rebuild_missiles_section(self._left_layout, missile_slots)
+            else:
+                found = (self._data.find_missile(lr, max_size=s["max_size"])
+                         or self._data.find_missile(lr))
+                if not found:
+                    s["local_ref"] = ""
+        self._rebuild_missiles_section(self._left_layout, all_missile_slots)
+
+        # ── Mining lasers ──────────────────────────────────────────────────────
+        ml_slots = extract_mining_laser_slots(loadout)
+        for s in ml_slots:
+            lr = s.get("local_ref", "")
+            found = None
+            if lr:
+                found = (self._data.find_mining_laser(lr, max_size=s["max_size"])
+                         or self._data.find_mining_laser(lr))
+                if not found:
+                    s["local_ref"] = ""
+            s["required_tags"] = found.get("required_tags", "") if found else ""
+        self._rebuild_mining_lasers_section(self._left_layout, ml_slots)
+
+        # ── EMPs ───────────────────────────────────────────────────────────────
+        emp_slots = extract_slots_by_type(loadout, {"EMP"})
+        for s in emp_slots:
+            lr = s.get("local_ref", "")
+            if lr:
+                found = self._data.find_emp(lr, max_size=s["max_size"]) or self._data.find_emp(lr)
+                if not found:
+                    s["local_ref"] = ""
+        self._rebuild_emps_section(self._left_layout, emp_slots)
+
+        # ── QEDs ───────────────────────────────────────────────────────────────
+        qed_slots = extract_slots_by_type(loadout, {"QuantumInterdictionGenerator"})
+        for s in qed_slots:
+            lr = s.get("local_ref", "")
+            if lr:
+                found = self._data.find_qed(lr, max_size=s["max_size"]) or self._data.find_qed(lr)
+                if not found:
+                    s["local_ref"] = ""
+        self._rebuild_qeds_section(self._left_layout, qed_slots)
+
+        # ── Bombs ──────────────────────────────────────────────────────────────
+        bomb_slots = extract_slots_by_type(loadout, {"BombLauncher"})
+        for s in bomb_slots:
+            lr = s.get("local_ref", "")
+            if lr:
+                found = self._data.find_bomb(lr, max_size=s["max_size"]) or self._data.find_bomb(lr)
+                if not found:
+                    s["local_ref"] = ""
+        self._rebuild_bombs_section(self._left_layout, bomb_slots)
+
+
+        # ── ToolArms (mining arms, salvage arms) ───────────────────────────────
+        tool_arm_slots = extract_utility_slots(loadout, {"ToolArm"})
+        for s in tool_arm_slots:
+            lr = s.get("local_ref", "")
+            if lr:
+                found = self._data.find_tool_arm(lr) or self._data.find_tool_arm(lr)
+                if not found:
+                    s["local_ref"] = ""
+        self._rebuild_tool_arms_section(self._left_layout, tool_arm_slots)
+
+        # ── SalvageHeads ────────────────────────────────────────────────────────
+        salvage_head_slots = extract_salvage_head_slots(loadout)
+        for s in salvage_head_slots:
+            lr = s.get("local_ref", "")
+            if lr:
+                found = (self._data.find_salvage_head(lr, max_size=s["max_size"])
+                         or self._data.find_salvage_head(lr))
+                if not found:
+                    s["local_ref"] = ""
+                s["required_tags"] = found.get("required_tags", "") if found else "salvageMount"
+        self._rebuild_salvage_heads_section(self._left_layout, salvage_head_slots)
+
+        # ── Ore pods (Container/Cargo) ─────────────────────────────────────────
+        ore_pod_slots = extract_utility_slots(loadout, {"Container"})
+        for s in ore_pod_slots:
+            lr = s.get("local_ref", "")
+            if lr:
+                found = self._data.find_ore_pod(lr, max_size=s["max_size"]) or self._data.find_ore_pod(lr)
+                if not found:
+                    s["local_ref"] = ""
+        self._rebuild_ore_pods_section(self._left_layout, ore_pod_slots)
 
         # -- CENTER TAB 0: Defenses / Systems --
         self._clear_layout(self._center_tab0_layout)
@@ -938,11 +1077,26 @@ class DpsCalcApp(SCWindow):
         radar_slots = extract_slots_by_type(loadout, {"Radar"})
         self._rebuild_radars_section(self._center_tab0_layout, radar_slots)
 
+        # ── Ship modules (Retaliator, Apollo, Aurora) in center tab 0 ─────────
+        self._rows["erkul_modules"] = []
+        module_slots = extract_utility_slots(loadout, {"Module"})
+        for s in module_slots:
+            lr = s.get("local_ref", "")
+            found = None
+            if lr:
+                found = (self._data.find_erkul_module(lr, max_size=s["max_size"])
+                         or self._data.find_erkul_module(lr))
+                if not found:
+                    s["local_ref"] = ""
+            s["required_tags"] = found.get("required_tags", "") if found else ""
+        self._rebuild_erkul_modules_section(self._center_tab0_layout, module_slots)
+
         # -- CENTER TAB 1: Power & Propulsion --
         self._clear_layout(self._center_tab1_layout)
         self._powerplant_rows = []
         self._qdrive_rows = []
         self._rows["propulsion"] = []
+        self._rows["fuel_tanks"] = []
 
         pp_slots = extract_slots_by_type(loadout, {"PowerPlant"})
         if pp_slots:
@@ -965,6 +1119,19 @@ class DpsCalcApp(SCWindow):
                     self._center_tab1_layout, "propulsion", slot,
                     self._data.qdrives_for_size, self._data.find_qdrive,
                     QD_COLS, TYPE_STRIPE["QuantumDrive"])
+
+        # ── External fuel tanks (Starfarer, Gemini) ───────────────────────────
+        fuel_pod_slots = extract_fuel_pod_slots(loadout)
+        for s in fuel_pod_slots:
+            lr = s.get("local_ref", "")
+            found = None
+            if lr:
+                found = (self._data.find_fuel_tank(lr, max_size=s["max_size"])
+                         or self._data.find_fuel_tank(lr))
+                if not found:
+                    s["local_ref"] = ""
+            s["required_tags"] = found.get("required_tags", "") if found else ""
+        self._rebuild_fuel_tanks_section(self._center_tab1_layout, fuel_pod_slots)
 
         # Thruster placeholder
         self._thruster_container = QWidget()
@@ -1008,9 +1175,13 @@ class DpsCalcApp(SCWindow):
     # -- Section builders ------------------------------------------------------
 
     def _rebuild_weapons_section(self, parent_layout, gun_slots, turret_slots) -> None:
+        """Show each weapon hardpoint as: optional gimbal row + weapon row (Erkul style)."""
         key = "weapons"
         all_slots = gun_slots + turret_slots
-        self._turret_slot_ids = {s["id"] for s in turret_slots}
+        self._turret_slot_ids  = {s["id"] for s in turret_slots}
+        # Map slot_id → gun_count for DPS multiplication (grouped housing turrets)
+        self._slot_gun_counts  = {s["id"]: s.get("gun_count", 1)
+                                  for s in all_slots if s.get("gun_count", 1) > 1}
         if not all_slots:
             lbl = QLabel("  " + _("No weapon slots."))
             lbl.setStyleSheet(
@@ -1020,32 +1191,210 @@ class DpsCalcApp(SCWindow):
             parent_layout.insertWidget(parent_layout.count() - 1, lbl)
             return
 
+        def _build_gun_slot(parent_layout, slot, section_key="weapons"):
+            """Build mount-row (if gimballed) + weapon-row pair for one gun slot.
+
+            If a gimbal is equipped:
+              - Shows a mount picker (at hardpoint size) above the weapon picker
+              - Shows a weapon picker (at gimbal's inner port size) indented below
+              - Changing the gimbal dynamically refreshes the weapon picker's size
+              - Selecting "leave empty" on the gimbal switches weapon picker to hardpoint size
+            If no gimbal:
+              - Shows only a weapon picker at hardpoint size
+
+            For grouped housing slots (gun_count > 1), a ×N badge is shown on
+            both rows to indicate this turret has N identical gun positions.
+            """
+            has_mount = bool(slot.get("mount_ref"))
+            hardpoint_size  = slot["max_size"]
+            weapon_max_size = slot.get("weapon_max_size", hardpoint_size)
+            rt_w  = slot.get("required_tags", "")
+            n_guns = slot.get("gun_count", 1)
+
+            # ── Gimbal/Mount picker ───────────────────────────────────────────
+            mount_tbl = None
+            if has_mount:
+                rt_m = slot.get("mount_required_tags", "")
+                mnt_slot = {
+                    "id":        f"m:{slot['id']}",
+                    "label":     slot["label"],
+                    "max_size":  hardpoint_size,
+                    "editable":  slot.get("editable", False),
+                    "local_ref": slot["mount_ref"],
+                }
+                list_fn_m = (lambda sz, _rt=rt_m:
+                             self._data.mounts_for_size_tagged(sz, _rt))
+                mount_tbl = self._build_table_slot(
+                    parent_layout, "mounts", mnt_slot,
+                    list_fn_m, self._data.find_mount,
+                    MOUNT_TABLE_COLS, TYPE_STRIPE["Mount"],
+                    gun_count=n_guns)
+
+            # ── Weapon picker (indented when under a gimbal) ──────────────────
+            weapon_slot = dict(slot)
+            weapon_slot["max_size"] = weapon_max_size
+            list_fn_w = (lambda sz, _rt=rt_w:
+                         self._data.weapons_for_size_filtered(sz, _rt))
+            weapon_tbl = self._build_table_slot(
+                parent_layout, section_key, weapon_slot,
+                list_fn_w, self._data.find_weapon,
+                WEAPON_TABLE_COLS, TYPE_STRIPE["WeaponGun"],
+                indent=has_mount,
+                gun_count=n_guns)
+
+            # ── Dynamic link: gimbal change → refresh weapon picker size ──────
+            # When the user changes or removes the gimbal, the weapon picker must
+            # update to show weapons at the new inner port size (or hardpoint size
+            # if no gimbal is selected).
+            if mount_tbl is not None:
+                _hp  = hardpoint_size
+                _wfn = (lambda sz, _rt=rt_w:
+                        self._data.weapons_for_size_filtered(sz, _rt))
+                def _on_mount_changed(new_mount,
+                                      _tbl=weapon_tbl, _hp=_hp, _wfn=_wfn):
+                    new_sz = (new_mount.get("port_max_size", _hp)
+                              if new_mount else _hp)
+                    _tbl.refresh(_wfn(new_sz), _tbl._sel_ref)
+                mount_tbl.selection_changed.connect(_on_mount_changed)
+
         if gun_slots:
             self._section_header(parent_layout, _("WEAPONS"), ENERGY_COL)
             for slot in gun_slots:
-                self._build_table_slot(
-                    parent_layout, key, slot,
-                    self._data.weapons_for_size, self._data.find_weapon,
-                    WEAPON_TABLE_COLS, TYPE_STRIPE["WeaponGun"])
+                _build_gun_slot(parent_layout, slot)
 
         if turret_slots:
             self._section_header(parent_layout, _("TURRETS"), ENERGY_COL)
             for slot in turret_slots:
-                self._build_table_slot(
-                    parent_layout, key, slot,
-                    self._data.weapons_for_size, self._data.find_weapon,
-                    WEAPON_TABLE_COLS, TYPE_STRIPE["WeaponGun"])
+                # Turret inner gun positions may have user-swappable gimbals
+                _build_gun_slot(parent_layout, slot)
+
+    def _rebuild_mounts_section(self, parent_layout, slots) -> None:
+        """Legacy stub — mounts are now embedded in _rebuild_weapons_section."""
+        pass
 
     def _rebuild_missiles_section(self, parent_layout, slots) -> None:
-        key = "missiles"
+        """Show each missile rack as: rack hardware row + per-missile rows (Erkul style)."""
         if not slots:
             return
         self._section_header(parent_layout, _("MISSILE & BOMB RACKS"), RED)
         for slot in slots:
+            if slot.get("is_rack"):
+                # Rack hardware picker (MSD-423, Absolution rack, etc.)
+                self._build_table_slot(
+                    parent_layout, "missile_racks", slot,
+                    self._data.missile_racks_for_size,
+                    self._data.find_missile_rack,
+                    MISSILE_RACK_TABLE_COLS, TYPE_STRIPE.get("MissileRack", YELLOW))
+            else:
+                # Individual missile slot — indented under its rack
+                self._build_table_slot(
+                    parent_layout, "missiles", slot,
+                    self._data.missiles_for_size, self._data.find_missile,
+                    MISSILE_TABLE_COLS, TYPE_STRIPE["MissileLauncher"],
+                    indent=True)
+
+    def _rebuild_emps_section(self, parent_layout, slots) -> None:
+        if not slots:
+            return
+        self._section_header(parent_layout, _("EMP GENERATORS"), PURPLE)
+        for slot in slots:
             self._build_table_slot(
-                parent_layout, key, slot,
-                self._data.missiles_for_size, self._data.find_missile,
-                MISSILE_TABLE_COLS, TYPE_STRIPE["MissileLauncher"])
+                parent_layout, "emps", slot,
+                self._data.emps_for_size, self._data.find_emp,
+                EMP_TABLE_COLS, TYPE_STRIPE["EMP"])
+
+    def _rebuild_qeds_section(self, parent_layout, slots) -> None:
+        if not slots:
+            return
+        self._section_header(parent_layout, _("QUANTUM INTERDICTION"), CYAN)
+        for slot in slots:
+            self._build_table_slot(
+                parent_layout, "qeds", slot,
+                self._data.qeds_for_size, self._data.find_qed,
+                QED_TABLE_COLS, TYPE_STRIPE["QuantumInterdictionGenerator"])
+
+    def _rebuild_bombs_section(self, parent_layout, slots) -> None:
+        if not slots:
+            return
+        self._section_header(parent_layout, _("BOMBS"), RED)
+        for slot in slots:
+            self._build_table_slot(
+                parent_layout, "bombs", slot,
+                self._data.bombs_for_size, self._data.find_bomb,
+                BOMB_TABLE_COLS, TYPE_STRIPE["Bomb"])
+
+    def _rebuild_mining_lasers_section(self, parent_layout, slots) -> None:
+        if not slots:
+            return
+        self._section_header(parent_layout, _("MINING LASERS"), GREEN)
+        for slot in slots:
+            rt = slot.get("required_tags", "")
+            list_fn = (lambda sz, _rt=rt:
+                       self._data.mining_lasers_for_size_tagged(sz, _rt))
+            self._build_table_slot(
+                parent_layout, "mining_lasers", slot,
+                list_fn, self._data.find_mining_laser,
+                MINING_LASER_TABLE_COLS, TYPE_STRIPE["WeaponMining"])
+
+
+    def _rebuild_tool_arms_section(self, parent_layout, slots) -> None:
+        if not slots:
+            return
+        self._section_header(parent_layout, _("TOOL ARMS"), TYPE_STRIPE["ToolArm"])
+        for slot in slots:
+            self._build_table_slot(
+                parent_layout, "tool_arms", slot,
+                self._data.tool_arms_for_size, self._data.find_tool_arm,
+                TOOL_ARM_TABLE_COLS, TYPE_STRIPE["ToolArm"])
+
+    def _rebuild_salvage_heads_section(self, parent_layout, slots) -> None:
+        if not slots:
+            return
+        self._section_header(parent_layout, _("SALVAGE HEADS"), TYPE_STRIPE["SalvageHead"])
+        for slot in slots:
+            rt = slot.get("required_tags", "salvageMount")
+            list_fn = (lambda sz, _rt=rt:
+                       self._data.salvage_heads_for_size_tagged(sz, _rt))
+            self._build_table_slot(
+                parent_layout, "salvage_heads", slot,
+                list_fn, self._data.find_salvage_head,
+                SALVAGE_HEAD_TABLE_COLS, TYPE_STRIPE["SalvageHead"])
+
+    def _rebuild_ore_pods_section(self, parent_layout, slots) -> None:
+        if not slots:
+            return
+        self._section_header(parent_layout, _("ORE PODS"), TYPE_STRIPE["Container"])
+        for slot in slots:
+            self._build_table_slot(
+                parent_layout, "ore_pods", slot,
+                self._data.ore_pods_for_size, self._data.find_ore_pod,
+                ORE_POD_TABLE_COLS, TYPE_STRIPE["Container"])
+
+    def _rebuild_fuel_tanks_section(self, parent_layout, slots) -> None:
+        if not slots:
+            return
+        self._section_header(parent_layout, _("EXTERNAL FUEL TANKS"), TYPE_STRIPE["ExternalFuelTank"])
+        for slot in slots:
+            rt = slot.get("required_tags", "")
+            list_fn = (lambda sz, _rt=rt:
+                       self._data.fuel_tanks_for_size_tagged(sz, _rt))
+            self._build_table_slot(
+                parent_layout, "fuel_tanks", slot,
+                list_fn, self._data.find_fuel_tank,
+                FUEL_TANK_TABLE_COLS, TYPE_STRIPE["ExternalFuelTank"])
+
+    def _rebuild_erkul_modules_section(self, parent_layout, slots) -> None:
+        if not slots:
+            return
+        self._section_header(parent_layout, _("SHIP MODULES"), TYPE_STRIPE["Module"])
+        for slot in slots:
+            rt = slot.get("required_tags", "")
+            list_fn = (lambda sz, _rt=rt:
+                       self._data.erkul_modules_for_size_tagged(sz, _rt))
+            self._build_table_slot(
+                parent_layout, "erkul_modules", slot,
+                list_fn, self._data.find_erkul_module,
+                ERKUL_MODULE_TABLE_COLS, TYPE_STRIPE["Module"])
 
     def _rebuild_shields_section(self, parent_layout, slots) -> None:
         if not slots:
@@ -1254,15 +1603,7 @@ class DpsCalcApp(SCWindow):
             if not s:
                 tbl.update_stat("dps_sus", "\u2014")
                 continue
-            raw = self._data.raw_lookup(s.get("ref", ""))
-            if raw:
-                val = dps_sustained(
-                    raw, s["alpha"], s["rps"],
-                    self._ammo_load_mult, self._regen_per_sec_mult,
-                    self._power_ratio_mult, self._weapon_power_ratio,
-                )
-            else:
-                val = s["dps_sus"]
+            val = s["dps_sus"]
             tbl.update_stat("dps_sus", f"{val:,.0f}" if val else "\u2014")
 
     def _update_footer(self) -> None:
@@ -1281,6 +1622,7 @@ class DpsCalcApp(SCWindow):
             regen_per_sec_mult=self._regen_per_sec_mult,
             power_ratio_mult=self._power_ratio_mult,
             raw_weapon_lookup=self._data.raw_lookup,
+            slot_gun_counts=getattr(self, "_slot_gun_counts", {}),
         )
 
         # Update per-row DPS in the weapon tables (sustained)
@@ -1322,6 +1664,9 @@ class DpsCalcApp(SCWindow):
                 lbl.setText(str(text))
 
         # Split pilot vs turret DPS
+        # Use precomputed s["dps_sus"] (ratio=1.0, matches Erkul display).
+        # The power-sim adjusted value is shown in the footer DPS total instead.
+        _gcounts = getattr(self, "_slot_gun_counts", {})
         pilot_raw = pilot_sus = pilot_alp = 0.0
         turret_raw = turret_sus = turret_alp = 0.0
         for sid, nm in self._sel.get("weapons", {}).items():
@@ -1330,21 +1675,16 @@ class DpsCalcApp(SCWindow):
             s = self._data.find_weapon(nm)
             if not s:
                 continue
-            raw_d = self._data.raw_lookup(s.get("ref", ""))
-            if raw_d:
-                sus = dps_sustained(raw_d, s["alpha"], s["rps"],
-                    self._ammo_load_mult, self._regen_per_sec_mult,
-                    self._power_ratio_mult, self._weapon_power_ratio)
-            else:
-                sus = s["dps_sus"]
+            n   = _gcounts.get(sid, 1)
+            sus = s["dps_sus"]
             if sid in self._turret_slot_ids:
-                turret_raw += s["dps_raw"]
-                turret_sus += sus
-                turret_alp += s["alpha"]
+                turret_raw += s["dps_raw"] * n
+                turret_sus += sus           * n
+                turret_alp += s["alpha"]   * n
             else:
-                pilot_raw += s["dps_raw"]
-                pilot_sus += sus
-                pilot_alp += s["alpha"]
+                pilot_raw += s["dps_raw"] * n
+                pilot_sus += sus          * n
+                pilot_alp += s["alpha"]   * n
 
         _set("pilot_dps_raw",  f"{pilot_raw:,.0f}"  if pilot_raw  else "\u2014")
         _set("pilot_dps_sus",  f"{pilot_sus:,.0f}"  if pilot_sus  else "\u2014")
@@ -1357,10 +1697,13 @@ class DpsCalcApp(SCWindow):
         _set("miss_slots", f"{n_miss} " + _("equipped"))
         _set("shld_hp", f"{tot_hp:,.0f}" if tot_hp else "\u2014")
         _set("shld_regen", f"{tot_regen:.1f}" if tot_regen else "\u2014")
-        avg = lambda val: val / shld_count if shld_count else 0
-        _set("shld_phys", pct(avg(shld_res["phys"])))
-        _set("shld_enrg", pct(avg(shld_res["enrg"])))
-        _set("shld_dist", pct(avg(shld_res["dist"])))
+        # Always show max resistance from totals (energyMax/physMax/distMax) to match Erkul.
+        res_src  = totals["shield_res"]
+        res_cnt  = totals["shield_count"]
+        avg_res  = lambda val: val / res_cnt if res_cnt else 0
+        _set("shld_phys", pct(avg_res(res_src["phys"])))
+        _set("shld_enrg", pct(avg_res(res_src["enrg"])))
+        _set("shld_dist", pct(avg_res(res_src["dist"])))
         _set("cooling", f"{tot_cool:,.0f}" if tot_cool else "\u2014")
         _set("pwr_output", f"{tot_pwr_out:,.0f}" if tot_pwr_out else "\u2014")
         _set("pwr_draw", f"{tot_pwr_draw:,.0f}" if tot_pwr_draw else "\u2014")
@@ -1392,13 +1735,7 @@ class DpsCalcApp(SCWindow):
         burst = item.get("dps_raw", 0)
         _set("wpn_dps_burst", f"{burst:,.0f}" if burst else "\u2014")
 
-        raw_d = self._data.raw_lookup(item.get("ref", ""))
-        if raw_d:
-            sus = dps_sustained(raw_d, item["alpha"], item["rps"],
-                                self._ammo_load_mult, self._regen_per_sec_mult,
-                                self._power_ratio_mult, self._weapon_power_ratio)
-        else:
-            sus = item.get("dps_sus", 0)
+        sus = item.get("dps_sus", 0)
         _set("wpn_dps_sus", f"{sus:,.0f}" if sus else "\u2014")
 
         alpha = item.get("alpha", 0)

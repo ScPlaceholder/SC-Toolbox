@@ -1,5 +1,4 @@
 """Loadout aggregation — compute footer totals and signatures from selections."""
-from services.dps_calculator import dps_sustained
 
 
 def compute_footer_totals(selections: dict,
@@ -11,7 +10,8 @@ def compute_footer_totals(selections: dict,
                           ammo_load_mult: float = 1.0,
                           regen_per_sec_mult: float = 1.0,
                           power_ratio_mult: float = 1.0,
-                          raw_weapon_lookup=None) -> dict:
+                          raw_weapon_lookup=None,
+                          slot_gun_counts: dict | None = None) -> dict:
     """Compute all aggregate stats from current component selections.
 
     Parameters
@@ -38,7 +38,9 @@ def compute_footer_totals(selections: dict,
         cooling, power_output, power_draw,
         gun_count, missile_count
     """
-    # Weapons
+    # Weapons — multiply each slot's contribution by its gun_count multiplier
+    # (gun_count > 1 for grouped manned/ball turrets, e.g. Hammerhead ×4 turrets)
+    _gcounts = slot_gun_counts or {}
     tot_raw = tot_sus = tot_alp = 0.0
     gun_count = 0
     for sid, nm in selections.get("weapons", {}).items():
@@ -46,24 +48,12 @@ def compute_footer_totals(selections: dict,
             continue
         s = find_weapon(nm)
         if s:
-            tot_raw += s["dps_raw"]
-            # Compute context-aware sustained DPS if raw data available
-            if raw_weapon_lookup and power_sim:
-                raw = raw_weapon_lookup(s.get("ref", ""))
-                if raw:
-                    # raw_lookup returns the inner data dict directly (entry["data"])
-                    ctx_sus = dps_sustained(
-                        raw, s["alpha"], s["rps"],
-                        ammo_load_mult, regen_per_sec_mult,
-                        power_ratio_mult, weapon_power_ratio,
-                    )
-                    tot_sus += ctx_sus
-                else:
-                    tot_sus += s["dps_sus"]
-            else:
-                tot_sus += s["dps_sus"]
-            tot_alp += s["alpha"]
-            gun_count += 1
+            n = _gcounts.get(sid, 1)
+            tot_raw += s["dps_raw"] * n
+            # Use precomputed dps_sus (ratio=1.0) to match Erkul's display value.
+            tot_sus += s["dps_sus"] * n
+            tot_alp += s["alpha"]  * n
+            gun_count += n
 
     # Missiles
     miss_dmg = 0.0

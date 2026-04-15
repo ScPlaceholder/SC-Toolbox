@@ -14,6 +14,7 @@ import requests
 
 from data.api_client import ErkulApiClient, FleetyardsApiClient
 from data.cache import DiskCache, FleetyardsCache
+from data.scunpacked_repository import ScunpackedRepository
 from services.dps_calculator import compute_weapon_stats
 from services.stat_computation import (
     compute_shield_stats,
@@ -22,6 +23,20 @@ from services.stat_computation import (
     compute_missile_stats,
     compute_powerplant_stats_erkul,
     compute_qdrive_stats_erkul,
+    compute_missile_rack_stats,
+    compute_mount_stats,
+    compute_emp_stats,
+    compute_qed_stats,
+    compute_bomb_stats,
+    compute_turret_stats,
+    compute_mining_laser_stats,
+    compute_tool_arm_stats,
+    compute_salvage_head_stats,
+    compute_mining_modifier_stats,
+    compute_salvage_modifier_stats,
+    compute_ore_pod_stats,
+    compute_fuel_tank_stats,
+    compute_erkul_module_stats,
 )
 import os
 import re
@@ -41,7 +56,7 @@ FY_BASE    = FLEETYARDS_BASE_URL
 FY_HEADERS = FLEETYARDS_HEADERS
 CACHE_FILE       = os.path.join(_DATA_DIR, ".erkul_cache.json")
 CACHE_TTL        = CACHE_TTL_ERKUL
-CACHE_VERSION    = 5
+CACHE_VERSION    = 7
 FY_HP_CACHE_FILE = os.path.join(_DATA_DIR, ".fy_hardpoints_cache.json")
 FY_HP_TTL        = CACHE_TTL_CARGO
 SUPPLEMENT_FILE  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "erkul_supplement.json")
@@ -77,7 +92,27 @@ class _IndexSnapshot:
                  'coolers_by_ref', 'coolers_by_name', 'radars_by_ref', 'radars_by_name',
                  'missiles_by_ref', 'missiles_by_name', 'powerplants_by_ref', 'powerplants_by_name',
                  'qdrives_by_ref', 'qdrives_by_name', 'ships_by_name',
-                 'by_local_name', 'raw_by_local_name', 'raw_by_ref')
+                 'by_local_name', 'raw_by_local_name', 'raw_by_ref',
+                 # scunpacked-sourced component indexes
+                 'thrusters_by_ref', 'thrusters_by_name', 'thrusters_by_local_name',
+                 'cmls_by_ref', 'cmls_by_name', 'cmls_by_local_name',
+                 # new Erkul endpoints
+                 'missile_racks_by_ref', 'missile_racks_by_name',
+                 'mounts_by_ref',        'mounts_by_name',
+                 'emps_by_ref',          'emps_by_name',
+                 'qeds_by_ref',          'qeds_by_name',
+                 'bombs_by_ref',         'bombs_by_name',
+                 'turrets_by_ref',       'turrets_by_name',
+                 'mining_lasers_by_ref', 'mining_lasers_by_name',
+                 # /live/utilities
+                 'tool_arms_by_ref',          'tool_arms_by_name',
+                 'salvage_heads_by_ref',      'salvage_heads_by_name',
+                 'mining_modifiers_by_ref',   'mining_modifiers_by_name',
+                 'salvage_modifiers_by_ref',  'salvage_modifiers_by_name',
+                 'ore_pods_by_ref',           'ore_pods_by_name',
+                 'fuel_tanks_by_ref',         'fuel_tanks_by_name',
+                 # /live/modules
+                 'erkul_modules_by_ref',      'erkul_modules_by_name')
 
     def __init__(self):
         for s in self.__slots__:
@@ -115,6 +150,9 @@ class ComponentRepository:
         # Caches
         self._cache = DiskCache(CACHE_FILE, CACHE_TTL, CACHE_VERSION)
         self._fy_cache = FleetyardsCache(FY_HP_CACHE_FILE, FY_HP_TTL)
+
+        # scunpacked-data repository (thrusters, CMLs)
+        self._scunpacked = ScunpackedRepository()
 
     # ── Backward-compatible property accessors into _IndexSnapshot ────────
 
@@ -178,6 +216,155 @@ class ComponentRepository:
     def ships_by_name(self):      return self._idx.ships_by_name
     @ships_by_name.setter
     def ships_by_name(self, v):   self._idx.ships_by_name = v
+
+    # ── scunpacked accessors ──────────────────────────────────────────────
+    @property
+    def thrusters_by_ref(self):           return self._scunpacked.thrusters_by_ref
+    @property
+    def thrusters_by_name(self):          return self._scunpacked.thrusters_by_name
+    @property
+    def thrusters_by_local_name(self):    return self._scunpacked.thrusters_by_local_name
+    @property
+    def cmls_by_ref(self):                return self._scunpacked.cmls_by_ref
+    @property
+    def cmls_by_name(self):               return self._scunpacked.cmls_by_name
+    @property
+    def cmls_by_local_name(self):         return self._scunpacked.cmls_by_local_name
+    @property
+    def modules_by_ref(self):             return self._scunpacked.modules_by_ref
+    @property
+    def modules_by_name(self):            return self._scunpacked.modules_by_name
+    @property
+    def modules_by_local_name(self):      return self._scunpacked.modules_by_local_name
+
+    # ── new Erkul component accessors ────────────────────────────────────
+    @property
+    def missile_racks_by_ref(self):   return self._idx.missile_racks_by_ref
+    @missile_racks_by_ref.setter
+    def missile_racks_by_ref(self, v): self._idx.missile_racks_by_ref = v
+    @property
+    def missile_racks_by_name(self):  return self._idx.missile_racks_by_name
+    @missile_racks_by_name.setter
+    def missile_racks_by_name(self, v): self._idx.missile_racks_by_name = v
+
+    @property
+    def mounts_by_ref(self):   return self._idx.mounts_by_ref
+    @mounts_by_ref.setter
+    def mounts_by_ref(self, v): self._idx.mounts_by_ref = v
+    @property
+    def mounts_by_name(self):  return self._idx.mounts_by_name
+    @mounts_by_name.setter
+    def mounts_by_name(self, v): self._idx.mounts_by_name = v
+
+    @property
+    def emps_by_ref(self):   return self._idx.emps_by_ref
+    @emps_by_ref.setter
+    def emps_by_ref(self, v): self._idx.emps_by_ref = v
+    @property
+    def emps_by_name(self):  return self._idx.emps_by_name
+    @emps_by_name.setter
+    def emps_by_name(self, v): self._idx.emps_by_name = v
+
+    @property
+    def qeds_by_ref(self):   return self._idx.qeds_by_ref
+    @qeds_by_ref.setter
+    def qeds_by_ref(self, v): self._idx.qeds_by_ref = v
+    @property
+    def qeds_by_name(self):  return self._idx.qeds_by_name
+    @qeds_by_name.setter
+    def qeds_by_name(self, v): self._idx.qeds_by_name = v
+
+    @property
+    def bombs_by_ref(self):   return self._idx.bombs_by_ref
+    @bombs_by_ref.setter
+    def bombs_by_ref(self, v): self._idx.bombs_by_ref = v
+    @property
+    def bombs_by_name(self):  return self._idx.bombs_by_name
+    @bombs_by_name.setter
+    def bombs_by_name(self, v): self._idx.bombs_by_name = v
+
+    @property
+    def turrets_by_ref(self):   return self._idx.turrets_by_ref
+    @turrets_by_ref.setter
+    def turrets_by_ref(self, v): self._idx.turrets_by_ref = v
+    @property
+    def turrets_by_name(self):  return self._idx.turrets_by_name
+    @turrets_by_name.setter
+    def turrets_by_name(self, v): self._idx.turrets_by_name = v
+
+    @property
+    def mining_lasers_by_ref(self):   return self._idx.mining_lasers_by_ref
+    @mining_lasers_by_ref.setter
+    def mining_lasers_by_ref(self, v): self._idx.mining_lasers_by_ref = v
+    @property
+    def mining_lasers_by_name(self):  return self._idx.mining_lasers_by_name
+    @mining_lasers_by_name.setter
+    def mining_lasers_by_name(self, v): self._idx.mining_lasers_by_name = v
+
+    # ── /live/utilities accessors ─────────────────────────────────────────
+    @property
+    def tool_arms_by_ref(self):   return self._idx.tool_arms_by_ref
+    @tool_arms_by_ref.setter
+    def tool_arms_by_ref(self, v): self._idx.tool_arms_by_ref = v
+    @property
+    def tool_arms_by_name(self):  return self._idx.tool_arms_by_name
+    @tool_arms_by_name.setter
+    def tool_arms_by_name(self, v): self._idx.tool_arms_by_name = v
+
+    @property
+    def salvage_heads_by_ref(self):   return self._idx.salvage_heads_by_ref
+    @salvage_heads_by_ref.setter
+    def salvage_heads_by_ref(self, v): self._idx.salvage_heads_by_ref = v
+    @property
+    def salvage_heads_by_name(self):  return self._idx.salvage_heads_by_name
+    @salvage_heads_by_name.setter
+    def salvage_heads_by_name(self, v): self._idx.salvage_heads_by_name = v
+
+    @property
+    def mining_modifiers_by_ref(self):   return self._idx.mining_modifiers_by_ref
+    @mining_modifiers_by_ref.setter
+    def mining_modifiers_by_ref(self, v): self._idx.mining_modifiers_by_ref = v
+    @property
+    def mining_modifiers_by_name(self):  return self._idx.mining_modifiers_by_name
+    @mining_modifiers_by_name.setter
+    def mining_modifiers_by_name(self, v): self._idx.mining_modifiers_by_name = v
+
+    @property
+    def salvage_modifiers_by_ref(self):   return self._idx.salvage_modifiers_by_ref
+    @salvage_modifiers_by_ref.setter
+    def salvage_modifiers_by_ref(self, v): self._idx.salvage_modifiers_by_ref = v
+    @property
+    def salvage_modifiers_by_name(self):  return self._idx.salvage_modifiers_by_name
+    @salvage_modifiers_by_name.setter
+    def salvage_modifiers_by_name(self, v): self._idx.salvage_modifiers_by_name = v
+
+    @property
+    def ore_pods_by_ref(self):   return self._idx.ore_pods_by_ref
+    @ore_pods_by_ref.setter
+    def ore_pods_by_ref(self, v): self._idx.ore_pods_by_ref = v
+    @property
+    def ore_pods_by_name(self):  return self._idx.ore_pods_by_name
+    @ore_pods_by_name.setter
+    def ore_pods_by_name(self, v): self._idx.ore_pods_by_name = v
+
+    @property
+    def fuel_tanks_by_ref(self):   return self._idx.fuel_tanks_by_ref
+    @fuel_tanks_by_ref.setter
+    def fuel_tanks_by_ref(self, v): self._idx.fuel_tanks_by_ref = v
+    @property
+    def fuel_tanks_by_name(self):  return self._idx.fuel_tanks_by_name
+    @fuel_tanks_by_name.setter
+    def fuel_tanks_by_name(self, v): self._idx.fuel_tanks_by_name = v
+
+    # ── /live/modules accessors ───────────────────────────────────────────
+    @property
+    def erkul_modules_by_ref(self):   return self._idx.erkul_modules_by_ref
+    @erkul_modules_by_ref.setter
+    def erkul_modules_by_ref(self, v): self._idx.erkul_modules_by_ref = v
+    @property
+    def erkul_modules_by_name(self):  return self._idx.erkul_modules_by_name
+    @erkul_modules_by_name.setter
+    def erkul_modules_by_name(self, v): self._idx.erkul_modules_by_name = v
 
     # ── Fleetyards hardpoints ─────────────────────────────────────────────
 
@@ -285,6 +472,10 @@ class ComponentRepository:
                     _log.info("  Cancelled after stage 1")
                     return
 
+                # Start scunpacked load in parallel — fire-and-forget; it has its own
+                # cache and completes independently of the Erkul pipeline.
+                self._scunpacked.load(stale_ok=True)
+
                 if cached:
                     _log.info("  Using cached data (needs_refresh=%s)", needs_refresh)
                     raw = cached
@@ -298,15 +489,25 @@ class ComponentRepository:
                     _log.info("  No cache, fetching from erkul.games...")
                     raw = {}
                     endpoints = [
-                        ("/live/weapons",       "/live/weapons"),
-                        ("/live/shields",       "/live/shields"),
-                        ("/live/coolers",       "/live/coolers"),
-                        ("/live/missiles",      "/live/missiles"),
-                        ("/live/radars",        "/live/radars"),
-                        ("/live/powerplants",   "/live/power-plants"),
-                        ("/live/quantumdrives", "/live/qdrives"),
-                        ("/live/thrusters",     "/live/thrusters"),
-                        ("/live/paints",        "/live/paints"),
+                        ("/live/weapons",        "/live/weapons"),
+                        ("/live/shields",        "/live/shields"),
+                        ("/live/coolers",        "/live/coolers"),
+                        ("/live/missiles",       "/live/missiles"),
+                        ("/live/radars",         "/live/radars"),
+                        ("/live/powerplants",    "/live/power-plants"),
+                        ("/live/quantumdrives",  "/live/qdrives"),
+                        ("/live/thrusters",      "/live/thrusters"),
+                        ("/live/paints",         "/live/paints"),
+                        # New endpoints discovered in audit
+                        ("/live/missile-racks",  "/live/missile-racks"),
+                        ("/live/mounts",         "/live/mounts"),
+                        ("/live/emps",           "/live/emps"),
+                        ("/live/qeds",           "/live/qeds"),
+                        ("/live/bombs",          "/live/bombs"),
+                        ("/live/turrets",        "/live/turrets"),
+                        ("/live/mining-lasers",  "/live/mining-lasers"),
+                        ("/live/utilities",      "/live/utilities"),
+                        ("/live/modules",        "/live/modules"),
                     ]
                     for key, path in endpoints:
                         if _cancelled():
@@ -333,7 +534,10 @@ class ComponentRepository:
                             continue
                         enrich_component_stats(stats, d)
                         ref = stats["ref"]
-                        key = f"{stats['name'].lower()}_{stats['size']}"
+                        # Use local_name as key (unique per item) to avoid
+                        # collisions when multiple items share the same name+size
+                        # but differ by required_tags (e.g. ship-specific mounts).
+                        key = f"{stats.get('local_name') or stats['name'].lower()}_{stats['size']}"
                         if ref:
                             by_ref[ref] = stats
                         by_name[key] = stats
@@ -363,6 +567,48 @@ class ComponentRepository:
                        snap.powerplants_by_ref, snap.powerplants_by_name)
                 _index(raw.get("/live/quantumdrives", []), compute_qdrive_stats_erkul,
                        snap.qdrives_by_ref, snap.qdrives_by_name)
+                # New Erkul endpoints
+                _index(raw.get("/live/missile-racks", []), compute_missile_rack_stats,
+                       snap.missile_racks_by_ref, snap.missile_racks_by_name,
+                       filt=lambda d: (
+                           d.get("type") == "MissileLauncher" and
+                           any(any(it.get("type") == "Missile"
+                                   for it in (p.get("itemTypes") or []))
+                               for p in (d.get("ports") or []))))
+                _index(raw.get("/live/mounts", []), compute_mount_stats,
+                       snap.mounts_by_ref, snap.mounts_by_name)
+                _index(raw.get("/live/emps", []), compute_emp_stats,
+                       snap.emps_by_ref, snap.emps_by_name)
+                _index(raw.get("/live/qeds", []), compute_qed_stats,
+                       snap.qeds_by_ref, snap.qeds_by_name)
+                _index(raw.get("/live/bombs", []), compute_bomb_stats,
+                       snap.bombs_by_ref, snap.bombs_by_name)
+                _index(raw.get("/live/turrets", []), compute_turret_stats,
+                       snap.turrets_by_ref, snap.turrets_by_name)
+                _index(raw.get("/live/mining-lasers", []), compute_mining_laser_stats,
+                       snap.mining_lasers_by_ref, snap.mining_lasers_by_name)
+                # /live/utilities — filter by type within the same endpoint
+                _index(raw.get("/live/utilities", []), compute_tool_arm_stats,
+                       snap.tool_arms_by_ref, snap.tool_arms_by_name,
+                       filt=lambda d: d.get("type") == "ToolArm")
+                _index(raw.get("/live/utilities", []), compute_salvage_head_stats,
+                       snap.salvage_heads_by_ref, snap.salvage_heads_by_name,
+                       filt=lambda d: d.get("type") == "SalvageHead")
+                _index(raw.get("/live/utilities", []), compute_mining_modifier_stats,
+                       snap.mining_modifiers_by_ref, snap.mining_modifiers_by_name,
+                       filt=lambda d: d.get("type") == "MiningModifier")
+                _index(raw.get("/live/utilities", []), compute_salvage_modifier_stats,
+                       snap.salvage_modifiers_by_ref, snap.salvage_modifiers_by_name,
+                       filt=lambda d: d.get("type") == "SalvageModifier")
+                _index(raw.get("/live/utilities", []), compute_ore_pod_stats,
+                       snap.ore_pods_by_ref, snap.ore_pods_by_name,
+                       filt=lambda d: d.get("type") == "Container" and d.get("subType") == "Cargo")
+                _index(raw.get("/live/utilities", []), compute_fuel_tank_stats,
+                       snap.fuel_tanks_by_ref, snap.fuel_tanks_by_name,
+                       filt=lambda d: d.get("type") == "ExternalFuelTank")
+                # /live/modules — ship swap modules
+                _index(raw.get("/live/modules", []), compute_erkul_module_stats,
+                       snap.erkul_modules_by_ref, snap.erkul_modules_by_name)
 
                 if _cancelled():
                     return
@@ -388,7 +634,15 @@ class ComponentRepository:
                 rbr = {}
                 for by_ref in (snap.weapons_by_ref, snap.shields_by_ref,
                                snap.coolers_by_ref, snap.radars_by_ref,
-                               snap.powerplants_by_ref, snap.qdrives_by_ref):
+                               snap.powerplants_by_ref, snap.qdrives_by_ref,
+                               snap.missile_racks_by_ref, snap.mounts_by_ref,
+                               snap.emps_by_ref, snap.qeds_by_ref,
+                               snap.bombs_by_ref, snap.turrets_by_ref,
+                               snap.mining_lasers_by_ref,
+                               snap.tool_arms_by_ref, snap.salvage_heads_by_ref,
+                               snap.mining_modifiers_by_ref, snap.salvage_modifiers_by_ref,
+                               snap.ore_pods_by_ref, snap.fuel_tanks_by_ref,
+                               snap.erkul_modules_by_ref):
                     for ref, stats in by_ref.items():
                         ln = stats.get("local_name")
                         if ln:
@@ -418,6 +672,22 @@ class ComponentRepository:
                             rbr.setdefault(_r, _d)
                 except (FileNotFoundError, json.JSONDecodeError):
                     pass
+
+                # Merge scunpacked local-name maps so raw_lookup() resolves thrusters/CMLs
+                # even before the scunpacked background thread finishes (it may already
+                # have data from its own cache at this point).
+                for _local, _stats in self._scunpacked.thrusters_by_local_name.items():
+                    rln.setdefault(_local, _stats)
+                    if _stats.get("ref"):
+                        rbr.setdefault(_stats["ref"], _stats)
+                for _local, _stats in self._scunpacked.cmls_by_local_name.items():
+                    rln.setdefault(_local, _stats)
+                    if _stats.get("ref"):
+                        rbr.setdefault(_stats["ref"], _stats)
+                for _local, _stats in self._scunpacked.modules_by_local_name.items():
+                    rln.setdefault(_local, _stats)
+                    if _stats.get("ref"):
+                        rbr.setdefault(_stats["ref"], _stats)
 
                 snap.by_local_name = bln
                 snap.raw_by_local_name = rln
@@ -565,9 +835,63 @@ class ComponentRepository:
         idx = self._idx
         return self._find(idx.qdrives_by_ref, idx.qdrives_by_name, q, max_size)
 
+    # ── scunpacked-sourced lookups ─────────────────────────────────────────
+    def find_thruster(self, q, max_size=None):
+        return self._scunpacked.find_thruster(q, max_size)
+
+    def find_cml(self, q, max_size=None):
+        return self._scunpacked.find_cml(q, max_size)
+
+    def find_module(self, q, max_size=None):
+        return self._scunpacked.find_module(q, max_size)
+
+    def find_missile_rack(self, q, max_size=None):
+        idx = self._idx
+        return self._find(idx.missile_racks_by_ref, idx.missile_racks_by_name, q, max_size)
+
+    def find_mount(self, q, max_size=None):
+        idx = self._idx
+        return self._find(idx.mounts_by_ref, idx.mounts_by_name, q, max_size)
+
+    def find_emp(self, q, max_size=None):
+        idx = self._idx
+        return self._find(idx.emps_by_ref, idx.emps_by_name, q, max_size)
+
+    def find_qed(self, q, max_size=None):
+        idx = self._idx
+        return self._find(idx.qeds_by_ref, idx.qeds_by_name, q, max_size)
+
+    def find_bomb(self, q, max_size=None):
+        idx = self._idx
+        return self._find(idx.bombs_by_ref, idx.bombs_by_name, q, max_size)
+
+    def find_turret(self, q, max_size=None):
+        idx = self._idx
+        return self._find(idx.turrets_by_ref, idx.turrets_by_name, q, max_size)
+
+    def find_mining_laser(self, q, max_size=None):
+        idx = self._idx
+        return self._find(idx.mining_lasers_by_ref, idx.mining_lasers_by_name, q, max_size)
+
     def _list_for_size(self, by_name: dict, max_size: int) -> list:
         return sorted(
             [v for v in by_name.values() if v["size"] <= max_size],
+            key=lambda x: (-x["size"], x["name"]),
+        )
+
+    def _list_for_size_tagged(self, by_name: dict, max_size: int, required_tags: str) -> list:
+        """Like _list_for_size but also filters by required_tags equality."""
+        return sorted(
+            [v for v in by_name.values()
+             if v["size"] <= max_size and v.get("required_tags", "") == required_tags],
+            key=lambda x: (-x["size"], x["name"]),
+        )
+
+    def _list_for_size_no_tags(self, by_name: dict, max_size: int) -> list:
+        """Return only items with no required_tags (generic, fits any slot)."""
+        return sorted(
+            [v for v in by_name.values()
+             if v["size"] <= max_size and not v.get("required_tags", "")],
             key=lambda x: (-x["size"], x["name"]),
         )
 
@@ -578,3 +902,127 @@ class ComponentRepository:
     def missiles_for_size(self, sz):     return self._list_for_size(self._idx.missiles_by_name,     sz)
     def powerplants_for_size(self, sz):  return self._list_for_size(self._idx.powerplants_by_name,  sz)
     def qdrives_for_size(self, sz):      return self._list_for_size(self._idx.qdrives_by_name,      sz)
+    def thrusters_for_size(self, sz):      return self._scunpacked.thrusters_for_size(sz)
+    def cmls_for_size(self, sz):           return self._scunpacked.cmls_for_size(sz)
+    def modules_for_size(self, sz):        return self._scunpacked.modules_for_size(sz)
+    def missile_racks_for_size(self, sz) -> list:
+        """Missile racks for an exact slot size, deduplicated by display name.
+
+        Racks must fill the slot exactly (size == sz) — Erkul only shows
+        exact-size matches, and undersized racks waste hardpoint space.
+        """
+        all_racks = [v for v in self._idx.missile_racks_by_name.values()
+                     if v["size"] == sz]
+        seen: dict = {}
+        for r in sorted(all_racks, key=lambda x: len(x.get("local_name", ""))):
+            key = (r["name"].strip(), r["size"])
+            seen.setdefault(key, r)
+        return sorted(seen.values(), key=lambda x: (-x["size"], x["name"]))
+    def mounts_for_size(self, sz):         return self._list_for_size(self._idx.mounts_by_name,        sz)
+    def emps_for_size(self, sz):           return self._list_for_size(self._idx.emps_by_name,          sz)
+    def qeds_for_size(self, sz):           return self._list_for_size(self._idx.qeds_by_name,          sz)
+    def bombs_for_size(self, sz):          return self._list_for_size(self._idx.bombs_by_name,         sz)
+    def turrets_for_size(self, sz):        return self._list_for_size(self._idx.turrets_by_name,       sz)
+    def mining_lasers_for_size(self, sz):  return self._list_for_size(self._idx.mining_lasers_by_name, sz)
+
+    # ── required_tags-aware lookups ────────────────────────────────────────────
+    def weapons_for_size_filtered(self, sz, required_tags: str = "") -> list:
+        """Weapons for a slot: tagged weapons only when slot has a specific tag,
+        generic weapons only (required_tags='') for standard slots."""
+        if required_tags:
+            # Ship-specific slot: show tagged weapons plus generic ones (player
+            # can always downgrade to a standard weapon).
+            tagged  = self._list_for_size_tagged(self._idx.weapons_by_name, sz, required_tags)
+            generic = self._list_for_size_no_tags(self._idx.weapons_by_name, sz)
+            seen = {v["name"] for v in tagged}
+            return tagged + [v for v in generic if v["name"] not in seen]
+        # Standard slot: hide ship-specific weapons entirely.
+        return self._list_for_size_no_tags(self._idx.weapons_by_name, sz)
+
+    def mounts_for_size_tagged(self, sz, required_tags: str = "") -> list:
+        """Mounts for an exact slot size, filtered by required_tags, deduplicated.
+
+        Gimbals must fill the slot exactly (size == sz), not just fit (size <= sz),
+        because undersized gimbals waste hardpoint space and Erkul only shows
+        exact-size matches in its gimbal picker.
+
+        Many gimbals have ship-specific positioning variants (e.g. six
+        ``mount_gimbal_s3_perseus_*`` entries all named "VariPuck S3") that
+        carry no required_tags and are functionally identical to the canonical
+        ``mount_gimbal_s3``.  Showing all variants in the picker clutters the
+        list, so we keep only one entry per (name, size) — the one with the
+        shortest local_name, which is always the canonical generic variant.
+        """
+        all_mounts = [v for v in self._idx.mounts_by_name.values()
+                      if v["size"] == sz
+                      and v.get("required_tags", "") == required_tags]
+        # Deduplicate: sort by local_name length so the shortest (most generic)
+        # variant wins, then keep the first entry per (name, size) key.
+        seen: dict = {}
+        for m in sorted(all_mounts, key=lambda x: len(x.get("local_name", ""))):
+            key = (m["name"].strip(), m["size"])
+            seen.setdefault(key, m)
+        return sorted(seen.values(), key=lambda x: (-x["size"], x["name"]))
+
+    def mining_lasers_for_size_tagged(self, sz, required_tags: str = "") -> list:
+        """Mining lasers filtered by required_tags (miningMount vs DRAK_miningMount etc.)."""
+        if required_tags:
+            return self._list_for_size_tagged(self._idx.mining_lasers_by_name, sz, required_tags)
+        # No known tag — show all (size 0 always passes the <= sz check).
+        return self._list_for_size(self._idx.mining_lasers_by_name, sz)
+
+    # ── /live/utilities find_ methods ─────────────────────────────────────────
+    def find_tool_arm(self, q, max_size=None):
+        idx = self._idx
+        return self._find(idx.tool_arms_by_ref, idx.tool_arms_by_name, q, max_size)
+
+    def find_salvage_head(self, q, max_size=None):
+        idx = self._idx
+        return self._find(idx.salvage_heads_by_ref, idx.salvage_heads_by_name, q, max_size)
+
+    def find_mining_modifier(self, q, max_size=None):
+        idx = self._idx
+        return self._find(idx.mining_modifiers_by_ref, idx.mining_modifiers_by_name, q, max_size)
+
+    def find_salvage_modifier(self, q, max_size=None):
+        idx = self._idx
+        return self._find(idx.salvage_modifiers_by_ref, idx.salvage_modifiers_by_name, q, max_size)
+
+    def find_ore_pod(self, q, max_size=None):
+        idx = self._idx
+        return self._find(idx.ore_pods_by_ref, idx.ore_pods_by_name, q, max_size)
+
+    def find_fuel_tank(self, q, max_size=None):
+        idx = self._idx
+        return self._find(idx.fuel_tanks_by_ref, idx.fuel_tanks_by_name, q, max_size)
+
+    # ── /live/modules find_ method ────────────────────────────────────────────
+    def find_erkul_module(self, q, max_size=None):
+        idx = self._idx
+        return self._find(idx.erkul_modules_by_ref, idx.erkul_modules_by_name, q, max_size)
+
+    # ── *_for_size methods ────────────────────────────────────────────────────
+    def tool_arms_for_size(self, sz):           return self._list_for_size(self._idx.tool_arms_by_name,          sz)
+    def salvage_heads_for_size(self, sz):       return self._list_for_size(self._idx.salvage_heads_by_name,      sz)
+    def mining_modifiers_for_size(self, sz):    return self._list_for_size(self._idx.mining_modifiers_by_name,   sz)
+    def salvage_modifiers_for_size(self, sz):   return self._list_for_size(self._idx.salvage_modifiers_by_name,  sz)
+    def ore_pods_for_size(self, sz):            return self._list_for_size(self._idx.ore_pods_by_name,           sz)
+    def erkul_modules_for_size(self, sz):       return self._list_for_size(self._idx.erkul_modules_by_name,      sz)
+
+    def fuel_tanks_for_size_tagged(self, sz, required_tags: str = "") -> list:
+        """Fuel tanks filtered by required_tags (e.g. MISC_Starfarer_Base)."""
+        if required_tags:
+            return self._list_for_size_tagged(self._idx.fuel_tanks_by_name, sz, required_tags)
+        return self._list_for_size_no_tags(self._idx.fuel_tanks_by_name, sz)
+
+    def erkul_modules_for_size_tagged(self, sz, required_tags: str = "") -> list:
+        """Ship modules filtered by required_tags (slot-specific modules)."""
+        if required_tags:
+            return self._list_for_size_tagged(self._idx.erkul_modules_by_name, sz, required_tags)
+        return self._list_for_size(self._idx.erkul_modules_by_name, sz)
+
+    def salvage_heads_for_size_tagged(self, sz, required_tags: str = "") -> list:
+        """Salvage heads filtered by required_tags (salvageMount)."""
+        if required_tags:
+            return self._list_for_size_tagged(self._idx.salvage_heads_by_name, sz, required_tags)
+        return self._list_for_size(self._idx.salvage_heads_by_name, sz)

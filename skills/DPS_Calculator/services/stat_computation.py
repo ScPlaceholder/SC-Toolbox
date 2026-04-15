@@ -229,3 +229,248 @@ def compute_thruster_stats(hp: dict) -> dict:
         "mfr":      _fy_comp_mfr(hp),
         "thrust":   float(td.get("thrustCapacity", td.get("thrust", 0)) or 0),
     }
+
+
+# ── Erkul new-endpoint stat extractors ────────────────────────────────────────
+# All receive the full entry dict:  {"calculatorType": ..., "data": {...}, "localName": ...}
+
+
+def _erkul_base(raw: dict) -> dict:
+    """Common fields shared by every Erkul component entry."""
+    d = raw.get("data", {})
+    mfr = (d.get("manufacturerData") or {}).get("data", {})
+    hlth = d.get("health") or {}
+    res  = d.get("resource") or {}
+    onl  = res.get("online") or {}
+    sig  = onl.get("signatureParams") or {}
+    em_d = sig.get("em") or {}
+    ir_d = sig.get("ir") or {}
+    pwr  = onl.get("consumption") or {}
+    return {
+        "name":       d.get("name", "?"),
+        "local_name": raw.get("localName", ""),
+        "ref":        d.get("ref", ""),
+        "size":       d.get("size", 1),
+        "grade":      d.get("grade", "?"),
+        "sub_type":   d.get("subType", ""),
+        "mfr":        mfr.get("name", d.get("manufacturer", "")),
+        "hp":         float((hlth.get("hp") or 0)),
+        "power_draw": float(pwr.get("powerSegment", 0) or 0),
+        "em_max":     float(em_d.get("nominalSignature", 0) or 0),
+        "ir_max":     float(ir_d.get("nominalSignature", 0) or 0),
+        "required_tags": d.get("requiredTags", ""),
+    }
+
+
+def compute_missile_rack_stats(raw: dict) -> dict:
+    """Missile rack (MissileLauncher/MissileRack) — holds 1-N missiles.
+
+    ports[] array tells us missile count and size class.
+    Name encoding: MSD-322 = S3 housing, 2× S2 missiles.
+    """
+    b = _erkul_base(raw)
+    d = raw.get("data", {})
+    ports = d.get("ports") or []
+    # Each port in the list is one missile slot
+    missile_ports = [p for p in ports
+                     if any(it.get("type") == "Missile"
+                            for it in (p.get("itemTypes") or []))]
+    capacity   = len(missile_ports)
+    missile_sz = missile_ports[0].get("maxSize", 1) if missile_ports else 1
+    rack       = d.get("missileRack") or {}
+    return {**b,
+        "type":           "MissileLauncher",
+        "missile_count":  capacity,       # number of missiles it holds
+        "missile_size":   missile_sz,     # size of each missile slot
+        "launch_delay":   float(rack.get("launchDelay", 0) or 0),
+    }
+
+
+def compute_mount_stats(raw: dict) -> dict:
+    """Gimbal / utility mount (Turret/GunTurret).
+
+    Mounts are the hardware that lets a gun track — they have a size
+    (the port they occupy) and hold a gun one size smaller.
+    """
+    b = _erkul_base(raw)
+    d = raw.get("data", {})
+    ports = d.get("ports") or []
+    # port_max_size: largest weapon this mount can hold
+    port_max = max(
+        (p.get("maxSize", 1) for p in ports if isinstance(p, dict)),
+        default=d.get("size", 1),
+    )
+    return {**b,
+        "type":          d.get("type", "Turret"),
+        "required_tags": d.get("requiredTags", ""),
+        "port_count":    len(ports),
+        "port_max_size": port_max,
+    }
+
+
+def compute_emp_stats(raw: dict) -> dict:
+    """EMP burst generator stats."""
+    b    = _erkul_base(raw)
+    d    = raw.get("data", {})
+    emp  = d.get("emp") or {}
+    dist = d.get("distortion") or {}
+    return {**b,
+        "type":            "EMP",
+        "charge_time":     float(emp.get("chargeTime", 0) or 0),
+        "cooldown_time":   float(emp.get("cooldownTime", 0) or 0),
+        "unleash_time":    float(emp.get("unleashTime", 0) or 0),
+        "emp_radius":      float(emp.get("empRadius", 0) or 0),
+        "min_emp_radius":  float(emp.get("minEmpRadius", 0) or 0),
+        "phys_radius":     float(emp.get("physRadius", 0) or 0),
+        "distortion_dmg":  float(emp.get("distortionDamage", 0) or 0),
+        "dist_decay_rate": float(dist.get("decayRate", 0) or 0),
+    }
+
+
+def compute_qed_stats(raw: dict) -> dict:
+    """Quantum Enforcement Device (quantum interdiction generator)."""
+    b   = _erkul_base(raw)
+    d   = raw.get("data", {})
+    res = d.get("resource") or {}
+    onl = res.get("online") or {}
+    pwr = onl.get("consumption") or {}
+    return {**b,
+        "type":       "QuantumInterdictionGenerator",
+        "power_draw": float(pwr.get("powerSegment", 0) or 0),
+    }
+
+
+def compute_bomb_stats(raw: dict) -> dict:
+    """Bomb stats — damage comes from the health.damageResistanceMultiplier proxy
+    or the bomb sub-object (explosion radii, arm time etc.).
+    Direct damage values are not present in Erkul; we store blast geometry instead.
+    """
+    b    = _erkul_base(raw)
+    d    = raw.get("data", {})
+    bomb = d.get("bomb") or {}
+    dist = d.get("distortion") or {}
+    return {**b,
+        "type":         d.get("type", "Bomb"),
+        "max_lifetime": float(bomb.get("maxLifetime",            0) or 0),
+        "arm_time":     float(bomb.get("armTime",                0) or 0),
+        "min_radius":   float(bomb.get("minRadius",              0) or 0),
+        "max_radius":   float(bomb.get("maxRadius",              0) or 0),
+        "dist_max":     float(dist.get("maximum",                0) or 0),
+    }
+
+
+def compute_turret_stats(raw: dict) -> dict:
+    """Turret housing (manned / remote / ball / nose turrets).
+
+    These are the physical turret structures, not the guns inside them.
+    HP, size, sub_type (GunTurret, MannedTurret, etc.) are the key stats.
+    """
+    b = _erkul_base(raw)
+    d = raw.get("data", {})
+    return {**b,
+        "type": d.get("type", "Turret"),
+    }
+
+
+def compute_mining_laser_stats(raw: dict) -> dict:
+    """Mining laser stats.
+
+    Erkul stores mining params under 'miningLaser' (instability, modifiers)
+    and weapon connection power under weapon.connection.  Module slot count
+    is at top-level 'moduleSlots'.
+    """
+    b   = _erkul_base(raw)
+    d   = raw.get("data", {})
+    ml  = d.get("miningLaser") or {}
+    wpn = d.get("weapon") or {}
+    conn = wpn.get("connection") or {}
+    norm = conn.get("normalStats") or {}
+    return {**b,
+        "type":            d.get("type", "WeaponMining"),
+        "module_slots":    int(d.get("moduleSlots", 0) or 0),
+        "instability":     float(ml.get("laserInstability",         0) or 0),
+        "resistance_mod":  float(ml.get("resistanceModifier",       0) or 0),
+        "filter_mod":      float(ml.get("filterModifier",           0) or 0),
+        "throttle_min":    float(ml.get("throttleMinimum",          0) or 0),
+        "power_draw":      float(norm.get("powerMod",
+                                 conn.get("heatRateOnline",         0)) or 0),
+    }
+
+
+def compute_tool_arm_stats(raw: dict) -> dict:
+    """ToolArm — mining arm / salvage arm housing (ship-specific, usually non-swappable)."""
+    b = _erkul_base(raw)
+    d = raw.get("data", {})
+    return {**b, "type": "ToolArm"}
+
+
+def compute_salvage_head_stats(raw: dict) -> dict:
+    """SalvageHead — salvage beam head (e.g. Baler Salvage Head on Vulture)."""
+    b   = _erkul_base(raw)
+    d   = raw.get("data", {})
+    wpn = d.get("weapon", {}) or {}
+    tb  = wpn.get("tractorBeam", {}) or {}
+    return {**b,
+        "type":         "SalvageHead",
+        "max_force":    float(tb.get("maxForce",    0) or 0),
+        "max_distance": float(tb.get("maxDistance", 0) or 0),
+    }
+
+
+def compute_mining_modifier_stats(raw: dict) -> dict:
+    """MiningModifier — consumable module for mining laser sub-slots."""
+    b    = _erkul_base(raw)
+    d    = raw.get("data", {})
+    mod  = d.get("modifier", {}) or {}
+    ml   = mod.get("miningModifier", {}) or {}
+    wmod = mod.get("weaponModifier", {}) or {}
+    return {**b,
+        "type":              "MiningModifier",
+        "charges":           int(mod.get("charges", 0) or 0),
+        "resistance_mod":    float(ml.get("resistanceModifier",              0) or 0),
+        "instability_mod":   float(ml.get("laserInstability",                0) or 0),
+        "charge_window_mod": float(ml.get("optimalChargeWindowSizeModifier", 0) or 0),
+        "shatter_mod":       float(ml.get("shatterdamageModifier",           0) or 0),
+        "dmg_mult":          float(wmod.get("laserDamageMultiplier",         1) or 1),
+        "lifetime":          float(wmod.get("lifetimeLaser",                 0) or 0),
+    }
+
+
+def compute_salvage_modifier_stats(raw: dict) -> dict:
+    """SalvageModifier — consumable module for salvage head sub-slots."""
+    b   = _erkul_base(raw)
+    d   = raw.get("data", {})
+    mod = d.get("modifier", {}) or {}
+    return {**b,
+        "type":    "SalvageModifier",
+        "charges": int(mod.get("charges", 0) or 0),
+    }
+
+
+def compute_ore_pod_stats(raw: dict) -> dict:
+    """Container/Cargo — ore pod / mining cargo pod (Argo Ore Pod etc.)."""
+    b = _erkul_base(raw)
+    d = raw.get("data", {})
+    return {**b,
+        "type":     "Container",
+        "capacity": float(d.get("resourceContainerCapacity", 0) or 0),
+    }
+
+
+def compute_fuel_tank_stats(raw: dict) -> dict:
+    """ExternalFuelTank — external fuel pod (Starfarer, Gemini)."""
+    b = _erkul_base(raw)
+    d = raw.get("data", {})
+    return {**b,
+        "type":     "ExternalFuelTank",
+        "capacity": float(d.get("resourceContainerCapacity", 0) or 0),
+    }
+
+
+def compute_erkul_module_stats(raw: dict) -> dict:
+    """Erkul /live/modules entry — ship modules (Retaliator, Apollo, Aurora Mk II)."""
+    b = _erkul_base(raw)
+    d = raw.get("data", {})
+    return {**b,
+        "type": d.get("type", "Module"),
+    }

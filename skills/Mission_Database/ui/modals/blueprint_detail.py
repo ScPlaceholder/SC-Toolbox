@@ -7,26 +7,193 @@ from PySide6.QtCore import Qt
 log = logging.getLogger(__name__)
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QPushButton,
-    QScrollArea, QSlider,
+    QScrollArea, QSlider, QSpinBox, QMessageBox,
 )
 
 from shared.qt.theme import P
 from ui.modals.base import ModalBase
+from services.inventory import blueprint_key
 
 
 class BlueprintDetailModal(ModalBase):
     """Popup showing full crafting recipe for a blueprint."""
 
-    def __init__(self, parent, bp: dict, data_mgr):
+    def __init__(self, parent, bp: dict, data_mgr, *,
+                 inventory=None, on_inventory_changed=None,
+                 initial_quality: int = 750):
         self._bp = bp
         self._data = data_mgr
+        self._inventory = inventory
+        self._on_inventory_changed = on_inventory_changed
+        self._initial_quality = max(0, min(1000, int(initial_quality)))
+
+        # State for sliders and stat summary
+        self._slot_sliders: list[QSlider] = []
+        self._slot_spins: list[QSpinBox] = []
+        self._slot_quality_displays: list[QLabel] = []
+        self._slot_updaters: list = []  # list of callables (val) -> None
+        # stat aggregation: stat_name -> list of (modifier_dict, slot_index)
+        self._stat_mods: dict[str, list[tuple[dict, int]]] = {}
+        self._stat_labels: dict[str, QLabel] = {}
+        self._slot_qualities: list[int] = []
+        self._global_slider = None
+        self._global_spin = None
+        self._own_btn = None
+
         name = data_mgr.get_blueprint_product_name(bp)
-        super().__init__(parent, title=f"Blueprint: {name}", width=600, height=520)
+        super().__init__(parent, title=f"Blueprint: {name}", width=620, height=560)
         try:
             self._build_ui()
         except Exception:
             log.exception("[BlueprintDetail] _build_ui crashed for %s", name)
         self.show()
+
+    # ── Helpers ──
+
+    def _is_owned(self) -> bool:
+        return bool(self._inventory and self._inventory.is_owned(blueprint_key(self._bp)))
+
+    def _toggle_own(self):
+        if self._inventory is None:
+            return
+        bp_id = blueprint_key(self._bp)
+        if self._inventory.is_owned(bp_id):
+            msg = QMessageBox(self)
+            msg.setWindowTitle("Remove from Inventory")
+            name = self._data.get_blueprint_product_name(self._bp)
+            msg.setText(f"Remove \"{name}\" from your inventory?")
+            msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            msg.setDefaultButton(QMessageBox.No)
+            msg.setStyleSheet(
+                f"QMessageBox {{ background: {P.bg_primary}; color: {P.fg};"
+                f" font-family: Consolas; }}"
+                f"QPushButton {{ background: {P.bg_card}; color: {P.fg};"
+                f" border: 1px solid {P.border}; padding: 4px 10px; }}"
+                f"QPushButton:hover {{ border-color: {P.accent}; }}"
+            )
+            if msg.exec() != QMessageBox.Yes:
+                return
+            self._inventory.remove(bp_id)
+        else:
+            self._inventory.add(bp_id, self._bp)
+        self._refresh_own_btn()
+        if self._on_inventory_changed:
+            try:
+                self._on_inventory_changed()
+            except Exception:
+                log.exception("[BlueprintDetail] inventory callback failed")
+
+    def _refresh_own_btn(self):
+        if self._own_btn is None:
+            return
+        owned = self._is_owned()
+        if owned:
+            self._own_btn.setText("\u2713 Owned")
+            self._own_btn.setStyleSheet(
+                f"QPushButton {{ color: {P.fg}; background: {P.bg_input};"
+                f" border: 1px solid #cc4444; border-radius: 3px;"
+                f" padding: 3px 10px; font-family: Consolas; font-size: 8pt; font-weight: bold; }}"
+                f"QPushButton:hover {{ border-color: #ff6666; color: #ff6666; }}"
+            )
+        else:
+            self._own_btn.setText("+ Own")
+            self._own_btn.setStyleSheet(
+                f"QPushButton {{ color: {P.fg}; background: {P.bg_input};"
+                f" border: 1px solid {P.accent}; border-radius: 3px;"
+                f" padding: 3px 10px; font-family: Consolas; font-size: 8pt; font-weight: bold; }}"
+                f"QPushButton:hover {{ border-color: {P.fg}; color: {P.fg}; }}"
+            )
+
+    def _move_to_folder(self):
+        if self._inventory is None:
+            return
+        bp_id = blueprint_key(self._bp)
+        if not self._inventory.is_owned(bp_id):
+            return
+        from ui.modals.folder_picker import FolderPickerModal
+        modal = FolderPickerModal(self, self._inventory)
+
+        def _on_selected(target):
+            try:
+                self._inventory.move_blueprint(bp_id, target)
+                if self._on_inventory_changed:
+                    self._on_inventory_changed()
+            except Exception:
+                log.exception("[BlueprintDetail] move failed")
+
+        modal.folder_selected.connect(_on_selected)
+
+    # ── Global quality slider ──
+
+    def _on_global_quality(self, val: int):
+        # Sync spinbox
+        if self._global_spin is not None and self._global_spin.value() != val:
+            self._global_spin.blockSignals(True)
+            self._global_spin.setValue(val)
+            self._global_spin.blockSignals(False)
+        # Push to all slot sliders
+        for i, slider in enumerate(self._slot_sliders):
+            if slider.value() != val:
+                slider.blockSignals(True)
+                slider.setValue(val)
+                slider.blockSignals(False)
+            spin = self._slot_spins[i] if i < len(self._slot_spins) else None
+            if spin is not None and spin.value() != val:
+                spin.blockSignals(True)
+                spin.setValue(val)
+                spin.blockSignals(False)
+            disp = self._slot_quality_displays[i] if i < len(self._slot_quality_displays) else None
+            if disp is not None:
+                disp.setText(str(val))
+            self._slot_qualities[i] = val
+            if i < len(self._slot_updaters):
+                try:
+                    self._slot_updaters[i](val)
+                except Exception:
+                    log.exception("[BlueprintDetail] slot updater failed")
+        self._refresh_stat_summary()
+
+    def _on_global_quality_spin(self, val: int):
+        if self._global_slider is not None and self._global_slider.value() != val:
+            self._global_slider.blockSignals(True)
+            self._global_slider.setValue(val)
+            self._global_slider.blockSignals(False)
+        self._on_global_quality(val)
+
+    # ── Stat summary ──
+
+    @staticmethod
+    def _mod_pct_at(mod: dict, quality: int) -> float:
+        start_q = mod.get("startQuality", 0)
+        end_q = mod.get("endQuality", 1000)
+        mod_start = mod.get("modifierAtStart", 1)
+        mod_end = mod.get("modifierAtEnd", 1)
+        if end_q != start_q:
+            t = max(0.0, min(1.0, (quality - start_q) / (end_q - start_q)))
+        else:
+            t = 1.0
+        factor = mod_start + (mod_end - mod_start) * t
+        return (factor - 1.0) * 100.0
+
+    def _refresh_stat_summary(self):
+        for stat_name, entries in self._stat_mods.items():
+            if not entries:
+                continue
+            total = 0.0
+            for mod, slot_idx in entries:
+                q = self._slot_qualities[slot_idx] if 0 <= slot_idx < len(self._slot_qualities) else self._initial_quality
+                total += self._mod_pct_at(mod, q)
+            pct = total / len(entries)
+            sign = "+" if pct >= 0 else ""
+            color = P.green if pct > 0 else (P.red if pct < 0 else P.fg_dim)
+            lbl = self._stat_labels.get(stat_name)
+            if lbl is not None:
+                lbl.setText(f"{sign}{pct:.1f}%")
+                lbl.setStyleSheet(
+                    f"font-family: Consolas; font-size: 9pt; font-weight: bold; color: {color}; background: transparent;"
+                )
+
+    # ── UI build ──
 
     def _build_ui(self):
         bp = self._bp
@@ -42,10 +209,32 @@ class BlueprintDetailModal(ModalBase):
 
         layout = self.body_layout
 
-        # Close button at top right
-        close_row = QHBoxLayout()
-        close_row.setContentsMargins(0, 4, 4, 0)
-        close_row.addStretch(1)
+        # ── Top row: Own button + close button ──
+        top_row = QHBoxLayout()
+        top_row.setContentsMargins(8, 4, 4, 0)
+        top_row.addStretch(1)
+
+        if self._inventory is not None:
+            # Move to folder button
+            move_btn = QPushButton("\U0001f4c1 Move")
+            move_btn.setCursor(Qt.PointingHandCursor)
+            move_btn.setFixedHeight(24)
+            move_btn.setStyleSheet(
+                f"QPushButton {{ color: {P.fg}; background: {P.bg_input};"
+                f" border: 1px solid {P.yellow}; border-radius: 3px;"
+                f" padding: 3px 8px; font-family: Consolas; font-size: 8pt; }}"
+                f"QPushButton:hover {{ border-color: {P.fg}; color: {P.yellow}; }}"
+            )
+            move_btn.clicked.connect(self._move_to_folder)
+            top_row.addWidget(move_btn)
+
+            self._own_btn = QPushButton()
+            self._own_btn.setCursor(Qt.PointingHandCursor)
+            self._own_btn.setFixedHeight(24)
+            self._own_btn.clicked.connect(self._toggle_own)
+            self._refresh_own_btn()
+            top_row.addWidget(self._own_btn)
+
         close_btn = QPushButton("x")
         close_btn.setObjectName("detailClose")
         close_btn.setFixedSize(28, 28)
@@ -57,10 +246,10 @@ class BlueprintDetailModal(ModalBase):
             QPushButton#detailClose:hover {{ color: {P.red}; }}
         """)
         close_btn.clicked.connect(self.close)
-        close_row.addWidget(close_btn)
-        layout.addLayout(close_row)
+        top_row.addWidget(close_btn)
+        layout.addLayout(top_row)
 
-        # Scrollable body
+        # ── Scrollable body ──
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -127,7 +316,50 @@ class BlueprintDetailModal(ModalBase):
                 if val is not None:
                     _lbl(f"  {label}: {val}", P.fg, "9pt")
 
+        # ── Global quality slider ──
+        # Pre-count modifiers to decide whether to show the global slider
+        has_any_modifiers = any(
+            slot.get("modifiers")
+            for tier in tiers
+            for slot in tier.get("slots", [])
+        )
+
+        if has_any_modifiers:
+            _sep()
+            gq_hdr = QLabel("GLOBAL QUALITY")
+            gq_hdr.setStyleSheet(f"font-family: Consolas; font-size: 10pt; font-weight: bold; color: {P.accent}; background: transparent;")
+            lay.addWidget(gq_hdr)
+
+            gq_row = QWidget()
+            gq_row.setStyleSheet("background: transparent;")
+            gq_l = QHBoxLayout(gq_row)
+            gq_l.setContentsMargins(0, 2, 0, 2)
+            gq_l.setSpacing(8)
+
+            self._global_slider = QSlider(Qt.Horizontal)
+            self._global_slider.setRange(0, 1000)
+            self._global_slider.setValue(self._initial_quality)
+            self._global_slider.setStyleSheet(
+                f"QSlider::groove:horizontal {{ background: {P.bg_input}; height: 4px; border-radius: 2px; }}"
+                f"QSlider::handle:horizontal {{ background: {P.accent}; width: 14px; margin: -5px 0; border-radius: 7px; }}"
+            )
+            self._global_slider.valueChanged.connect(self._on_global_quality)
+            gq_l.addWidget(self._global_slider, 1)
+
+            self._global_spin = QSpinBox()
+            self._global_spin.setRange(0, 1000)
+            self._global_spin.setValue(self._initial_quality)
+            self._global_spin.setFixedWidth(64)
+            self._global_spin.setStyleSheet(
+                f"QSpinBox {{ background: {P.bg_input}; color: {P.fg}; border: 1px solid {P.border};"
+                f" font-family: Consolas; font-size: 9pt; padding: 1px 3px; }}"
+            )
+            self._global_spin.valueChanged.connect(self._on_global_quality_spin)
+            gq_l.addWidget(self._global_spin)
+            lay.addWidget(gq_row)
+
         # Crafting tiers
+        slot_counter = -1
         for ti, tier in enumerate(tiers):
             _sep()
             craft_time = tier.get("craftTimeSeconds", 0)
@@ -203,6 +435,15 @@ class BlueprintDetailModal(ModalBase):
 
                 # Quality slider + modifiers
                 if modifiers:
+                    slot_counter += 1
+                    this_slot_idx = slot_counter
+                    self._slot_qualities.append(self._initial_quality)
+
+                    # Register modifiers for stat summary
+                    for mod in modifiers:
+                        prop = mod.get("propertyName", mod.get("propertyKey", "?"))
+                        self._stat_mods.setdefault(prop, []).append((mod, this_slot_idx))
+
                     msep = QFrame()
                     msep.setFrameShape(QFrame.HLine)
                     msep.setStyleSheet(f"color: {P.border}; background: {P.border};")
@@ -218,9 +459,9 @@ class BlueprintDetailModal(ModalBase):
                     sr_l.addWidget(qlbl)
                     slider = QSlider(Qt.Horizontal)
                     slider.setRange(0, 1000)
-                    slider.setValue(750)
+                    slider.setValue(self._initial_quality)
                     sr_l.addWidget(slider, 1)
-                    q_display = QLabel("750")
+                    q_display = QLabel(str(self._initial_quality))
                     q_display.setFixedWidth(40)
                     q_display.setStyleSheet(f"font-family: Consolas; font-size: 10pt; font-weight: bold; color: {P.fg}; background: {P.bg_input}; padding: 2px;")
                     q_display.setAlignment(Qt.AlignCenter)
@@ -246,9 +487,10 @@ class BlueprintDetailModal(ModalBase):
                         sl.addWidget(mr)
                         mod_labels.append((name_l, factor_l, pct_l))
 
-                    def _make_updater(sl_widget, disp, mods, labels):
+                    def _make_updater(disp, mods, labels, slot_idx):
                         def _update(val):
                             disp.setText(str(val))
+                            self._slot_qualities[slot_idx] = val
                             for i, mod in enumerate(mods):
                                 if i >= len(labels):
                                     break
@@ -268,13 +510,58 @@ class BlueprintDetailModal(ModalBase):
                                 factor_lbl.setText(f"\u00d7{factor:.3f}")
                                 pct_lbl.setText(pct_str)
                                 pct_lbl.setStyleSheet(f"font-family: Consolas; font-size: 10pt; font-weight: bold; color: {pct_color}; background: transparent;")
+                            self._refresh_stat_summary()
                         return _update
 
-                    updater = _make_updater(slider, q_display, modifiers, mod_labels)
+                    updater = _make_updater(q_display, modifiers, mod_labels, this_slot_idx)
                     slider.valueChanged.connect(updater)
-                    updater(750)
+                    updater(self._initial_quality)
+
+                    self._slot_sliders.append(slider)
+                    self._slot_quality_displays.append(q_display)
+                    self._slot_updaters.append(updater)
+                    self._slot_spins.append(None)  # no per-slot spinbox
 
                 lay.addWidget(slot_w)
+
+        # ── STAT SUMMARY ──
+        if self._stat_mods:
+            _sep()
+            _lbl("STAT SUMMARY", P.fg_dim, "10pt", True)
+
+            hdr = QWidget()
+            hdr.setStyleSheet("background: transparent;")
+            hdr_l = QHBoxLayout(hdr)
+            hdr_l.setContentsMargins(0, 0, 0, 0)
+            for text, w in [("STAT", 200), ("CRAFTED", 80)]:
+                hl = QLabel(text)
+                hl.setFixedWidth(w)
+                hl.setStyleSheet(
+                    f"color: {P.fg_dim}; font-family: Consolas; font-size: 7pt; font-weight: bold;"
+                    f" background: transparent;"
+                )
+                hdr_l.addWidget(hl)
+            hdr_l.addStretch(1)
+            lay.addWidget(hdr)
+
+            for stat_name in self._stat_mods.keys():
+                row = QWidget()
+                row.setStyleSheet("background: transparent;")
+                rl = QHBoxLayout(row)
+                rl.setContentsMargins(0, 0, 0, 0)
+                name_l = QLabel(stat_name)
+                name_l.setFixedWidth(200)
+                name_l.setStyleSheet(f"font-family: Consolas; font-size: 9pt; color: {P.fg}; background: transparent;")
+                rl.addWidget(name_l)
+                val_l = QLabel("")
+                val_l.setFixedWidth(80)
+                val_l.setStyleSheet(f"font-family: Consolas; font-size: 9pt; font-weight: bold; color: {P.fg_dim}; background: transparent;")
+                rl.addWidget(val_l)
+                rl.addStretch(1)
+                lay.addWidget(row)
+                self._stat_labels[stat_name] = val_l
+
+            self._refresh_stat_summary()
 
         # Dismantle
         if dismantle:

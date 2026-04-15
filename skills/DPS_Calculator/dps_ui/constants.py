@@ -63,6 +63,22 @@ TYPE_STRIPE  = {
     "PowerPlant":     ORANGE,
     "QuantumDrive":   ACCENT,
     "Thruster":       YELLOW,
+    "Mount":          YELLOW,
+    "MissileRack":    RED,
+    "EMP":            PURPLE,
+    "QuantumInterdictionGenerator": CYAN,
+    "Bomb":           RED,
+    "WeaponMining":   GREEN,
+    "WeaponDefensive": YELLOW,
+    # /live/utilities
+    "ToolArm":        FG_DIM,
+    "SalvageHead":    CYAN,
+    "MiningModifier": GREEN,
+    "SalvageModifier": CYAN,
+    "Container":      ORANGE,
+    "ExternalFuelTank": YELLOW,
+    # /live/modules
+    "Module":         ACCENT,
 }
 
 # ── Label helpers ─────────────────────────────────────────────────────────────
@@ -208,4 +224,111 @@ RADAR_TABLE_COLS = [
     (_("Power"),   "power_draw",      6, ORANGE,   lambda v, it: f"{v/1000:.1f}" if v else "\u2014"),
     (_("EM"),      "em_max",          5, YELLOW,   lambda v, it: f"{v:.0f}" if v else "\u2014"),
     (_("HP"),      "hp",              5, PHYS_COL, lambda v, it: f"{v:.0f}" if v else "\u2014"),
+]
+
+MOUNT_TABLE_COLS = [
+    (_("Name"),      "name",          16, FG,        lambda v, it: it["name"]),
+    (_("Port size"), "port_max_size",  8, ACCENT,    lambda v, it: str(v) if v else "\u2014"),
+    (_("HP"),        "hp",             6, PHYS_COL,  lambda v, it: f"{v:.0f}" if v else "\u2014"),
+]
+
+MISSILE_RACK_TABLE_COLS = [
+    (_("Name"),   "name",          14, FG,       lambda v, it: it["name"]),
+    (_("Port"),   "missile_count",  5, GREEN,    lambda v, it: str(int(v)) if v else "\u2014"),
+    (_("Size"),   "missile_size",   5, ACCENT,   lambda v, it: str(int(v)) if v else "\u2014"),
+    (_("Health"), "hp",             6, PHYS_COL, lambda v, it: f"{v:.0f}" if v else "\u2014"),
+]
+
+EMP_TABLE_COLS = [
+    (_("Name"),      "name",          14, FG,       lambda v, it: it["name"]),
+    (_("Charge s"),  "charge_time",    8, YELLOW,   lambda v, it: f"{v:.1f}" if v else "\u2014"),
+    (_("Cooldown"),  "cooldown_time",  8, FG_DIM,   lambda v, it: f"{v:.1f}" if v else "\u2014"),
+    (_("Radius"),    "emp_radius",     7, PURPLE,   lambda v, it: f"{v:.0f}" if v else "\u2014"),
+    (_("Dist Dmg"),  "distortion_dmg", 8, DIST_COL, lambda v, it: f"{v:,.0f}" if v else "\u2014"),
+    (_("Power"),     "power_draw",     5, ORANGE,   lambda v, it: f"{v:.0f}" if v else "\u2014"),
+    (_("HP"),        "hp",             5, PHYS_COL, lambda v, it: f"{v:.0f}" if v else "\u2014"),
+]
+
+QED_TABLE_COLS = [
+    (_("Name"),      "name",       18, FG,       lambda v, it: it["name"]),
+    (_("Power kW"),  "power_draw",  8, ORANGE,   lambda v, it: f"{v/1000:.1f}" if v else "\u2014"),
+    (_("HP"),        "hp",          6, PHYS_COL, lambda v, it: f"{v:.0f}" if v else "\u2014"),
+    (_("EM"),        "em_max",      6, YELLOW,   lambda v, it: f"{v:.0f}" if v else "\u2014"),
+]
+
+BOMB_TABLE_COLS = [
+    (_("Name"),      "name",         14, FG,      lambda v, it: it["name"]),
+    (_("Arm s"),     "arm_time",      6, YELLOW,  lambda v, it: f"{v:.1f}" if v else "\u2014"),
+    (_("Life s"),    "max_lifetime",  6, FG_DIM,  lambda v, it: f"{v:.1f}" if v else "\u2014"),
+    (_("Min R"),     "min_radius",    6, RED,     lambda v, it: f"{v:.0f}" if v else "\u2014"),
+    (_("Max R"),     "max_radius",    6, RED,     lambda v, it: f"{v:.0f}" if v else "\u2014"),
+    (_("HP"),        "hp",            5, PHYS_COL, lambda v, it: f"{v:.0f}" if v else "\u2014"),
+]
+
+MINING_LASER_TABLE_COLS = [
+    (_("Name"),       "name",           14, FG,       lambda v, it: it["name"]),
+    (_("Instab"),     "instability",     7, YELLOW,   lambda v, it: f"{v:.2f}" if v else "\u2014"),
+    (_("Res Mod"),    "resistance_mod",  7, GREEN,    lambda v, it: f"{v:.2f}" if v else "\u2014"),
+    (_("Filt Mod"),   "filter_mod",      7, CYAN,     lambda v, it: f"{v:.2f}" if v else "\u2014"),
+    (_("Throttle"),   "throttle_min",    7, FG_DIM,   lambda v, it: f"{v:.2f}" if v else "\u2014"),
+    (_("Slots"),      "module_slots",    5, ACCENT,   lambda v, it: str(int(v)) if v else "\u2014"),
+    (_("Power"),      "power_draw",      5, ORANGE,   lambda v, it: f"{v:.0f}" if v else "\u2014"),
+    (_("HP"),         "hp",              5, PHYS_COL, lambda v, it: f"{v:.0f}" if v else "\u2014"),
+]
+
+CML_TABLE_COLS = [
+    (_("Name"),       "name",         14, FG,       lambda v, it: it["name"]),
+    (_("Ammo"),       "ammo_count",    5, GREEN,    lambda v, it: str(int(v)) if v else "\u2014"),
+    (_("Max"),        "ammo_max",      5, FG_DIM,   lambda v, it: str(int(v)) if v else "\u2014"),
+    (_("Restock"),    "restock_count", 6, YELLOW,   lambda v, it: str(int(v)) if v else "\u2014"),
+    (_("HP"),         "hp",            5, PHYS_COL, lambda v, it: f"{v:.0f}" if v else "\u2014"),
+]
+
+TOOL_ARM_TABLE_COLS = [
+    (_("Name"),    "name",       16, FG,        lambda v, it: it["name"]),
+    (_("HP"),      "hp",          6, PHYS_COL,  lambda v, it: f"{v:,.0f}" if v else "\u2014"),
+    (_("Power"),   "power_draw",  6, ORANGE,    lambda v, it: f"{v:.0f}" if v else "\u2014"),
+]
+
+SALVAGE_HEAD_TABLE_COLS = [
+    (_("Name"),    "name",          16, FG,        lambda v, it: it["name"]),
+    (_("Force"),   "max_force",      9, GREEN,     lambda v, it: f"{v/1000:.0f}kN" if v else "\u2014"),
+    (_("Range"),   "max_distance",   7, YELLOW,    lambda v, it: f"{v:.0f}m" if v else "\u2014"),
+    (_("Power"),   "power_draw",     6, ORANGE,    lambda v, it: f"{v:.0f}" if v else "\u2014"),
+    (_("HP"),      "hp",             5, PHYS_COL,  lambda v, it: f"{v:.0f}" if v else "\u2014"),
+]
+
+MINING_MODIFIER_TABLE_COLS = [
+    (_("Name"),    "name",              12, FG,       lambda v, it: it["name"]),
+    (_("Chrg"),    "charges",            5, ACCENT,   lambda v, it: str(v) if v else "\u2014"),
+    (_("Res%"),    "resistance_mod",     6, RED,      lambda v, it: f"{v:+.0f}%" if v else "\u2014"),
+    (_("Instab"),  "instability_mod",    6, YELLOW,   lambda v, it: f"{v:+.0f}" if v else "\u2014"),
+    (_("Win"),     "charge_window_mod",  5, GREEN,    lambda v, it: f"{v:+.0f}" if v else "\u2014"),
+    (_("Shat%"),   "shatter_mod",        6, PHYS_COL, lambda v, it: f"{v:+.0f}%" if v else "\u2014"),
+    (_("Dmg\u00d7"), "dmg_mult",         5, GREEN,    lambda v, it: f"{v:.2f}\u00d7" if (v and v != 1) else "\u2014"),
+    (_("Time"),    "lifetime",           5, FG_DIM,   lambda v, it: f"{v:.0f}s" if v else "\u2014"),
+]
+
+SALVAGE_MODIFIER_TABLE_COLS = [
+    (_("Name"),    "name",      16, FG,        lambda v, it: it["name"]),
+    (_("Charges"), "charges",    7, ACCENT,    lambda v, it: str(v) if v else "\u2014"),
+    (_("HP"),      "hp",         5, PHYS_COL,  lambda v, it: f"{v:.0f}" if v else "\u2014"),
+]
+
+ORE_POD_TABLE_COLS = [
+    (_("Name"),    "name",       16, FG,        lambda v, it: it["name"]),
+    (_("SCU\u2193"), "capacity",  7, GREEN,     lambda v, it: f"{v:.0f}" if v else "\u2014"),
+    (_("HP"),      "hp",          5, PHYS_COL,  lambda v, it: f"{v:.0f}" if v else "\u2014"),
+]
+
+FUEL_TANK_TABLE_COLS = [
+    (_("Name"),    "name",       16, FG,        lambda v, it: it["name"]),
+    (_("Cap\u2193"), "capacity",  8, GREEN,     lambda v, it: f"{v:.0f}" if v else "\u2014"),
+    (_("HP"),      "hp",          5, PHYS_COL,  lambda v, it: f"{v:.0f}" if v else "\u2014"),
+]
+
+ERKUL_MODULE_TABLE_COLS = [
+    (_("Name"),    "name",       24, FG,        lambda v, it: it["name"]),
+    (_("Type"),    "sub_type",    8, FG_DIM,    lambda v, it: str(v) if v else "\u2014"),
+    (_("HP"),      "hp",          5, PHYS_COL,  lambda v, it: f"{v:.0f}" if v else "\u2014"),
 ]

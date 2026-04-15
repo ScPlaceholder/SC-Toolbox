@@ -51,7 +51,7 @@ class SearchBubble(QWidget):
 
         groups: dict[str, list[dict]] = {}
         for item in items[:SEARCH_BUBBLE_MAX]:
-            tab = item_tab(item)
+            tab = "Ships" if item.get("_is_vehicle") else item_tab(item)
             groups.setdefault(tab, []).append(item)
 
         for tab_name, tab_items in groups.items():
@@ -68,8 +68,12 @@ class SearchBubble(QWidget):
             layout.addWidget(hdr)
 
             for it in tab_items[:SEARCH_BUBBLE_PER_TAB]:
+                if it.get("_is_vehicle"):
+                    label_text = f"  {it.get('name', '')}  \u2014  {it.get('company_name', '')}"
+                else:
+                    label_text = f"  {it.get('name', '')}  \u2014  {it.get('category', '')}"
                 lbl = _ClickableLabel(
-                    f"  {it.get('name', '')}  \u2014  {it.get('category', '')}",
+                    label_text,
                     it,
                 )
                 lbl.setStyleSheet(f"""

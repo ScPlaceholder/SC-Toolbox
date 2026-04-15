@@ -20,7 +20,7 @@ from shared.qt.theme import P
 class ColumnDef:
     """Definition for a single table column."""
 
-    __slots__ = ("header", "key", "width", "alignment", "fg_color", "fmt")
+    __slots__ = ("header", "key", "width", "alignment", "fg_color", "fmt", "tooltip")
 
     def __init__(
         self,
@@ -30,6 +30,7 @@ class ColumnDef:
         alignment: Qt.AlignmentFlag = Qt.AlignLeft,
         fg_color: str = "",
         fmt: Optional[Callable[[Any], str]] = None,
+        tooltip: str = "",
     ):
         self.header = header
         self.key = key
@@ -37,6 +38,7 @@ class ColumnDef:
         self.alignment = alignment
         self.fg_color = fg_color
         self.fmt = fmt
+        self.tooltip = tooltip
 
 
 class SCTableModel(QAbstractTableModel):
@@ -66,9 +68,12 @@ class SCTableModel(QAbstractTableModel):
         return len(self._columns)
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):
-        if orientation == Qt.Horizontal and role == Qt.DisplayRole:
+        if orientation == Qt.Horizontal:
             if 0 <= section < len(self._columns):
-                return self._columns[section].header
+                if role == Qt.DisplayRole:
+                    return self._columns[section].header
+                if role == Qt.ToolTipRole and self._columns[section].tooltip:
+                    return self._columns[section].tooltip
         return None
 
     def data(self, index: QModelIndex, role=Qt.DisplayRole):

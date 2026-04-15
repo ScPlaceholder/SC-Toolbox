@@ -1,8 +1,9 @@
 {
   "log_path": "C:/Star Citizen/StarCitizen/LIVE/Game.log",
   "orientation": "horizontal",
-  "opacity": 0.75,
+  "opacity": 1.0,
   "auto_show_on_join": true,
-  "window_x": 806,
-  "window_y": 1088
+  "window_x": 792,
+  "window_y": 1066,
+  "click_through": false
 }

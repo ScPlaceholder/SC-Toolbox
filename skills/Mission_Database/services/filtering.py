@@ -108,6 +108,7 @@ def filter_contracts(
     legality = filters.legality          # "legal", "illegal", ""
     sharing = filters.sharing            # "sharable", "solo", ""
     availability = filters.availability  # "unique", "repeatable", ""
+    rank_min = filters.rank_min
     rank_max = filters.rank_max
     reward_min = filters.reward_min
     reward_max = filters.reward_max
@@ -200,7 +201,7 @@ def filter_contracts(
         rank_idx = 0
         if isinstance(ms, dict):
             rank_idx = ms.get("rankIndex", 0) or 0
-        if rank_idx > rank_max:
+        if rank_idx < rank_min or rank_idx > rank_max:
             continue
 
         # Reward

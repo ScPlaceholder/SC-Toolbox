@@ -1,12 +1,20 @@
 Set WshShell = CreateObject("WScript.Shell")
-WshShell.CurrentDirectory = CreateObject("Scripting.FileSystemObject").GetParentFolderName(WScript.ScriptFullName)
+Dim fso
+Set fso = CreateObject("Scripting.FileSystemObject")
+WshShell.CurrentDirectory = fso.GetParentFolderName(WScript.ScriptFullName)
 
 ' Find Python
-Dim python, fso, localApp, progFiles
-Set fso = CreateObject("Scripting.FileSystemObject")
+Dim python, localApp, progFiles
 localApp = WshShell.ExpandEnvironmentStrings("%LOCALAPPDATA%")
 progFiles = WshShell.ExpandEnvironmentStrings("%ProgramFiles%")
 python = ""
+
+' Check bundled Python first (installer-provided)
+Dim bundled
+bundled = fso.GetParentFolderName(WScript.ScriptFullName) & "\python\pythonw.exe"
+If fso.FileExists(bundled) Then
+    python = bundled
+End If
 
 ' Check standard Python.org installs (pythonw.exe first for no-console launch)
 Dim versions, exeNames
@@ -84,4 +92,4 @@ If python = "" Then
     WScript.Quit
 End If
 
-WshShell.Run """" & python & """ skill_launcher.py 100 100 500 550 0.95 nul", 0, False
+WshShell.Run """" & python & """ skill_launcher.py", 0, False

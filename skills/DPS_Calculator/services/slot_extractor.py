@@ -72,15 +72,24 @@ def _gun_position_count(port: dict) -> int:
     than a single gun mount.
 
     Prefixes:
-      "turret_"            – classic turret arm (turret_left, turret_right, …)
-      "hardpoint_class"    – direct gun hardpoint (hardpoint_class_2, …)
-      "hardpoint_turret_"  – Paladin-style named arm (hardpoint_turret_weapon_left_a, …)
-      "joint_turret_"      – Paladin left/right turret joint arms (joint_turret_weapon_left, …)
+      "turret_"             – classic turret arm (turret_left, turret_right, …)
+      "hardpoint_class"     – direct gun hardpoint (hardpoint_class_2, …)
+      "hardpoint_turret_"   – Paladin-style named arm (hardpoint_turret_weapon_left_a, …)
+      "joint_turret_"       – Paladin left/right turret joint arms (joint_turret_weapon_left, …)
+      "hardpoint_weapon_"   – generic weapon arm children in compound turrets
+                              (e.g. Corsair tail remote turret: hardpoint_weapon_left/right,
+                               F7C-M nose turret: hardpoint_weapon_s1_left/right)
+      "hardpoint_gimbal_"   – gimbal arm positions inside remote turrets
+                              (e.g. Perseus remote turrets: hardpoint_gimbal_left/right)
+      "hardpoint_gun_"      – gun arm positions inside remote turrets
+                              (e.g. Zeus Mk II remote turret: hardpoint_gun_left/right)
     Exact names:
       "hardpoint_left", "hardpoint_right", "hardpoint_upper", "hardpoint_lower"
       – named gun arms used on some turrets (e.g. Asgard pilot turret)
     """
-    _GUN_POS_PREFIXES = ("turret_", "hardpoint_class", "hardpoint_turret_", "joint_turret_")
+    _GUN_POS_PREFIXES = ("turret_", "hardpoint_class", "hardpoint_turret_",
+                         "joint_turret_", "hardpoint_weapon_",
+                         "hardpoint_gimbal_", "hardpoint_gun_")
     _GUN_POS_EXACT = {"hardpoint_left", "hardpoint_right", "hardpoint_upper", "hardpoint_lower"}
     count = 0
     for child in port.get("loadout", []):
@@ -182,7 +191,8 @@ def extract_slots_by_type(loadout: list, accept_types: set) -> list:
     # Port names to skip entirely — not real weapon/missile slots
     _SKIP_PORT_PATTERNS = ("camera", "tractor", "self_destruct", "landing",
                             "fuel_port", "fuel_intake", "docking", "air_traffic", "relay",
-                            "salvage", "mining", "scan", "torpedo_storage")
+                            "salvage", "mining", "scan", "torpedo_storage",
+                            "vehicle_screen")
 
     def walk(ports, parent_label="", inherited_size=None):
         for port in (ports or []):
@@ -234,6 +244,8 @@ def extract_slots_by_type(loadout: list, accept_types: set) -> list:
                 pname.startswith("turret_")
                 or pname.startswith("hardpoint_class")
                 or pname.startswith("hardpoint_weapon")
+                or pname.startswith("hardpoint_gimbal_")
+                or pname.startswith("hardpoint_gun_")
             ) and not types and inherited_size is not None
 
             # Skip bomb launchers from weapon extraction (they're not guns)
@@ -283,40 +295,91 @@ def extract_slots_by_type(loadout: list, accept_types: set) -> list:
                                        first_child.startswith("joint_turret_"))
                         walk(children, label, max(max_sz - 1, 1) if size_adjust else max_sz)
                     elif "MissileRack" in sub_names and children:
-                        # Missile rack: create one slot per individual missile loaded.
-                        # Each missile_XX_attach child holds one missile by localReference.
+                        # Rack hardware slot (the rack itself, e.g. MSD-423)
+                        rack_ref = port.get("localReference", "") or port.get("localName", "")
+                        slots.append({
+                            "id":        f"rack:{parent_label}:{pname}",
+                            "label":     label,
+                            "max_size":  max_sz,
+                            "editable":  editable,
+                            "local_ref": rack_ref,
+                            "is_rack":   True,
+                        })
+                        # Individual missile sub-slots
                         for child in children:
                             child_ipn = child.get("itemPortName", "")
                             child_ref = child.get("localReference", "") or child.get("localName", "")
                             if "missile" in child_ipn.lower():
                                 slots.append({
-                                    "id":        f"{parent_label}:{pname}:{child_ipn}",
-                                    "label":     label,
-                                    "max_size":  max_sz,
-                                    "editable":  True,
-                                    "local_ref": child_ref,
+                                    "id":         f"{parent_label}:{pname}:{child_ipn}",
+                                    "label":      label,
+                                    "max_size":   max_sz,
+                                    "editable":   True,
+                                    "local_ref":  child_ref,
+                                    "is_missile": True,
                                 })
                     else:
                         weapon_ref = _resolve_weapon_ref(port)
+                        # outer_ref: what's directly equipped in this hardpoint port.
+                        # May be a gimbal UUID (≠ weapon_ref) or a weapon UUID (== weapon_ref).
+                        outer_ref = port.get("localReference", "") or port.get("localName", "")
                         slots.append({
                             "id":        f"{parent_label}:{pname}",
                             "label":     label,
                             "max_size":  max_sz,
                             "editable":  editable,
                             "local_ref": weapon_ref,
+                            "outer_ref": outer_ref,
                         })
                 elif is_housing and not missile_only:
-                    # Only recurse into turret housings for gun extraction
-                    walk(children, label, max_sz)
+                    # Manned/ball/remote turret housing: collect all identical
+                    # inner gun positions and emit ONE grouped slot with gun_count=N
+                    # instead of N separate slots (Erkul shows VariPuck S4 ×4 style).
+                    _HP_PFXS = ("turret_", "hardpoint_class", "hardpoint_turret_",
+                                "joint_turret_", "hardpoint_weapon_",
+                                "hardpoint_gimbal_", "hardpoint_gun_")
+                    _HP_EXACT = {"hardpoint_left", "hardpoint_right",
+                                 "hardpoint_upper", "hardpoint_lower"}
+                    inner_guns = [
+                        cp for cp in children
+                        if not cp.get("itemTypes")
+                        and (cp.get("itemPortName", "") in _HP_EXACT
+                             or any(cp.get("itemPortName", "").startswith(pfx)
+                                    for pfx in _HP_PFXS))
+                    ]
+                    n = len(inner_guns)
+                    if n >= 1:
+                        first      = inner_guns[0]
+                        weapon_ref = _resolve_weapon_ref(first)
+                        outer_ref  = (first.get("localReference", "")
+                                      or first.get("localName", ""))
+                        # Use the first inner gun's declared size if > 0;
+                        # otherwise inherit the housing size (app.py gimbal
+                        # resolution will correct it if a gimbal is equipped).
+                        inner_sz   = first.get("maxSize") or max_sz
+                        slots.append({
+                            "id":        f"{parent_label}:{pname}",
+                            "label":     label,
+                            "max_size":  inner_sz,
+                            "editable":  True,
+                            "local_ref": weapon_ref,
+                            "outer_ref": outer_ref,
+                            "gun_count": n,
+                        })
+                    else:
+                        # No recognised inner gun ports — fall back to recursion
+                        walk(children, label, max_sz)
                 elif is_inner_gun and not missile_only:
                     # Only extract inner gun ports for gun extraction
                     weapon_ref = _resolve_weapon_ref(port)
+                    outer_ref  = port.get("localReference", "") or port.get("localName", "")
                     slots.append({
                         "id":        f"{parent_label}:{pname}_{len(slots)}",
                         "label":     label,
                         "max_size":  inherited_size,
                         "editable":  True,
                         "local_ref": weapon_ref,
+                        "outer_ref": outer_ref,
                     })
                 else:
                     if children:
@@ -342,4 +405,249 @@ def extract_slots_by_type(loadout: list, accept_types: set) -> list:
                     walk(children, parent_label, inherited_size)
 
     walk(loadout)
+    return slots
+
+
+def extract_mining_laser_slots(loadout: list) -> list:
+    """Extract mining laser slots from ship loadout.
+
+    Mining laser ports use 'weapon_mining' or 'mining_laser' in their name and
+    are normally blocked by the ``"mining"`` entry in _SKIP_PORT_PATTERNS.
+    This dedicated extractor bypasses that skip so mining ships show their
+    swappable laser slots.
+
+    The port's ``localReference`` is the mining laser UUID (indexed in the
+    repository's mining_lasers_by_ref dict).
+
+    Slot dict: {id, label, max_size, editable, local_ref}
+    """
+    # Ports whose localReference IS a mining laser (extract directly)
+    _ML_DIRECT_KW = ("weapon_mining", "mining_laser")
+    # Ports that are containers whose CHILD holds the mining laser
+    _ML_CONTAINER_KW = ("mining_arm",)
+
+    slots: list[dict] = []
+
+    def _walk(ports, parent_label=""):
+        for port in (ports or []):
+            pname    = port.get("itemPortName", "")
+            pname_lo = pname.lower()
+            children = port.get("loadout", [])
+
+            is_direct    = any(kw in pname_lo for kw in _ML_DIRECT_KW)
+            is_container = any(kw in pname_lo for kw in _ML_CONTAINER_KW)
+
+            if is_direct:
+                # This port holds the mining laser directly via localReference.
+                lr    = port.get("localReference", "") or port.get("localName", "")
+                label = _port_label(pname)
+                if parent_label:
+                    label = f"{parent_label} / {label}"
+                slots.append({
+                    "id":        f"ml:{parent_label}:{pname}",
+                    "label":     label,
+                    "max_size":  port.get("maxSize") or 1,
+                    "editable":  True,
+                    "local_ref": lr,
+                })
+            elif is_container:
+                # e.g. hardpoint_mining_arm (ToolArm) — recurse to find the
+                # hardpoint_mining_laser child port.
+                label = _port_label(pname)
+                if parent_label:
+                    label = f"{parent_label} / {label}"
+                _walk(children, label)
+            elif children:
+                # Generic recursion (e.g. UtilityTurret/MannedTurret housings)
+                label = _port_label(pname)
+                if parent_label and not re.match(r'^Class \d+$', label, re.I):
+                    label = f"{parent_label} / {label}"
+                _walk(children, label)
+
+    _walk(loadout)
+    return slots
+
+
+def extract_utility_slots(loadout: list, accept_types: set) -> list:
+    """Extract slots for utility component types (Container/Cargo ore pods, Module,
+    ToolArm, ExternalFuelTank, etc.).
+
+    Unlike extract_slots_by_type, does NOT apply weapon-specific skip patterns,
+    so it can find mining pods, fuel pods, salvage arms, and ship modules.
+
+    Returns list of {id, label, max_size, editable, local_ref}.
+    """
+    slots: list[dict] = []
+
+    def _walk(ports, parent_label=""):
+        for port in (ports or []):
+            pname    = port.get("itemPortName", "")
+            types    = port.get("itemTypes", [])
+            children = port.get("loadout", [])
+            max_sz   = port.get("maxSize") or 1
+            editable = port.get("editable", False)
+            lr       = port.get("localReference", "") or port.get("localName", "")
+
+            type_names = {t.get("type", "") for t in types}
+            label = _port_label(pname)
+            if parent_label:
+                label = f"{parent_label} / {label}"
+
+            if accept_types & type_names:
+                slots.append({
+                    "id":        f"util:{pname}:{parent_label}",
+                    "label":     label,
+                    "max_size":  max_sz,
+                    "editable":  editable,
+                    "local_ref": lr,
+                })
+            elif children:
+                _walk(children, label)
+
+    _walk(loadout)
+    return slots
+
+
+def extract_salvage_head_slots(loadout: list) -> list:
+    """Extract SalvageHead sub-slots from ToolArm containers.
+
+    The Vulture's structure:
+      hardpoint_salvage_arm_left  [ToolArm, no types on head]
+        hardpoint_salvage_laser   [no itemTypes, localName=salvage_head_standard]
+          hardpoint_salvage_subitem01  [no types, localName=salvage_modifier_*]
+
+    This extractor finds 'hardpoint_salvage_laser' ports nested inside
+    ToolArm containers and returns them as SalvageHead slots.
+    """
+    slots: list[dict] = []
+    _SALVAGE_HEAD_KW = ("salvage_laser", "salvage_head")
+
+    def _walk(ports, parent_label="", inside_toolarm=False):
+        for port in (ports or []):
+            pname    = port.get("itemPortName", "").lower()
+            children = port.get("loadout", [])
+            types    = {t.get("type", "") for t in port.get("itemTypes", [])}
+            max_sz   = port.get("maxSize") or 1
+            lr       = port.get("localReference", "") or port.get("localName", "")
+
+            label = _port_label(port.get("itemPortName", ""))
+            if parent_label:
+                label = f"{parent_label} / {label}"
+
+            if inside_toolarm and any(kw in pname for kw in _SALVAGE_HEAD_KW):
+                slots.append({
+                    "id":        f"svhd:{parent_label}:{port.get('itemPortName','')}",
+                    "label":     label,
+                    "max_size":  max_sz,
+                    "editable":  port.get("editable", False),
+                    "local_ref": lr,
+                })
+                # Don't recurse deeper — sub-slots are separate
+            elif "ToolArm" in types:
+                _walk(children, label, inside_toolarm=True)
+            elif children:
+                _walk(children, label, inside_toolarm)
+
+    _walk(loadout)
+    return slots
+
+
+def extract_fuel_pod_slots(loadout: list) -> list:
+    """Extract ExternalFuelTank slots from Starfarer/Gemini loadout.
+
+    Starfarer fuel pod ports (hardpoint_fuel_pod_*) have no itemTypes in
+    Erkul's loadout JSON but carry localName pointing to the fuel pod component.
+    """
+    slots: list[dict] = []
+    _FUEL_POD_KW = ("fuel_pod",)
+
+    def _walk(ports, parent_label=""):
+        for port in (ports or []):
+            pname    = port.get("itemPortName", "").lower()
+            children = port.get("loadout", [])
+            lr       = port.get("localReference", "") or port.get("localName", "")
+            max_sz   = port.get("maxSize") or 1
+
+            label = _port_label(port.get("itemPortName", ""))
+            if parent_label:
+                label = f"{parent_label} / {label}"
+
+            if any(kw in pname for kw in _FUEL_POD_KW) and lr:
+                slots.append({
+                    "id":        f"fpod:{port.get('itemPortName','')}:{parent_label}",
+                    "label":     label,
+                    "max_size":  max_sz,
+                    "editable":  port.get("editable", False),
+                    "local_ref": lr,
+                })
+            elif children:
+                _walk(children, label)
+
+    _walk(loadout)
+    return slots
+
+
+# Prefixes / substrings that identify gimbal/mount local names
+_GIMBAL_PREFIXES  = ("mount_gimbal_", "mrai_pulse_mount_gimbal_")
+_MOUNT_SUBSTRINGS = ("_mount_gimbal_",)
+
+
+def _is_gimbal_local_name(ln: str) -> bool:
+    lo = ln.lower()
+    return any(lo.startswith(p) for p in _GIMBAL_PREFIXES) or any(s in lo for s in _MOUNT_SUBSTRINGS)
+
+
+def extract_mount_slots(loadout: list) -> list:
+    """Extract gimbal/mount slots from weapon hardpoints.
+
+    Returns one slot per weapon hardpoint that accepts a gimbal.  The slot's
+    ``local_ref`` is the gimbal's localName if one is already equipped
+    (from the ship's default loadout), otherwise ``""``.
+
+    Slot dict: {id, label, max_size, editable, local_ref}
+    """
+    slots: list[dict] = []
+
+    # Port names that are never user-accessible weapon hardpoints
+    _SKIP_PORT_PATTERNS = ("camera", "tractor", "self_destruct", "landing",
+                            "fuel_port", "fuel_intake", "docking", "air_traffic",
+                            "relay", "salvage", "mining", "scan", "torpedo_storage")
+
+    def _walk(ports, parent_label=""):
+        for port in (ports or []):
+            pname    = port.get("itemPortName", "")
+            pname_lo = pname.lower()
+            if any(pat in pname_lo for pat in _SKIP_PORT_PATTERNS):
+                continue
+
+            types    = port.get("itemTypes", [])
+            max_sz   = port.get("maxSize") or 1
+            children = port.get("loadout", [])
+            # localReference holds the UUID of the equipped gimbal/mount (or weapon
+            # on fixed mounts).  localName is always "" on weapon ports in Erkul's API.
+            ln       = port.get("localReference", "") or port.get("localName", "")
+
+            type_names = {t.get("type", "") for t in types}
+            label = _port_label(pname)
+            if parent_label and not re.match(r'^Class \d+$', label, re.I):
+                label = f"{parent_label} / {label}"
+
+            is_weapon_hp = "WeaponGun" in type_names
+
+            if is_weapon_hp:
+                # Pass the UUID/localRef as-is; app.py's find_mount() will resolve it
+                # and determine required_tags.  Empty means no gimbal equipped.
+                current_gimbal = ln
+                slots.append({
+                    "id":        f"mount:{parent_label}:{pname}",
+                    "label":     label,
+                    "max_size":  max_sz,
+                    "editable":  True,
+                    "local_ref": current_gimbal,
+                })
+                # Don't recurse — this port is accounted for
+            elif children:
+                _walk(children, label)
+
+    _walk(loadout)
     return slots

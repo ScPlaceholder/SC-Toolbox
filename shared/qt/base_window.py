@@ -13,11 +13,11 @@ import os
 import sys
 from typing import Optional
 
-from PySide6.QtCore import Qt, QPoint, QSize, QTimer
+from PySide6.QtCore import Qt, QPoint, QSize, QTimer, QObject, QEvent
 from PySide6.QtGui import (
     QGuiApplication, QPainter, QColor, QPen, QBrush, QLinearGradient,
 )
-from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout
+from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QApplication
 
 from shared.qt.theme import P
 
@@ -65,7 +65,105 @@ def _save_window_state(window: QMainWindow) -> None:
     except (OSError, AttributeError):
         pass
 
-_GRIP = 6
+_GRIP = 14         # resize grab zone for left / right / bottom edges
+_GRIP_TOP = 5      # narrower top-edge grip so it doesn't fight title-bar drag
+
+# ── Application-level edge-resize event filter ─────────────────────────────
+# Intercepts mouse events on ANY child widget inside an SCWindow and routes
+# them to the window's resize handler when the cursor is in the grip zone.
+# This lets users grab any edge/corner even when a child widget (title bar,
+# scroll area, etc.) is directly under the cursor.
+
+class _EdgeResizeFilter(QObject):
+    """Singleton app event filter for SCWindow edge resizing."""
+
+    def eventFilter(self, obj, event):  # noqa: C901
+        etype = event.type()
+        if etype not in (
+            QEvent.Type.MouseButtonPress,
+            QEvent.Type.MouseMove,
+            QEvent.Type.MouseButtonRelease,
+        ):
+            return False
+
+        # Walk up to find the parent SCWindow
+        win = obj
+        while win is not None:
+            if isinstance(win, SCWindow):
+                break
+            win = win.parent() if hasattr(win, "parent") else None
+        if win is None:
+            return False
+
+        # If the event originated in a different top-level window that
+        # merely has this SCWindow as its Qt parent (e.g. a frameless
+        # pop-out bubble created with parent=main_window for lifetime
+        # management), clicks inside that pop-out should NOT be mapped
+        # onto this window's edges — otherwise clicking the pop-out
+        # starts a resize drag on the main window.
+        if isinstance(obj, QWidget):
+            top = obj.window()
+            if top is not None and top is not win:
+                # Still honour an in-progress resize that this window
+                # owns; just ignore unrelated top-level windows.
+                if not win._resizing:
+                    return False
+
+        # While a resize drag is active, route all mouse events to the window
+        if win._resizing:
+            if etype == QEvent.Type.MouseMove:
+                delta = event.globalPosition().toPoint() - win._drag_pos
+                win._drag_pos = event.globalPosition().toPoint()
+                geom = win.geometry()
+                edge = win._resize_edge
+                mw, mh = win.minimumWidth(), win.minimumHeight()
+                if "r" in edge:
+                    geom.setWidth(max(mw, geom.width() + delta.x()))
+                if "b" in edge:
+                    geom.setHeight(max(mh, geom.height() + delta.y()))
+                if "l" in edge:
+                    nw = max(mw, geom.width() - delta.x())
+                    if nw != geom.width():
+                        geom.setLeft(geom.left() + (geom.width() - nw))
+                if "t" in edge:
+                    nh = max(mh, geom.height() - delta.y())
+                    if nh != geom.height():
+                        geom.setTop(geom.top() + (geom.height() - nh))
+                win.setGeometry(geom)
+                return True
+            if etype == QEvent.Type.MouseButtonRelease:
+                win._resizing = False
+                win._resize_edge = None
+                win.unsetCursor()
+                return True
+            return False
+
+        # Map the mouse position to window coordinates
+        try:
+            win_pos = obj.mapTo(win, event.position().toPoint())
+        except (RuntimeError, TypeError):
+            return False
+
+        edge = win._edge_at(win_pos)
+        if edge is None:
+            return False
+
+        # Mouse is in the grip zone — take over the event
+        if etype == QEvent.Type.MouseButtonPress and event.button() == Qt.LeftButton:
+            win._resizing = True
+            win._resize_edge = edge
+            win._drag_pos = event.globalPosition().toPoint()
+            win.setCursor(win._EDGE_CURSORS.get(edge, Qt.ArrowCursor))
+            return True  # swallow the event
+
+        if etype == QEvent.Type.MouseMove:
+            win.setCursor(win._EDGE_CURSORS.get(edge, Qt.ArrowCursor))
+            return True
+
+        return False
+
+
+_edge_filter_installed = False
 _EDGE_W = 1            # main border line width
 _BRACKET_LEN = 18      # corner bracket arm length
 _BRACKET_W = 2         # corner bracket line width
@@ -165,6 +263,21 @@ class _HoloSurface(QWidget):
         painter.drawLine(w - 1, h - 1, w - 1 - bl, h - 1)
         painter.drawLine(w - 1, h - 1, w - 1, h - 1 - bl)
 
+        # ── 8. Corner resize grip indicators (diagonal hash marks) ──
+        grip_color = QColor(self._accent)
+        grip_color.setAlpha(100)
+        painter.setPen(QPen(grip_color, 1))
+        g = _GRIP  # indicator size matches the grip zone
+        for dx in range(3, g, 4):
+            # Bottom-right: diagonal lines going up-left from corner
+            painter.drawLine(w - 1 - dx, h - 1, w - 1, h - 1 - dx)
+            # Bottom-left
+            painter.drawLine(dx, h - 1, 0, h - 1 - dx)
+            # Top-right
+            painter.drawLine(w - 1 - dx, 0, w - 1, dx)
+            # Top-left
+            painter.drawLine(dx, 0, 0, dx)
+
         painter.end()
         super().paintEvent(event)
 
@@ -207,6 +320,18 @@ class SCWindow(QMainWindow):
         self._drag_pos = QPoint()
         self.setMouseTracking(True)
 
+        # Install the app-wide edge resize filter once
+        global _edge_filter_installed
+        if not _edge_filter_installed:
+            app = QApplication.instance()
+            if app:
+                app.installEventFilter(_EdgeResizeFilter(app))
+                _edge_filter_installed = True
+
+        # ── Default size (for reset layout) ──
+        self._default_width = width
+        self._default_height = height
+
         # ── Collapse state ──
         self._collapsed = False
         self._expanded_height = height
@@ -223,6 +348,44 @@ class SCWindow(QMainWindow):
 
     def set_opacity(self, value: float) -> None:
         self.setWindowOpacity(max(0.3, min(1.0, value)))
+
+    def reset_layout(self) -> None:
+        """Revert the window to its original default size, centred on screen."""
+        self.resize(self._default_width, self._default_height)
+        screen = QGuiApplication.primaryScreen()
+        if screen:
+            sg = screen.availableGeometry()
+            x = sg.x() + (sg.width() - self._default_width) // 2
+            y = sg.y() + (sg.height() - self._default_height) // 2
+            self.move(x, y)
+
+    def toggle_fullscreen(self) -> None:
+        """Toggle the window between normal and fullscreen state.
+
+        Frameless windows need manual normal/fullscreen handling since
+        the usual window-manager chrome isn't present. We save the
+        pre-fullscreen geometry so we can restore it precisely.
+        """
+        if self.isFullScreen():
+            self.showNormal()
+            saved = getattr(self, "_pre_fullscreen_geom", None)
+            if saved is not None:
+                self.setGeometry(saved)
+        else:
+            self._pre_fullscreen_geom = self.geometry()
+            self.showFullScreen()
+
+    def reset_scale(self) -> None:
+        """Reset any child QGraphicsView transforms to identity.
+
+        Covers the common tool case where a scrollable canvas (Mining
+        Signals ledger, Craft Database, etc.) has been zoomed via
+        wheel scrolling. Tools with a different notion of "scale" can
+        override this method.
+        """
+        from PySide6.QtWidgets import QGraphicsView
+        for view in self.findChildren(QGraphicsView):
+            view.resetTransform()
 
     def toggle_collapse(self) -> None:
         """Collapse the window to just the title bar, or expand it back."""
@@ -304,7 +467,7 @@ class SCWindow(QMainWindow):
         x, y = pos.x(), pos.y()
         on_left = x < _GRIP
         on_right = x > r.width() - _GRIP
-        on_top = y < _GRIP
+        on_top = y < _GRIP_TOP
         on_bottom = y > r.height() - _GRIP
         if on_top and on_left: return "tl"
         if on_top and on_right: return "tr"
