@@ -99,8 +99,13 @@ if !errorlevel! neq 0 (
 )
 
 :: ── Step 6: Install runtime dependencies ──
-echo  [*] Installing PySide6, requests, pynput, mss, pytesseract, Pillow...
-"%STAGE%\python\python.exe" -m pip install PySide6>=6.5.0 requests>=2.28.0 pynput>=1.7.6 mss>=9.0.0 pytesseract>=0.3.10 Pillow>=10.0.0 cryptography>=42.0.0 --no-warn-script-location --quiet
+:: IMPORTANT: onnxruntime + numpy are required by the Mining Signals
+:: HUD reader (mass/resistance/instability OCR via the digit CNN).
+:: Without them the HUD scan silently no-ops while the signal scanner
+:: still works — users see "signal scan works, mass/resistance never
+:: appears" and assume the tool is broken.
+echo  [*] Installing PySide6, requests, pynput, mss, pytesseract, Pillow, onnxruntime, numpy...
+"%STAGE%\python\python.exe" -m pip install PySide6>=6.5.0 requests>=2.28.0 pynput>=1.7.6 mss>=9.0.0 pytesseract>=0.3.10 Pillow>=10.0.0 cryptography>=42.0.0 onnxruntime>=1.17.0 numpy>=1.24.0 --no-warn-script-location --quiet
 if !errorlevel! neq 0 (
     echo  [!] Dependency installation failed.
     goto :fail
