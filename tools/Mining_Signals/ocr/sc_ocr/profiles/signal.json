@@ -1,0 +1,10 @@
+{
+  "name": "signal",
+  "description": "Signal scanner number (3-5 digit integer)",
+  "alphabet": "0123456789",
+  "pack": "digits",
+  "isolate": "auto",
+  "invert_binary": false,
+  "min_row_height": 8,
+  "validator": "signal"
+}

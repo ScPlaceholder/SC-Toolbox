@@ -1,0 +1,10 @@
+{
+  "name": "commodity_terminal",
+  "description": "In-game commodity trading terminal (future use)",
+  "alphabet": "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,:%()/ -",
+  "pack": "commodity_alphabet",
+  "isolate": "auto",
+  "invert_binary": false,
+  "min_row_height": 10,
+  "validators": {}
+}

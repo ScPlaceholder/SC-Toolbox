@@ -1,0 +1,15 @@
+{
+  "name": "refinery",
+  "description": "Refinery terminal work orders (full alphabet)",
+  "alphabet": "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,:%()/ -",
+  "pack": "refinery_alphabet",
+  "isolate": "auto",
+  "invert_binary": false,
+  "min_row_height": 10,
+  "validators": {
+    "method": "refinery_method",
+    "commodity": "refinery_commodity",
+    "time": "refinery_time",
+    "cost": "refinery_cost"
+  }
+}

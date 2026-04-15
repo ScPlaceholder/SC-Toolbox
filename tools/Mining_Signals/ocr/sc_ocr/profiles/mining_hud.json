@@ -1,0 +1,15 @@
+{
+  "name": "mining_hud",
+  "description": "Mining HUD scan panel (mass / resistance / instability)",
+  "alphabet": "0123456789.%",
+  "pack": "digits",
+  "isolate": "auto",
+  "invert_binary": false,
+  "min_row_height": 12,
+  "validators": {
+    "mass": "mass",
+    "resistance": "pct",
+    "instability": "instability"
+  },
+  "label_keywords": ["mass", "resist", "instab"]
+}
