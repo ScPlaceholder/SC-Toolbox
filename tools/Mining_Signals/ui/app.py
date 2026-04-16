@@ -3302,19 +3302,18 @@ class MiningSignalsApp(SCWindow):
                                 self._prev_hud_resistance = None
                                 self._hud_mass_window.clear()
                                 self._hud_resistance_window.clear()
-                                # Clear stale signal match so scanning can reappear
-                                self._scan_bubble._matches = []
-                                # Hide both bubbles + re-show "Scanning"
+                                # Hide the BREAK bubble (HUD data is gone)
+                                # but do NOT clear signal matches or hide
+                                # the scan bubble — the signal scanner is
+                                # independent of the HUD panel. Wiping
+                                # _scan_bubble._matches here was causing
+                                # signal results to vanish whenever the
+                                # HUD panel wasn't detected (e.g. between
+                                # rocks, or when SC-OCR's mineral-row
+                                # finder fails on a background it doesn't
+                                # handle yet).
                                 QMetaObject.invokeMethod(
                                     self._break_bubble, "hide",
-                                    Qt.QueuedConnection,
-                                )
-                                QMetaObject.invokeMethod(
-                                    self._scan_bubble, "hide",
-                                    Qt.QueuedConnection,
-                                )
-                                QMetaObject.invokeMethod(
-                                    self, "_maybe_show_scanning",
                                     Qt.QueuedConnection,
                                 )
                             else:

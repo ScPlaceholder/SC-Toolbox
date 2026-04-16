@@ -1791,25 +1791,33 @@ def scan_hud_onnx(region: dict) -> dict[str, Optional[float]]:
 
     t0 = time.time()
 
-    # ── SC-OCR FAST PATH (disabled until light-bg calibration is done) ──
-    # The SC-OCR engine works perfectly on dark backgrounds (23ms) but
-    # returning panel_visible=False on light backgrounds cascades into
-    # clearing signal-scanner results too (the scan loop clears
-    # _scan_bubble._matches on panel_visible=False). Until SC-OCR
-    # handles ALL backgrounds reliably, use the legacy pipeline.
-    #
-    # To re-enable: uncomment this block once light-bg calibration passes.
-    # try:
-    #     from .sc_ocr.api import scan_hud_onnx as _sc_ocr_scan
-    #     sc_result = _sc_ocr_scan(region)
-    #     if sc_result.get("panel_visible"):
-    #         elapsed = (time.time() - t0) * 1000
-    #         log.info("sc_ocr: mass=%s res=%s inst=%s in %.0fms",
-    #                  sc_result.get("mass"), sc_result.get("resistance"),
-    #                  sc_result.get("instability"), elapsed)
-    #         return sc_result
-    # except Exception:
-    #     pass
+    # ── SC-OCR FAST PATH ──
+    # Try SC-OCR first (23ms, no subprocesses). Only return its result
+    # if it SUCCEEDS (panel_visible=True AND at least one value read).
+    # Otherwise fall through SILENTLY to the legacy pipeline — no
+    # panel_visible=False returned, so the scan loop won't clear
+    # signal-scanner results.
+    try:
+        from .sc_ocr.api import scan_hud_onnx as _sc_ocr_scan
+        sc_result = _sc_ocr_scan(region)
+        sc_has_data = (
+            sc_result.get("panel_visible")
+            and (sc_result.get("mass") is not None
+                 or sc_result.get("resistance") is not None
+                 or sc_result.get("instability") is not None)
+        )
+        if sc_has_data:
+            elapsed = (time.time() - t0) * 1000
+            log.info(
+                "sc_ocr fast path: mass=%s resistance=%s instability=%s in %.0fms",
+                sc_result.get("mass"), sc_result.get("resistance"),
+                sc_result.get("instability"), elapsed,
+            )
+            return sc_result
+        # SC-OCR didn't produce results — fall through to legacy.
+        # Do NOT return panel_visible=False here; let legacy decide.
+    except Exception as exc:
+        log.debug("sc_ocr fast path error, using legacy: %s", exc)
 
     # ── LEGACY PIPELINE (light-bg fallback + original dark-bg) ──
 
