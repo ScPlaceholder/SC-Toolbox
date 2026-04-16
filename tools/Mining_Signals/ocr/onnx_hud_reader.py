@@ -1807,54 +1807,28 @@ def scan_hud_onnx(region: dict) -> dict[str, Optional[float]]:
 
     t0 = time.time()
 
-    # ── SC-OCR FAST PATH ──
-    # Try SC-OCR first (23ms, no subprocesses). Only return its result
-    # if it SUCCEEDS (panel_visible=True AND at least one value read).
-    # Otherwise fall through SILENTLY to the legacy pipeline — no
-    # panel_visible=False returned, so the scan loop won't clear
-    # signal-scanner results.
+    # ── SC-OCR ENGINE (primary, legacy disabled) ──
     try:
         from .sc_ocr.api import scan_hud_onnx as _sc_ocr_scan
         sc_result = _sc_ocr_scan(region)
-        # Only accept SC-OCR if it produced ALL THREE values AND
-        # they pass basic sanity checks. Partial reads or implausible
-        # values (e.g. mass=506800 from a misaligned band) fall
-        # through to legacy which is more robust on unfamiliar panels.
-        sc_mass = sc_result.get("mass")
-        sc_res = sc_result.get("resistance")
-        sc_inst = sc_result.get("instability")
-        sc_has_data = (
-            sc_result.get("panel_visible")
-            and sc_mass is not None
-            and sc_res is not None
-            and sc_inst is not None
-            # Sanity: resistance must be 0-100, instability < 10000
-            and 0.0 <= sc_res <= 100.0
-            and sc_inst < 10000.0
+        elapsed = (time.time() - t0) * 1000
+        log.info(
+            "sc_ocr: mass=%s resistance=%s instability=%s in %.0fms",
+            sc_result.get("mass"), sc_result.get("resistance"),
+            sc_result.get("instability"), elapsed,
         )
-        if sc_has_data:
-            elapsed = (time.time() - t0) * 1000
-            log.info(
-                "sc_ocr fast path: mass=%s resistance=%s instability=%s in %.0fms",
-                sc_result.get("mass"), sc_result.get("resistance"),
-                sc_result.get("instability"), elapsed,
-            )
-            return sc_result
-        # SC-OCR didn't produce results — fall through to legacy.
-        # Do NOT return panel_visible=False here; let legacy decide.
+        return sc_result
     except Exception as exc:
-        log.debug("sc_ocr fast path error, using legacy: %s", exc)
+        log.error("sc_ocr failed: %s", exc)
+        return result
 
-    # ── LEGACY PIPELINE (light-bg fallback + original dark-bg) ──
-
-    # Multi-frame averaging defeats the SC HUD's subpixel text
-    # jitter animation that otherwise causes inconsistent OCR
-    # reads and starves the consensus logic in _do_scan. Falls
-    # back to a single capture if averaging is unavailable.
-    img = capture_region_averaged(region)
-    if img is None:
+    # ── LEGACY PIPELINE (disabled — kept for reference) ──
+    # To re-enable: remove the 'return' above and uncomment below.
+    if False:
+     img = capture_region_averaged(region)
+     if img is None:
         img = capture_region(region)
-    if img is None:
+     if img is None:
         return result
 
     # Debug: save the raw unmodified HUD capture so we can dry-run
