@@ -30,11 +30,85 @@ log = logging.getLogger(__name__)
 
 # Reuse proven legacy helpers that are pure NumPy (no Tesseract dep)
 from ..onnx_hud_reader import (  # noqa: E402
-    _find_mineral_row,
     _find_value_crop,
     _otsu,
-    _build_text_mask,
 )
+
+
+def _find_mineral_row_universal(img: Image.Image) -> Optional[tuple[int, int]]:
+    """Find the mineral-name row on ANY background (dark or light).
+
+    The legacy ``_find_mineral_row`` uses ``gray > 150`` which only
+    works on dark backgrounds. This version auto-detects polarity
+    and adapts the text mask accordingly:
+
+    - Dark bg (median < 130): text is BRIGHT → ``gray > 150``
+    - Light bg (median >= 130): text is DARK → ``gray < (median - 30)``
+
+    Then runs the same horizontal-projection + header/mineral-row
+    detection logic from the legacy pipeline.
+    """
+    gray = np.array(img.convert("L"), dtype=np.uint8)
+    H, W = gray.shape
+    median = float(np.median(gray))
+
+    if median < 130:
+        text_mask = gray > 150
+    else:
+        # Light background: text is darker than background.
+        # The threshold adapts to the specific brightness level.
+        threshold = max(50, median - 30)
+        text_mask = gray < threshold
+
+    row_counts = text_mask.sum(axis=1)
+
+    # Build row spans (same logic as legacy _find_mineral_row)
+    MIN_ROW_HEIGHT = 14
+    rows: list[tuple[int, int, int]] = []
+    in_row = False
+    start = 0
+    peak = 0
+    for y in range(H + 1):
+        val = int(row_counts[y]) if y < H else 0
+        if val > 3 and not in_row:
+            in_row = True
+            start = y
+            peak = val
+        elif val > 3 and in_row:
+            peak = max(peak, val)
+        elif val <= 3 and in_row:
+            in_row = False
+            if y - start >= MIN_ROW_HEIGHT:
+                rows.append((start, y, peak))
+
+    if len(rows) < 2:
+        return None
+
+    # Find the "SCAN RESULTS" header: first row with peak >= 60 and
+    # moderate height (<= 40 px). The mineral name follows.
+    header_idx = None
+    for i, (y1, y2, peak_cnt) in enumerate(rows):
+        if peak_cnt >= 60 and (y2 - y1) <= 40:
+            header_idx = i
+            break
+
+    if header_idx is None:
+        # Fallback: header might have lower peak on light backgrounds
+        # (text mask catches less of the faint text). Try peak >= 30.
+        for i, (y1, y2, peak_cnt) in enumerate(rows):
+            if peak_cnt >= 30 and (y2 - y1) <= 40:
+                header_idx = i
+                break
+
+    if header_idx is None:
+        return None
+
+    # Next qualifying row after header = mineral name
+    for y1, y2, peak_cnt in rows[header_idx + 1:]:
+        if peak_cnt >= 30 and (y2 - y1) <= 40:
+            return (y1, y2)
+
+    return None
 
 # Fixed HUD geometry offsets (pixel distance from mineral-row center
 # to each value row). Constant across all scans at a given HUD scale.
@@ -174,25 +248,33 @@ def scan_hud_onnx(region: dict) -> dict:
     # On light backgrounds, _find_mineral_row needs the image with
     # inverted polarity so its text-mask heuristic sees text (now
     # dark) as bright. We create an inverted PIL image for this.
+    # Light-background detection: if median > 130, the pure-NumPy
+    # mineral-row finder + fixed offsets don't reliably generalize
+    # (offsets are calibrated for dark-bg panel geometry). Return
+    # a special sentinel so the CALLER can fall back to Tesseract.
     if median_gray > 130:
-        # Light background — invert + contrast-stretch so the text
-        # (now slightly bright on a dark background) reaches the
-        # brightness level the mineral-row detector expects (>150).
-        inv_arr = (255 - np.asarray(img, dtype=np.uint8)).astype(np.float32)
-        # Stretch to [0, 255]
-        mn, mx = inv_arr.min(), inv_arr.max()
-        if mx > mn:
-            inv_arr = ((inv_arr - mn) / (mx - mn) * 255).clip(0, 255)
-        inv_img = Image.fromarray(inv_arr.astype(np.uint8), mode="RGB")
-        mineral_row = _find_mineral_row(inv_img)
-    else:
-        mineral_row = _find_mineral_row(img)
+        return {**empty, "_light_bg": True}
+
+    mineral_row = _find_mineral_row_universal(img)
     if mineral_row is None:
         return empty
 
     mr_center = (mineral_row[0] + mineral_row[1]) // 2
     result = dict(empty)
     result["panel_visible"] = True
+
+    # For _find_value_crop: on light backgrounds, invert the
+    # grayscale so the legacy's `gray > 150` text mask sees
+    # the dark text as bright. Also create an inverted PIL image
+    # for the crop extraction.
+    if median_gray > 130:
+        gray_for_crop = 255 - gray
+        img_for_crop = Image.fromarray(
+            255 - np.asarray(img, dtype=np.uint8), mode="RGB",
+        )
+    else:
+        gray_for_crop = gray
+        img_for_crop = img
 
     for field in ("mass", "resistance", "instability"):
         center = mr_center + _OFFSETS[field]
@@ -201,9 +283,11 @@ def scan_hud_onnx(region: dict) -> dict:
         lbl_right = _LABEL_RIGHTS[field]
 
         # _find_value_crop uses column-density scanning to isolate
-        # just the numeric value, excluding the label text. Pure NumPy.
+        # just the numeric value, excluding the label text. Uses
+        # polarity-corrected gray so `gray > 150` finds the text.
         value_crop = _find_value_crop(
-            img, gray, y1, y2, x_min=max(0, lbl_right + 6),
+            img_for_crop, gray_for_crop, y1, y2,
+            x_min=max(0, lbl_right + 6),
         )
         if value_crop is None:
             continue
