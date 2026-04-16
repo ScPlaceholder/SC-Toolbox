@@ -1791,27 +1791,25 @@ def scan_hud_onnx(region: dict) -> dict[str, Optional[float]]:
 
     t0 = time.time()
 
-    # ── SC-OCR FAST PATH ──
-    # Try the new SC-OCR engine first (23ms, no subprocesses).
-    # If it detects a light background, it returns _light_bg=True
-    # and we fall through to the legacy Tesseract-based pipeline.
-    try:
-        from .sc_ocr.api import scan_hud_onnx as _sc_ocr_scan
-        sc_result = _sc_ocr_scan(region)
-        is_light = sc_result.pop("_light_bg", False)
-        if not is_light:
-            # SC-OCR handled it (dark background). Return directly.
-            elapsed = (time.time() - t0) * 1000
-            log.info(
-                "sc_ocr fast path: mass=%s resistance=%s instability=%s in %.0fms",
-                sc_result.get("mass"), sc_result.get("resistance"),
-                sc_result.get("instability"), elapsed,
-            )
-            return sc_result
-        # Light background — fall through to legacy pipeline
-        log.debug("sc_ocr: light bg detected, falling back to legacy")
-    except Exception as exc:
-        log.debug("sc_ocr fast path failed, using legacy: %s", exc)
+    # ── SC-OCR FAST PATH (disabled until light-bg calibration is done) ──
+    # The SC-OCR engine works perfectly on dark backgrounds (23ms) but
+    # returning panel_visible=False on light backgrounds cascades into
+    # clearing signal-scanner results too (the scan loop clears
+    # _scan_bubble._matches on panel_visible=False). Until SC-OCR
+    # handles ALL backgrounds reliably, use the legacy pipeline.
+    #
+    # To re-enable: uncomment this block once light-bg calibration passes.
+    # try:
+    #     from .sc_ocr.api import scan_hud_onnx as _sc_ocr_scan
+    #     sc_result = _sc_ocr_scan(region)
+    #     if sc_result.get("panel_visible"):
+    #         elapsed = (time.time() - t0) * 1000
+    #         log.info("sc_ocr: mass=%s res=%s inst=%s in %.0fms",
+    #                  sc_result.get("mass"), sc_result.get("resistance"),
+    #                  sc_result.get("instability"), elapsed)
+    #         return sc_result
+    # except Exception:
+    #     pass
 
     # ── LEGACY PIPELINE (light-bg fallback + original dark-bg) ──
 
