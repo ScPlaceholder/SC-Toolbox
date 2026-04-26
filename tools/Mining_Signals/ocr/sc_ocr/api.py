@@ -332,6 +332,82 @@ def _canonicalize_polarity(gray: np.ndarray) -> np.ndarray:
     return gray
 
 
+def _adaptive_binarize(
+    gray: np.ndarray,
+    block_size: int = 31,
+    C: float = 15.0,
+) -> np.ndarray:
+    """Locally-adaptive binarization. Returns a uint8 mask where text
+    pixels are 255 and background is 0.
+
+    Replaces global Otsu, which assumes the histogram has TWO
+    well-separated clusters (text vs background). That assumption
+    holds when the panel sits on uniform dark space, but breaks on
+    bright sandy / asteroid backgrounds where the BG luminance
+    overlaps the text luminance and Otsu picks a threshold that
+    either eats the text or admits asteroid noise as text.
+
+    Adaptive threshold sidesteps that entirely: instead of one global
+    threshold, every pixel is compared against a Gaussian-weighted
+    mean of its local neighbourhood, then marked text iff it's at
+    least ``C`` luma units BRIGHTER than that local mean. Background
+    luminance can vary across the image without breaking the
+    decision rule — only LOCAL contrast matters.
+
+    Note on sign convention: OpenCV's ``cv2.adaptiveThreshold`` with
+    ``THRESH_BINARY`` uses ``T = mean - C`` because it targets the
+    common case of DARK text on LIGHT background (document scanning).
+    We're in the inverse case — BRIGHT text on DARKish background —
+    so we test ``pixel > mean + C`` instead. Same idea, opposite
+    polarity.
+
+    Parameters chosen for SC HUD digit text (≈24-28 px tall at our
+    REF_H scale):
+      * ``block_size = 31`` — slightly larger than text height so the
+        local window includes the text + a thin BG margin. Too small
+        and the window fits inside a single stroke (stroke = its own
+        background); too large and the result degrades back toward
+        global Otsu.
+      * ``C = 15`` — pixels must be ≥15 luma units above local mean
+        to count as text. The SC HUD's typical text-vs-BG contrast
+        on bright asteroid is ~30-50 units, so 15 leaves margin for
+        noise and antialiasing while reliably separating text from
+        BG. Tunable per real captures if needed.
+
+    Input must already be in canonical polarity (text BRIGHT). Run
+    :func:`_canonicalize_polarity` first.
+
+    Cost: ~0.3 ms per crop via ``scipy.ndimage.gaussian_filter`` —
+    cheaper than global Otsu's histogram pass, so a slight perf win.
+    """
+    if gray.size == 0:
+        return np.zeros_like(gray, dtype=np.uint8)
+    try:
+        from scipy.ndimage import gaussian_filter  # type: ignore
+    except ImportError:
+        # No scipy → fall back to global Otsu so the pipeline still
+        # works (just with the original bright-BG weakness).
+        thr = _otsu(gray)
+        return ((gray > thr).astype(np.uint8)) * 255
+
+    # Sigma chosen so that ~99% of the Gaussian's mass falls within
+    # ``block_size`` pixels (6σ rule).
+    sigma = max(1.0, block_size / 6.0)
+    g32 = gray.astype(np.float32)
+    local_mean = gaussian_filter(g32, sigma=sigma, mode="reflect")
+    raw = (g32 > (local_mean + C))
+    # Morphological opening (3×3) removes single-pixel noise specks
+    # without eroding real text strokes (which are ≥2 px wide in the
+    # SC HUD font at our REF_H scale). Without this, anti-aliasing
+    # halos and BG noise create dozens of 1-px "glyphs" downstream.
+    try:
+        from scipy.ndimage import binary_opening  # type: ignore
+        cleaned = binary_opening(raw, structure=np.ones((2, 2), dtype=bool))
+        return (cleaned.astype(np.uint8)) * 255
+    except ImportError:
+        return (raw.astype(np.uint8)) * 255
+
+
 def _find_mineral_row_universal(img: Image.Image) -> Optional[tuple[int, int]]:
     """Find the mineral-name row on ANY background via local contrast.
 
@@ -1221,8 +1297,15 @@ def _ocr_value_crop(value_crop: Image.Image, field: str = "") -> tuple[str, list
             # training convention: bright glyphs on dark bg, padded
             # with white in _segment_glyphs).
             _gray_pri = _canonicalize_polarity(_gray_pri)
-            _thr_pri = _otsu(_gray_pri)
-            _bin_pri = (_gray_pri > _thr_pri).astype(np.uint8) * 255
+            # Adaptive (locally-windowed) binarization replaces global
+            # Otsu here. Otsu was failing on bright sandy/asteroid
+            # backgrounds where text-vs-BG luminance overlap broke its
+            # bimodal-histogram assumption (visible in logs as "ink
+            # density 0.000" rejections on bright-BG scans). Adaptive
+            # compares each pixel to its local neighbourhood instead,
+            # so background brightness no longer matters — only LOCAL
+            # contrast around the glyph strokes.
+            _bin_pri = _adaptive_binarize(_gray_pri)
             _crops_pri = _segment_glyphs(_gray_pri, _bin_pri)
             # Diagnostic: log how many glyphs the segmenter found.
             # Distinguishes "segmenter dropped digits" (pipeline issue)
@@ -1404,8 +1487,9 @@ def _ocr_value_crop(value_crop: Image.Image, field: str = "") -> tuple[str, list
                 _os.environ["TESSDATA_PREFIX"] = _prev_env["TESSDATA_PREFIX"]
 
     # ── ONNX (secondary voter) ──
-    thr_a = _otsu(gray)
-    bin_a = (gray > thr_a).astype(np.uint8) * 255
+    # Adaptive binarization (same rationale as the primary path: global
+    # Otsu fails on bright BGs).
+    bin_a = _adaptive_binarize(gray)
     crops = _segment_glyphs(gray, bin_a)
     log.info(
         "sc_ocr.diag: field=%s segment(secondary)=%d glyphs",
