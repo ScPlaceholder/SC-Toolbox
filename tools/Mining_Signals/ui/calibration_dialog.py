@@ -589,6 +589,27 @@ class CalibrationDialog(QDialog):
         )
         vh.addWidget(self._signature_finder_btn)
 
+        # Glyph Reader popout — visualises per-glyph OCR vision: each
+        # individual digit crop the classifier sees, alongside the
+        # classified character + confidence. Color-coded by conf so
+        # you can immediately see which digits are misread.
+        self._glyph_reader_btn = QPushButton("🔍 Glyph Reader")
+        self._glyph_reader_btn.setCursor(Qt.PointingHandCursor)
+        self._glyph_reader_btn.setToolTip(
+            "Open the Glyph Reader in a separate window. Shows what "
+            "the OCR pipeline sees per individual digit crop alongside "
+            "the classifier's output and confidence — the visual "
+            "companion to the sc_ocr.diag log lines."
+        )
+        self._glyph_reader_btn.setStyleSheet(
+            "QPushButton { background: #6a4a2a; color: white; "
+            "padding: 8px 14px; font-weight: bold; font-size: 10pt; "
+            "border: none; }"
+            "QPushButton:hover { background: #7a5d3b; }"
+        )
+        self._glyph_reader_btn.clicked.connect(self._on_open_glyph_reader)
+        vh.addWidget(self._glyph_reader_btn)
+
         v.addWidget(voice_bar)
 
         # Voice player held by the dialog so it survives playback.
@@ -1081,6 +1102,51 @@ so you can switch between setups without losing your work.</p>
             )
             self._status_bar.showMessage(
                 f"Could not open Signature Finder: {exc}", 5000,
+            )
+
+    # ──────────────────────────────────────────
+    # Glyph Reader popout
+    # ──────────────────────────────────────────
+
+    def _on_open_glyph_reader(self) -> None:
+        """Open (or raise) the Glyph Reader window. Same pattern as
+        the other two popouts: in-process raise → cross-process slot →
+        poke the existing holder if one exists."""
+        try:
+            import sys as _sys, importlib as _il
+            from pathlib import Path as _P
+            _tool = _P(__file__).resolve().parent.parent
+            if str(_tool) not in _sys.path:
+                _sys.path.insert(0, str(_tool))
+            _il.invalidate_caches()
+            from scripts.glyph_reader_viewer import GlyphReaderViewer
+            from mining_shared.single_instance import SingleInstance
+
+            existing = getattr(self, "_glyph_reader_window", None)
+            if existing is not None and existing.isVisible():
+                existing.raise_()
+                existing.activateWindow()
+                return
+
+            popout = GlyphReaderViewer()
+            popout.setParent(self, Qt.Window)
+            guard = SingleInstance("glyph_reader", popout)
+            if not guard.acquire():
+                popout.deleteLater()
+                self._status_bar.showMessage(
+                    "Glyph Reader is already open in another window — "
+                    "brought to the front.", 5000,
+                )
+                return
+            popout._single_instance = guard
+            self._glyph_reader_window = popout
+            popout.show()
+        except Exception as exc:
+            log.error(
+                "glyph reader popout failed: %s", exc, exc_info=True,
+            )
+            self._status_bar.showMessage(
+                f"Could not open Glyph Reader: {exc}", 5000,
             )
 
     # ──────────────────────────────────────────

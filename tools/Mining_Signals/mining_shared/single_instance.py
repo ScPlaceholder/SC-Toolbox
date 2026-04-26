@@ -71,6 +71,7 @@ SLOT_PORTS: dict[str, int] = {
     "calibration_dialog": 49813,
     "panel_finder":       49814,
     "signature_finder":   49815,
+    "glyph_reader":       49816,
 }
 
 

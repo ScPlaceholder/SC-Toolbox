@@ -638,6 +638,103 @@ def _classify_crops(crops: list[np.ndarray]) -> list[tuple[str, float]]:
     return results
 
 
+# ──────────────────────────────────────────
+# Per-glyph debug dump for the live glyph reader
+# ──────────────────────────────────────────
+# When a viewer polls the dump path, the pipeline atomically writes
+# the most recent per-field glyph crops + classifier outputs to disk
+# so the user can SEE exactly what the OCR is consuming and what it's
+# returning. Same shape as the existing debug_panel_overlay.png
+# pattern — file-based IPC, no in-process coupling.
+
+_GLYPH_DUMP_DIR = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "..", "..", "debug_glyphs",
+)
+_GLYPH_DUMP_DIR = os.path.normpath(_GLYPH_DUMP_DIR)
+_GLYPH_DUMP_INDEX = os.path.join(_GLYPH_DUMP_DIR, "latest.json")
+_glyph_dump_lock = None  # lazy: threading.Lock initialized on first use
+
+
+def _dump_glyphs(
+    field: str,
+    source: str,
+    crops: "list[np.ndarray]",
+    results: "list[tuple[str, float]]",
+) -> None:
+    """Dump per-glyph crops + classifier output for the live viewer.
+
+    ``field`` is one of ``mass / resistance / instability``.
+    ``source`` is ``primary`` (high-confidence ONNX path) or
+    ``secondary`` (parallel-vote ONNX path). Each (field, source)
+    pair is tracked independently in the index JSON so the viewer
+    can show both decision paths side-by-side when both fire.
+
+    Writes one PNG per glyph (28×28) plus an atomic-rewrite of the
+    index JSON. Cheap (~5-10 ms per call). No-ops gracefully if
+    anything fails; this is purely diagnostic and must NEVER affect
+    the OCR result.
+    """
+    if not crops or not results:
+        return
+    global _glyph_dump_lock
+    if _glyph_dump_lock is None:
+        import threading as _thr
+        _glyph_dump_lock = _thr.Lock()
+    try:
+        from PIL import Image as _Image
+        import json as _json
+        import time as _time
+        os.makedirs(_GLYPH_DUMP_DIR, exist_ok=True)
+
+        with _glyph_dump_lock:
+            # Save each glyph crop as PNG.
+            glyphs_meta = []
+            for i, (crop, (ch, conf)) in enumerate(zip(crops, results)):
+                fname = f"{field}_{source}_{i}.png"
+                fpath = os.path.join(_GLYPH_DUMP_DIR, fname)
+                try:
+                    arr = (crop.astype(np.float32) * 255).clip(0, 255).astype(np.uint8) \
+                        if crop.dtype != np.uint8 and crop.max() <= 1.5 \
+                        else crop.astype(np.uint8)
+                    _Image.fromarray(arr, mode="L").save(fpath)
+                except Exception:
+                    continue
+                glyphs_meta.append({
+                    "idx": i,
+                    "char": ch,
+                    "conf": float(conf),
+                    "img": fname,
+                })
+
+            # Merge into the index JSON. Preserves the most-recent
+            # per-(field, source) entry across calls.
+            try:
+                with open(_GLYPH_DUMP_INDEX, "r", encoding="utf-8") as f:
+                    index = _json.load(f)
+                if not isinstance(index, dict):
+                    index = {}
+            except Exception:
+                index = {}
+            index.setdefault("fields", {})
+            index["timestamp"] = _time.time()
+            joined = "".join(g["char"] for g in glyphs_meta)
+            index["fields"][f"{field}_{source}"] = {
+                "field": field,
+                "source": source,
+                "timestamp": _time.time(),
+                "joined": joined,
+                "glyphs": glyphs_meta,
+            }
+            tmp = _GLYPH_DUMP_INDEX + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                _json.dump(index, f, indent=2)
+            os.replace(tmp, _GLYPH_DUMP_INDEX)
+    except Exception:
+        # Diagnostic dump failure must never break OCR. Swallow.
+        pass
+
+
 def _crnn_decode(
     session, classes: str, blank: int,
     value_crop: Image.Image, h_target: int,
@@ -1318,6 +1415,8 @@ def _ocr_value_crop(value_crop: Image.Image, field: str = "") -> tuple[str, list
                 _results_pri = _classify_crops(_crops_pri)
                 _txt_pri = "".join(ch for ch, _ in _results_pri)
                 _confs_pri = [c for _, c in _results_pri]
+                # Per-glyph debug dump for the live glyph-reader viewer.
+                _dump_glyphs(field, "primary", _crops_pri, _results_pri)
                 # Diagnostic: log per-glyph classifier output with
                 # confidence regardless of confidence-gate. Lets us
                 # see whether ONNX is e.g. reading a `1`-shaped crop
@@ -1501,6 +1600,8 @@ def _ocr_value_crop(value_crop: Image.Image, field: str = "") -> tuple[str, list
         results = _classify_crops(crops)
         onnx_text = "".join(ch for ch, _ in results)
         onnx_confs = [c for _, c in results]
+        # Per-glyph debug dump for the live glyph-reader viewer.
+        _dump_glyphs(field, "secondary", crops, results)
         # Diagnostic: per-glyph classifier output for the secondary
         # voter path. Same purpose as the primary diag log — separates
         # classifier errors from segmentation errors.
