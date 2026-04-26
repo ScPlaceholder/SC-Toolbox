@@ -176,21 +176,39 @@ def _is_contaminated(path: Path) -> bool:
         img = img.resize((28, 28), Image.LANCZOS)
         arr = np.asarray(img, dtype=np.uint8)
     binary = _binarize_for_detection(arr)
+    # Primary signal: two or more horizontally-separated blob groups
+    # → multi-digit content. Catches the clearest cases (",0" with a
+    # gap before the comma, "0  ," with whitespace, etc.).
     if _count_x_separated_blobs(binary) >= 2:
         return True
-    # Backstop: even one connected blob is suspicious if its bounding
-    # box spans most of the crop width — the SC HUD font's widest
-    # single digit is ~13-15 px in a 28×28 crop (≤55% width). Anything
-    # spanning >70% of width is almost certainly two digits whose
-    # outlines fused together at the binarization step (e.g. "20"
-    # where the "2"'s right stem touches the "0"'s left edge).
-    if binary.any():
-        cols = binary.sum(axis=0) > 0
-        xs = np.where(cols)[0]
-        if xs.size > 0:
-            span = int(xs[-1] - xs[0] + 1)
-            if span > int(binary.shape[1] * 0.70):
-                return True
+    # Outside-main-blob backstop. Find the largest connected
+    # component (= the intended digit). Compute its bbox. Then count
+    # bright pixels that fall OUTSIDE that bbox. A clean digit has
+    # all its ink inside its own bbox, so "outside" pixels are 0. A
+    # ",0" / "I0" / "0,(" pattern leaves ink outside the main digit's
+    # bbox where the small extra component lives.
+    #
+    # Threshold: ≥ 8 outside pixels is a meaningful blob (~ a 2×4 or
+    # 3×3 patch). Less than that is binarization noise.
+    from scipy.ndimage import label
+    labels, n = label(binary)
+    if n < 2:
+        return False  # only one component → just the main digit, clean
+    sizes = np.array([int((labels == i).sum()) for i in range(1, n + 1)])
+    biggest_idx = int(np.argmax(sizes)) + 1
+    main_mask = (labels == biggest_idx)
+    ys, xs = np.where(main_mask)
+    if xs.size == 0:
+        return False
+    x1, x2 = int(xs.min()), int(xs.max())
+    y1, y2 = int(ys.min()), int(ys.max())
+    # Pixels of OTHER components (everything bright that's not in the
+    # main blob and is also outside the main blob's bounding box).
+    other = (binary == 1) & (~main_mask)
+    other_outside = other.copy()
+    other_outside[y1:y2 + 1, x1:x2 + 1] = False
+    if int(other_outside.sum()) >= 8:
+        return True
     return False
 
 
