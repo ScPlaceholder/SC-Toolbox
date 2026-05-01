@@ -67,25 +67,35 @@ TARGET_PREFIX = "src_"
 
 
 def _binarize_for_detection(gray: np.ndarray) -> np.ndarray:
-    """Polarity-aware binarization tuned for 28×28 training glyphs.
+    """Polarity-aware binarization tuned for 28×28 training glyphs,
+    where the output mask always has TEXT pixels = 1 and BG = 0.
 
-    The src_*.png files are stored white-BG / dark-text (the
-    ``_glyph_to_28x28`` helper pads crops with white). For 28×28
-    crops, adaptive thresholding degenerates because the Gaussian
-    window is the size of the whole image — so we just canonicalize
-    polarity (text→BRIGHT) and use a fixed midpoint threshold.
+    Originally used a median-based polarity flip (``if median > 128
+    invert``) but that fails on glyphs rendered as bright text on a
+    DARK-GRAY (not pure black) background — a typical SC HUD case.
+    There the median sits ~150-180 even though text is already the
+    bright pixels, so the heuristic flipped the wrong way and made
+    the BG end up as the "1" class. Connected-component analysis
+    then saw one giant BG blob and missed the (now dark) digit
+    components.
+
+    Minority-class rule (background-agnostic):
+      1. Pick an Otsu threshold from the histogram.
+      2. Binarize with that threshold.
+      3. Whichever class has FEWER pixels IS the text (text is
+         always a small fraction of the crop).
+      4. If the minority is the "0" side of the Otsu split, invert
+         so text ends up as "1".
+
+    This is the same convention ``_canonicalize_polarity`` in
+    api.py uses, just inlined here to avoid pulling in the OCR
+    module chain.
     """
     if gray.size == 0:
         return np.zeros_like(gray, dtype=np.uint8)
-    g = gray.copy()
-    # Canonicalize: if median is bright, BG is bright → invert to make
-    # text BRIGHT (matches the rest of the OCR conventions).
-    if float(np.median(g)) > 128:
-        g = 255 - g
-    # Otsu-style: find the threshold via the histogram's between-class
-    # variance peak (handles all polarities cleanly).
-    hist, _ = np.histogram(g.flatten(), bins=256, range=(0, 256))
-    total = g.size
+    # Otsu on the raw image (no pre-inversion).
+    hist, _ = np.histogram(gray.flatten(), bins=256, range=(0, 256))
+    total = gray.size
     sum_total = float(np.sum(np.arange(256) * hist))
     sum_bg, w_bg = 0.0, 0
     max_var, thr = 0.0, 127
@@ -103,7 +113,41 @@ def _binarize_for_detection(gray: np.ndarray) -> np.ndarray:
         if var > max_var:
             max_var = var
             thr = t
-    return (g > thr).astype(np.uint8)
+    above = (gray > thr).astype(np.uint8)
+    below = 1 - above
+    # Polarity decision via connected-component size, not pixel-count
+    # majority. The "text" polarity has the digit shapes as several
+    # small-medium components. The "BG" polarity has the whole
+    # background as ONE huge component. Pick whichever side produces
+    # the SMALLER largest-component — that's the side where text is
+    # the foreground.
+    #
+    # This is robust against anti-aliasing where bright/dark pixel
+    # counts can be nearly 50/50 and pixel-majority guesses wrong.
+    from scipy.ndimage import label
+    _, n_above = label(above)
+    _, n_below = label(below)
+
+    def _max_comp_size(mask):
+        if not mask.any():
+            return 0
+        from scipy.ndimage import label as _lbl
+        labels, _ = _lbl(mask)
+        sizes = np.bincount(labels.flatten())
+        if len(sizes) <= 1:
+            return 0
+        return int(sizes[1:].max())
+
+    max_above = _max_comp_size(above)
+    max_below = _max_comp_size(below)
+    # Pick the side whose largest component is smaller (= text side).
+    # Tiebreaker: minority pixel count (the original heuristic).
+    if max_above < max_below:
+        return above
+    elif max_below < max_above:
+        return below
+    else:
+        return above if int(above.sum()) <= total // 2 else below
 
 
 def _count_x_separated_blobs(
@@ -163,6 +207,17 @@ def _count_x_separated_blobs(
     return groups
 
 
+def _expected_internal_holes(class_label: str) -> int:
+    """How many natural interior holes the digit class has, in the
+    SC HUD font. Used to set the per-class component-count threshold
+    so a clean digit doesn't get false-flagged for having multiple
+    natural connected pieces."""
+    return {
+        "0": 1, "1": 0, "2": 0, "3": 0, "4": 0,
+        "5": 0, "6": 1, "7": 0, "8": 2, "9": 1,
+    }.get(class_label, 0)
+
+
 def _is_contaminated(path: Path) -> bool:
     """True if the crop shows ≥ 2 distinct digit-shaped column
     clusters (multi-digit contamination)."""
@@ -175,40 +230,61 @@ def _is_contaminated(path: Path) -> bool:
         # Resize to canonical size for consistent detection.
         img = img.resize((28, 28), Image.LANCZOS)
         arr = np.asarray(img, dtype=np.uint8)
+    # Class label is the parent directory name.
+    class_label = path.parent.name
+    # Polarity is genuinely ambiguous on some glyph crops (text
+    # strokes touching the BG via anti-aliasing makes both sides of
+    # the Otsu split look "text-like"). Check BOTH polarities and
+    # flag if EITHER signals contamination. False-positive risk
+    # stays low because clean single-digit crops produce 1-2
+    # meaningful components in either polarity.
+    from scipy.ndimage import label as _label
     binary = _binarize_for_detection(arr)
-    # Primary signal: two or more horizontally-separated blob groups
-    # → multi-digit content. Catches the clearest cases (",0" with a
-    # gap before the comma, "0  ," with whitespace, etc.).
-    if _count_x_separated_blobs(binary) >= 2:
-        return True
-    # Outside-main-blob backstop. Find the largest connected
-    # component (= the intended digit). Compute its bbox. Then count
-    # bright pixels that fall OUTSIDE that bbox. A clean digit has
-    # all its ink inside its own bbox, so "outside" pixels are 0. A
-    # ",0" / "I0" / "0,(" pattern leaves ink outside the main digit's
-    # bbox where the small extra component lives.
-    #
-    # Threshold: ≥ 8 outside pixels is a meaningful blob (~ a 2×4 or
-    # 3×3 patch). Less than that is binarization noise.
-    from scipy.ndimage import label
-    labels, n = label(binary)
-    if n < 2:
-        return False  # only one component → just the main digit, clean
-    sizes = np.array([int((labels == i).sum()) for i in range(1, n + 1)])
-    biggest_idx = int(np.argmax(sizes)) + 1
-    main_mask = (labels == biggest_idx)
-    ys, xs = np.where(main_mask)
-    if xs.size == 0:
-        return False
-    x1, x2 = int(xs.min()), int(xs.max())
-    y1, y2 = int(ys.min()), int(ys.max())
-    # Pixels of OTHER components (everything bright that's not in the
-    # main blob and is also outside the main blob's bounding box).
-    other = (binary == 1) & (~main_mask)
-    other_outside = other.copy()
-    other_outside[y1:y2 + 1, x1:x2 + 1] = False
-    if int(other_outside.sum()) >= 8:
-        return True
+    MIN_COMP_SIZE = 8
+    # Per-class meaningful-component threshold: 1 (digit outline) +
+    # 1 (BG) + N (interior holes for this class) + 1 (extra blob =
+    # contamination signal). So digit "0" allows up to 3 components
+    # before flagging; "8" allows up to 4; etc.
+    holes = _expected_internal_holes(class_label)
+    component_threshold = 3 + holes
+
+    for cand in (binary, 1 - binary):
+        # Signal A: 2+ horizontally-separated blob groups.
+        if _count_x_separated_blobs(cand) >= 2:
+            return True
+        # Signal B: meaningful-sized component count, against the
+        # per-class threshold. A clean "8" naturally has 3
+        # components in the BG polarity (BG + 2 interior holes),
+        # so for class "8" we need ≥ 5 to flag. Class "0" has 1
+        # natural hole → threshold 4. Class "1" has 0 holes →
+        # threshold 3. This stops false positives on clean digits
+        # whose font shape includes multiple internal voids.
+        labels, n = _label(cand)
+        if n == 0:
+            continue
+        sizes = np.bincount(labels.flatten())[1:]  # drop 0=background
+        meaningful = int((sizes >= MIN_COMP_SIZE).sum())
+        if meaningful >= component_threshold:
+            return True
+        # Signal C: outside-main-blob check (catches "0," / "I0"
+        # patterns where the small extra blob sits outside the
+        # main digit's bbox).
+        if n < 2:
+            continue
+        biggest_idx = int(np.argmax(sizes)) + 1
+        main_mask = (labels == biggest_idx)
+        ys, xs = np.where(main_mask)
+        if xs.size == 0:
+            continue
+        x1, x2 = int(xs.min()), int(xs.max())
+        y1, y2 = int(ys.min()), int(ys.max())
+        if int((cand == 1).sum()) < 30:
+            continue
+        other = (cand == 1) & (~main_mask)
+        other_outside = other.copy()
+        other_outside[y1:y2 + 1, x1:x2 + 1] = False
+        if int(other_outside.sum()) >= 8:
+            return True
     return False
 
 

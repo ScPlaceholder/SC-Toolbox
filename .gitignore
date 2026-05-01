@@ -19,8 +19,16 @@ env/
 # pytest
 .pytest_cache/
 
-# Logs (runtime-generated)
+# Logs (runtime-generated, may contain personal paths)
 logs/
+*.log
+*.log.*
+
+# Coverage / dev-only artifacts
+.coverage
+**/.coverage
+htmlcov/
+**/htmlcov/
 
 # IDE
 .vscode/
@@ -36,6 +44,35 @@ desktop.ini
 # Settings (user-specific, not shared)
 skill_launcher_settings.json
 nul.lock
+
+# Per-user runtime caches (regenerated on demand by each skill)
+**/.cargo_cache.json
+**/.erkul_cache.json
+**/.uex_cache.json
+**/.scmdb_cache*.json
+**/.fy_hardpoints_cache.json
+**/.craft_cache/
+**/.api_cache/
+**/.mining_chart_cache.json
+**/.signals_cache.json
+**/.scratch_cache.json
+
+# Per-user runtime data (refinery / mining / fleet / loadouts)
+mining_ledger.json
+fleet_snapshots.json
+refinery_orders.json
+mining_loadout_config.json
+mining_signals_config.json
+battle_buddy_settings.json
+labeler_err.txt
+labeler.log
+
+# Trained / per-user OCR models (local artifacts, not shipped)
+tools/Mining_Signals/ocr/models/model_signal_cnn.json
+
+# Dev audit reports (regenerable from current code)
+**/audit_report.txt
+**/*_audit_report.txt
 
 # Claude Code (session-specific, not shared)
 .claude/settings.local.json

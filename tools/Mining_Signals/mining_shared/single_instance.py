@@ -146,12 +146,12 @@ class SingleInstance(QObject):
         if self._server is not None:
             try:
                 self._server.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                log.debug("single_instance cleanup: %s", exc, exc_info=True)
             try:
                 self._server.deleteLater()
-            except Exception:
-                pass
+            except Exception as exc:
+                log.debug("single_instance cleanup: %s", exc, exc_info=True)
             self._server = None
             log.info(
                 "single_instance: released slot=%r on port %d",
@@ -182,8 +182,8 @@ class SingleInstance(QObject):
         except Exception:
             try:
                 sock.deleteLater()
-            except Exception:
-                pass
+            except Exception as exc:
+                log.debug("single_instance cleanup: %s", exc, exc_info=True)
         # Defer the raise to the next event loop tick so we're
         # definitely back on the main thread.
         QTimer.singleShot(0, self._raise_window)
@@ -223,12 +223,12 @@ class SingleInstance(QObject):
                 sock.write(b"raise\n")
                 sock.flush()
                 sock.waitForBytesWritten(200)
-            except Exception:
-                pass
+            except Exception as exc:
+                log.debug("single_instance cleanup: %s", exc, exc_info=True)
             try:
                 sock.disconnectFromHost()
-            except Exception:
-                pass
+            except Exception as exc:
+                log.debug("single_instance cleanup: %s", exc, exc_info=True)
         finally:
             sock.deleteLater()
 
@@ -260,8 +260,8 @@ def request_raise(slot: str) -> bool:
         finally:
             try:
                 sock.disconnectFromHost()
-            except Exception:
-                pass
+            except Exception as exc:
+                log.debug("single_instance cleanup: %s", exc, exc_info=True)
         return True
     finally:
         sock.deleteLater()

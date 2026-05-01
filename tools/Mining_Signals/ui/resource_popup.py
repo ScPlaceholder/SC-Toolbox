@@ -69,7 +69,7 @@ def _pin_btn_qss(pinned: bool, accent: str) -> str:
 
 class _ModalCloseBtn(QPushButton):
     def __init__(self, parent=None):
-        super().__init__("x", parent)
+        super().__init__("✕", parent)  # ✕
         self.setObjectName("modalClose")
         self.setFixedSize(32, 28)
         self.setCursor(Qt.PointingHandCursor)

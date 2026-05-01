@@ -36,10 +36,9 @@ from services.professions import (
 )
 from .ledger_canvas import LedgerScene, LedgerView
 from .ledger_nodes import SHIP_TYPE_COLORS
+from .theme import ACCENT as _ACCENT
 
 log = logging.getLogger(__name__)
-
-_ACCENT = "#33dd88"  # Mining Signals green
 
 _BTN_STYLE = f"""
     QPushButton {{
@@ -292,6 +291,10 @@ class _DraggablePlayerRow(QWidget):
         on_toggle_strike_leader: Callable[[bool], None] | None = None,
         profession: str = "",
         on_assign_profession: Callable[[str], None] | None = None,
+        can_reassign: bool = False,
+        auto_reassign: bool = False,
+        on_toggle_can_reassign: Callable[[bool], None] | None = None,
+        on_toggle_auto_reassign: Callable[[bool], None] | None = None,
     ) -> None:
         super().__init__(parent)
         self._name = name
@@ -301,11 +304,15 @@ class _DraggablePlayerRow(QWidget):
         self._strike_group_leader_of = strike_group_leader_of
         self._can_promote_strike_leader = can_promote_strike_leader
         self._profession = profession
+        self._can_reassign = can_reassign
+        self._auto_reassign = auto_reassign
         self._on_toggle_leader = on_toggle_leader
         self._on_toggle_foreman = on_toggle_foreman
         self._on_toggle_assign = on_toggle_assign
         self._on_toggle_strike_leader = on_toggle_strike_leader
         self._on_assign_profession = on_assign_profession
+        self._on_toggle_can_reassign = on_toggle_can_reassign
+        self._on_toggle_auto_reassign = on_toggle_auto_reassign
         self._on_remove = on_remove
         self._drag_start: QPoint | None = None
 
@@ -429,6 +436,24 @@ class _DraggablePlayerRow(QWidget):
                 a = menu.addAction("⚔  Promote to Strike Group Leader")
                 a.setData(("strike_leader", True))
 
+        # Reassignment toggles (for cross-ship MOLE crew filling)
+        if self._on_toggle_can_reassign is not None:
+            menu.addSeparator()
+            if self._can_reassign:
+                a = menu.addAction("✓  Reassignable (allow MOLE fill)")
+                a.setData(("can_reassign", False))
+            else:
+                a = menu.addAction("☐  Reassignable (allow MOLE fill)")
+                a.setData(("can_reassign", True))
+            # Auto-reassign only meaningful when can_reassign is on
+            if self._can_reassign and self._on_toggle_auto_reassign is not None:
+                if self._auto_reassign:
+                    a = menu.addAction("✓  Auto-reassign (pull on demand)")
+                    a.setData(("auto_reassign", False))
+                else:
+                    a = menu.addAction("☐  Auto-reassign (pull on demand)")
+                    a.setData(("auto_reassign", True))
+
         # Profession submenu
         if self._on_assign_profession is not None:
             menu.addSeparator()
@@ -463,6 +488,12 @@ class _DraggablePlayerRow(QWidget):
         elif action_type == "profession":
             if self._on_assign_profession is not None:
                 self._on_assign_profession(value)
+        elif action_type == "can_reassign":
+            if self._on_toggle_can_reassign is not None:
+                self._on_toggle_can_reassign(value)
+        elif action_type == "auto_reassign":
+            if self._on_toggle_auto_reassign is not None:
+                self._on_toggle_auto_reassign(value)
         elif action_type == "remove":
             self._on_remove()
 
@@ -1033,11 +1064,15 @@ class MiningLedgerTab(QWidget):
             strike_group_leader_of=sg_leader_of,
             can_promote_strike_leader=in_strike_group,
             profession=getattr(player, "profession", ""),
+            can_reassign=getattr(player, "can_reassign", False),
+            auto_reassign=getattr(player, "auto_reassign", False),
             on_assign_profession=partial(self._on_assign_profession, player.name),
             on_toggle_leader=partial(self._on_toggle_leader, player.name),
             on_toggle_foreman=partial(self._on_toggle_foreman, player.name),
             on_toggle_assign=partial(self._on_toggle_assign_user, player.name),
             on_toggle_strike_leader=partial(self._on_toggle_strike_leader, player.name),
+            on_toggle_can_reassign=partial(self._on_toggle_can_reassign, player.name),
+            on_toggle_auto_reassign=partial(self._on_toggle_auto_reassign, player.name),
             on_remove=partial(self._on_remove_player, player.name),
             parent=parent_widget,
         )
@@ -1352,6 +1387,27 @@ class MiningLedgerTab(QWidget):
         self._refresh_player_panel()
         self._schedule_save()
 
+    def _on_toggle_can_reassign(self, name: str, checked: bool) -> None:
+        """Toggle a player's can_reassign flag."""
+        for p in self._data.players:
+            if p.name == name:
+                p.can_reassign = checked
+                if not checked:
+                    # Auto-reassign requires can_reassign; turn it off too.
+                    p.auto_reassign = False
+                break
+        self._refresh_player_panel()
+        self._schedule_save()
+
+    def _on_toggle_auto_reassign(self, name: str, checked: bool) -> None:
+        """Toggle a player's auto_reassign flag (only takes effect if can_reassign)."""
+        for p in self._data.players:
+            if p.name == name:
+                p.auto_reassign = checked
+                break
+        self._refresh_player_panel()
+        self._schedule_save()
+
     def _on_assign_profession(self, name: str, profession: str) -> None:
         """Set (or clear) a player's profession."""
         for p in self._data.players:
@@ -1659,6 +1715,16 @@ class MiningLedgerTab(QWidget):
 
     def _schedule_save(self) -> None:
         self._save_timer.start()
+
+    def flush_pending_save(self) -> None:
+        """Force any pending debounced save to run immediately.
+
+        Called on app shutdown so edits made within the 500ms debounce
+        window aren't lost when the user quits quickly after editing.
+        """
+        if self._save_timer.isActive():
+            self._save_timer.stop()
+            self._do_save()
 
     def _do_save(self) -> None:
         assigned = self._data.assigned_user

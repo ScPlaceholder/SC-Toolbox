@@ -161,13 +161,24 @@ def _generate_variants(
     # the right edge past (next digit left - safety).
     left_limit = (prev_x2 + safety_px) if prev_x2 is not None else 0
     right_limit = (next_x1 - safety_px) if next_x1 is not None else W
-    # Defensive: if the anchor itself sits past the limit (data
-    # weirdness, overlapping bboxes), fall back to no clamp on that
-    # side rather than producing zero variants.
-    if left_limit > x1:
-        left_limit = 0
-    if right_limit < x2:
-        right_limit = W
+    # NOTE: previous versions had a "defensive fallback" here that
+    # disabled the clamp when ``left_limit > x1`` (i.e., when the
+    # neighbour's right edge was already past our left edge — happens
+    # when Tesseract's per-character bboxes are touching or slightly
+    # overlapping, common with SC HUD's tight 4-6 px kerning). That
+    # fallback was a SILENT BUG: it allowed shifts to push back into
+    # the previous digit, producing exactly the "08" / "0E" /
+    # ",000" contamination the clamp was supposed to prevent. Removed.
+    # If the clamp ends up too tight to produce any variant beyond
+    # the anchor, that's fine — we just generate fewer variants for
+    # that specific char position. Better fewer-but-clean than
+    # many-but-contaminated.
+    #
+    # Edge case: if the bboxes truly overlap (left_limit > x1), the
+    # left edge is FORCED to left_limit on every shift attempt — which
+    # means all variants will share the same left edge. The dedup
+    # check (seen_keys) drops duplicates, so we end up with at most
+    # n_variants distinct combinations of (clamped_nx1, varying_nx2).
 
     seen_keys: set[tuple[int, int]] = set()
     # Always include the anchor itself

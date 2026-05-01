@@ -29,7 +29,7 @@ import numpy as np
 from PIL import Image
 from PIL.ImageQt import ImageQt
 from PySide6.QtCore import (
-    QPoint, QPointF, QRect, QRectF, Qt, QTimer, Signal,
+    QObject, QPoint, QPointF, QRect, QRectF, Qt, QTimer, Signal,
 )
 from PySide6.QtGui import (
     QBrush, QColor, QFont, QImage, QPainter, QPen, QPixmap,
@@ -44,9 +44,10 @@ from PySide6.QtWidgets import (
 from ocr.sc_ocr import calibration
 from ocr.sc_ocr.calibration import DISPLAY_NAMES, FIELD_NAMES
 
+from .theme import ACCENT
+
 log = logging.getLogger(__name__)
 
-ACCENT = "#33dd88"
 LOCK_GREEN = "#2a8"
 LOCK_GRAY = "#555"
 PANEL_BG = "#1d2530"
@@ -66,13 +67,23 @@ FIELD_COLORS: dict[str, tuple[int, int, int]] = {
 
 
 class _CropPreview(QLabel):
-    """Renders a single row's current value crop with a colored border."""
+    """Renders a single row's current value crop with a colored border.
+
+    Sized to scale with the parent dialog: minimum is small enough that
+    a compact 480×420 dialog still shows usable previews, and there's
+    no max height — the preview grows when the dialog is enlarged. The
+    last PIL crop is cached so ``resizeEvent`` can re-render it
+    instantly on drag-resize (without waiting for the 400 ms poll tick).
+    """
 
     def __init__(self, field: str, parent=None):
         super().__init__(parent)
         self._field = field
-        self.setMinimumSize(360, 60)
-        self.setMaximumHeight(80)
+        # Small floor so the compact dialog still fits all 4 rows; the
+        # vertical Expanding size policy below lets it grow to fill any
+        # extra space the user gives it.
+        self.setMinimumSize(180, 36)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setAlignment(Qt.AlignCenter)
         color = FIELD_COLORS.get(field, (200, 200, 200))
         self.setStyleSheet(
@@ -80,20 +91,44 @@ class _CropPreview(QLabel):
             "color: #666; font-family: Consolas; font-size: 9pt;"
         )
         self.setText("(no crop yet)")
+        # Cache last image so resizeEvent can re-render at the new size
+        # without waiting for the next poll tick.
+        self._last_pil: Optional[Image.Image] = None
 
     def update_crop(self, pil: Optional[Image.Image]) -> None:
         if pil is None:
+            self._last_pil = None
             self.setText("(no crop yet)")
             return
-        # Scale to fit our height, keep aspect
-        avail_h = max(40, self.height() - 6)
-        ratio = avail_h / max(1, pil.height)
-        new_w = max(40, int(pil.width * ratio))
-        scaled = pil.resize((new_w, avail_h), Image.NEAREST)
+        self._last_pil = pil
+        self._render_cached()
+
+    def _render_cached(self) -> None:
+        pil = self._last_pil
+        if pil is None:
+            return
+        # Scale to fit BOTH dimensions, keep aspect ratio. Earlier
+        # version only used height — that left the preview empty on
+        # the sides when the dialog was wide-but-short.
+        avail_w = max(40, self.width() - 6)
+        avail_h = max(24, self.height() - 6)
+        src_w = max(1, pil.width)
+        src_h = max(1, pil.height)
+        ratio = min(avail_w / src_w, avail_h / src_h)
+        new_w = max(20, int(src_w * ratio))
+        new_h = max(12, int(src_h * ratio))
         try:
+            scaled = pil.resize((new_w, new_h), Image.NEAREST)
             self.setPixmap(QPixmap.fromImage(ImageQt(scaled.convert("RGB"))))
         except Exception:
             pass
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # Re-scale the cached image to the new label size immediately
+        # so dragging the dialog edge looks smooth (no 400 ms pop).
+        if self._last_pil is not None:
+            self._render_cached()
 
 
 class _RowControl(QGroupBox):
@@ -419,6 +454,21 @@ class _RowControl(QGroupBox):
             )
 
 
+class _LiveCropSignaler(QObject):
+    """Cross-thread bridge for live OCR crop delivery.
+
+    The OCR pipeline broadcasts crops from a worker thread (via
+    ``ocr.sc_ocr.live_broadcast``). Qt widgets must be touched only on
+    the UI thread. This QObject hosts a signal whose default
+    cross-thread connection (QueuedConnection) hands the payload to the
+    UI thread for safe widget updates.
+
+    Payload type is ``object`` so a PIL.Image can pass through verbatim
+    — no encode/decode, no copy beyond the queue itself.
+    """
+    crop_ready = Signal(str, object)
+
+
 class CalibrationDialog(QDialog):
     """Main calibration dialog — non-modal so user can see the game HUD
     beside it."""
@@ -435,7 +485,12 @@ class CalibrationDialog(QDialog):
         """
         super().__init__(parent)
         self.setWindowTitle("Mining HUD OCR Calibration")
-        self.setMinimumSize(720, 720)
+        # Lowered from 720×720 so the dialog can occupy a corner of
+        # the screen instead of half of it. The Calibrate tab wraps
+        # its rows in a QScrollArea, so anything that doesn't fit at
+        # this size just becomes scrollable rather than truncated.
+        self.setMinimumSize(480, 380)
+        self.resize(720, 640)
         self.setWindowFlag(Qt.WindowStaysOnTopHint, False)
         self._region = region
         self._scan_callback = scan_callback
@@ -477,7 +532,35 @@ class CalibrationDialog(QDialog):
         self._status_bar = QStatusBar()
         v.addWidget(self._status_bar)
 
-        # ── Polling timer for live crop updates ──
+        # ── Live crop delivery: in-process broadcast (real-time) ──
+        # The OCR pipeline broadcasts crops from a worker thread via
+        # ocr.sc_ocr.live_broadcast. We bridge into Qt's signal/slot
+        # system so the listener (worker thread) hands the payload to
+        # the UI thread for safe widget updates. This eliminates the
+        # PNG-encode → disk-write → mtime-poll → PNG-decode roundtrip
+        # that was the dominant lag source on the calibrate path.
+        self._live_signaler = _LiveCropSignaler()
+        self._live_signaler.crop_ready.connect(self._on_live_crop)
+        try:
+            from ocr.sc_ocr import live_broadcast as _bcast
+            _bcast.register_listener(self._on_pil_crop)
+            self._broadcast_registered = True
+        except Exception as exc:
+            log.debug("live_broadcast registration failed: %s", exc)
+            self._broadcast_registered = False
+
+        # mtime cache for the disk-fallback path: lets _tick skip the
+        # PIL decode when nothing has changed on disk since last tick.
+        # Only used as a fallback / cold-open populator now that
+        # broadcast covers the live path.
+        self._last_mtimes: dict[str, float] = {}
+
+        # Tracks when the most recent in-process broadcast arrived. The
+        # status bar prefers this over the disk mtime when present so a
+        # user with no cross-process viewers sees an accurate freshness.
+        self._last_broadcast_ts: float = 0.0
+
+        # ── Polling timer for status / cold-start fallback ──
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
         self._timer.start(POLL_MS)
@@ -488,9 +571,9 @@ class CalibrationDialog(QDialog):
         # ── One-shot bootstrap scan ──
         # Do ONE scan on dialog open so the previews populate
         # immediately, even if the toolbox's main scan loop isn't
-        # running yet. After this single bootstrap, the dialog only
-        # READS the saved crop files (every POLL_MS) — it never runs
-        # parallel OCR scans (which previously caused severe lag).
+        # running yet. The bootstrap scan goes through live_broadcast,
+        # so the dialog gets its first crops in real time without
+        # touching disk.
         if scan_callback is not None:
             try:
                 scan_callback(region)
@@ -528,6 +611,22 @@ class CalibrationDialog(QDialog):
         )
         self._voice_btn.clicked.connect(self._on_voice_play)
         vh.addWidget(self._voice_btn)
+
+        # Pause / Resume — single button that toggles its label and
+        # behaviour based on the player's current state. While playing
+        # it shows "⏸ Pause"; while paused it shows "▶ Resume". Disabled
+        # whenever there's nothing to act on (idle / stopped).
+        self._voice_pause_btn = QPushButton("⏸ Pause")
+        self._voice_pause_btn.setCursor(Qt.PointingHandCursor)
+        self._voice_pause_btn.setStyleSheet(
+            "QPushButton { background: #444; color: white; padding: 8px 14px; "
+            "border: none; font-size: 10pt; }"
+            "QPushButton:hover { background: #666; }"
+            "QPushButton:disabled { background: #2a2a2a; color: #555; }"
+        )
+        self._voice_pause_btn.setEnabled(False)
+        self._voice_pause_btn.clicked.connect(self._on_voice_pause)
+        vh.addWidget(self._voice_pause_btn)
 
         self._voice_stop_btn = QPushButton("⏹ Stop")
         self._voice_stop_btn.setCursor(Qt.PointingHandCursor)
@@ -610,6 +709,29 @@ class CalibrationDialog(QDialog):
         self._glyph_reader_btn.clicked.connect(self._on_open_glyph_reader)
         vh.addWidget(self._glyph_reader_btn)
 
+        # Record Next Scan — forces the OCR pipeline to write the full
+        # ~50-PNG forensic dump for the next scan. Useful when you see
+        # a weird read and want a complete record of what the pipeline
+        # was looking at, without holding the diagnostic gate open
+        # continuously (which is what causes the lag).
+        self._record_next_btn = QPushButton("📼 Record Next Scan")
+        self._record_next_btn.setCursor(Qt.PointingHandCursor)
+        self._record_next_btn.setToolTip(
+            "Capture a full forensic disk dump of the NEXT OCR scan "
+            "(every value crop, glyph, and panel overlay). One click "
+            "= one scan recorded. Lets you investigate odd reads "
+            "without leaving the high-cost diagnostic dump on all the "
+            "time."
+        )
+        self._record_next_btn.setStyleSheet(
+            "QPushButton { background: #6a2a4a; color: white; "
+            "padding: 8px 14px; font-weight: bold; font-size: 10pt; "
+            "border: none; }"
+            "QPushButton:hover { background: #7a3b5d; }"
+        )
+        self._record_next_btn.clicked.connect(self._on_record_next_scan)
+        vh.addWidget(self._record_next_btn)
+
         v.addWidget(voice_bar)
 
         # Voice player held by the dialog so it survives playback.
@@ -629,6 +751,16 @@ class CalibrationDialog(QDialog):
         )
         v.addWidget(info)
 
+        # Row controls live inside a scroll area so the dialog can be
+        # shrunk down without truncating rows or fighting their minimum
+        # heights. The action bar (Reset / Close) stays pinned below
+        # the scroll area, so it's always reachable no matter how short
+        # the user drags the window.
+        rows_host = QWidget()
+        rows_layout = QVBoxLayout(rows_host)
+        rows_layout.setContentsMargins(0, 0, 0, 0)
+        rows_layout.setSpacing(6)
+
         self._row_controls: dict[str, _RowControl] = {}
         for field in FIELD_NAMES:
             ctrl = _RowControl(field)
@@ -636,7 +768,23 @@ class CalibrationDialog(QDialog):
             ctrl.unlocked.connect(self._on_row_unlocked)
             ctrl.box_changed.connect(self._on_row_box_changed)
             self._row_controls[field] = ctrl
-            v.addWidget(ctrl)
+            # stretch=1 → all four rows split spare vertical space
+            # equally when the dialog is enlarged. Combined with the
+            # _CropPreview's Expanding size policy this means dragging
+            # the dialog taller actually makes the crop images larger
+            # rather than just adding empty padding at the bottom.
+            rows_layout.addWidget(ctrl, 1)
+
+        rows_scroll = QScrollArea()
+        rows_scroll.setWidgetResizable(True)
+        rows_scroll.setFrameShape(QFrame.NoFrame)
+        rows_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        rows_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        rows_scroll.setWidget(rows_host)
+        # Stretch=1 so the scroll area absorbs all the spare vertical
+        # space — the row crops grow with the dialog instead of leaving
+        # a dead band at the bottom.
+        v.addWidget(rows_scroll, 1)
 
         # Action row
         actions = QHBoxLayout()
@@ -756,64 +904,135 @@ so you can switch between setups without losing your work.</p>
     # ──────────────────────────────────────────
 
     def _tick(self) -> None:
-        # IMPORTANT: We do NOT trigger our own OCR scan from the
-        # dialog. The toolbox's main scan loop already runs OCR and
-        # writes debug_value_*_crop.png files to disk. We just READ
-        # those files here. Triggering parallel OCR scans from the
-        # dialog (and the popout viewer) caused severe lag because
-        # multiple OCR pipelines competed for CPU.
+        # The fast path is the in-process broadcast (see _on_live_crop).
+        # This timer handles two residual jobs:
+        #   1. Cold-start population: read whatever PNG was left on
+        #      disk by a previous session so the dialog has something
+        #      to show before the next scan arrives.
+        #   2. Status-bar freshness: report when crops were last
+        #      delivered (broadcast time wins; disk mtime is fallback).
         #
-        # If the user opens the dialog without "Start Scan" enabled,
-        # the crop files will be stale. The status bar reflects this.
+        # We deliberately DO NOT touch the diagnostic heartbeat any
+        # more. The broadcast covers in-process delivery, so the
+        # ~50-files-per-scan disk dump only fires when an external
+        # viewer (cross-process script) is watching or the user
+        # pressed "Record Next Scan".
 
-        # Read the latest debug crops from disk
-        from ocr.sc_ocr import debug_overlay  # noqa: F401  (just for path)
-        import os
         from pathlib import Path
-        # debug_value_<field>_crop.png lives next to scan output
-        # (tools/Mining_Signals/debug_value_*_crop.png)
         tool_dir = Path(__file__).resolve().parent.parent
-        # Track latest crop file mtime to detect stale data
         newest_mtime = 0.0
         for field, ctrl in self._row_controls.items():
-            # Both _mineral_row and the value rows now have
-            # corresponding debug_value_<field>_crop.png files.
             crop_path = tool_dir / f"debug_value_{field}_crop.png"
-            if crop_path.is_file():
-                try:
-                    mtime = crop_path.stat().st_mtime
-                    newest_mtime = max(newest_mtime, mtime)
-                    pil = Image.open(crop_path).convert("RGB")
-                    if ctrl.is_locked():
-                        # Refresh the locked preview with the current
-                        # crop so user can see the rock's CURRENT
-                        # content within their locked box bounds.
-                        ctrl._preview.update_crop(pil)
-                    else:
-                        box = self._read_live_box(field)
-                        ctrl.update_live(pil, box)
-                except Exception as exc:
-                    log.debug("preview load failed for %s: %s", field, exc)
+            if not crop_path.is_file():
+                continue
+            try:
+                mtime = crop_path.stat().st_mtime
+                newest_mtime = max(newest_mtime, mtime)
+                # mtime gate: skip the PIL decode when nothing has
+                # advanced. Halves the per-tick work in the common
+                # case of the dialog open while no scan is running.
+                if mtime <= self._last_mtimes.get(field, 0.0):
+                    continue
+                self._last_mtimes[field] = mtime
+                pil = Image.open(crop_path).convert("RGB")
+                if ctrl.is_locked():
+                    ctrl._preview.update_crop(pil)
+                else:
+                    box = self._read_live_box(field)
+                    ctrl.update_live(pil, box)
+            except Exception as exc:
+                log.debug("preview load failed for %s: %s", field, exc)
 
-        # Show data freshness in status bar so user knows if scanning
-        # is live or stale (e.g., they haven't clicked Start Scan).
-        if newest_mtime > 0:
-            from datetime import datetime as _dt
-            age = max(0, int(_dt.now().timestamp() - newest_mtime))
-            if age <= 3:
-                self._status_bar.showMessage(
-                    f"✓ Live (last crop {age}s ago)", 2000,
-                )
-            else:
-                self._status_bar.showMessage(
-                    f"⚠ Crops are {age}s old — start the toolbox's "
-                    "main scan ('Start Scan' button) to refresh", 0,
-                )
+        # Status bar: prefer in-process broadcast time when it's recent
+        # so the freshness reading remains accurate even when the disk
+        # files aren't being updated (cross-process viewers absent).
+        import time as _time
+        from datetime import datetime as _dt
+        bcast_age = (
+            (_time.time() - self._last_broadcast_ts)
+            if self._last_broadcast_ts > 0 else None
+        )
+        disk_age = (
+            int(_dt.now().timestamp() - newest_mtime)
+            if newest_mtime > 0 else None
+        )
+
+        if bcast_age is not None and bcast_age <= 3:
+            self._status_bar.showMessage(
+                f"✓ Live (last crop {int(bcast_age)}s ago, in-process)",
+                2000,
+            )
+        elif disk_age is not None and disk_age <= 3:
+            self._status_bar.showMessage(
+                f"✓ Live (last crop {disk_age}s ago, on disk)", 2000,
+            )
+        elif disk_age is not None:
+            self._status_bar.showMessage(
+                f"⚠ Crops are {disk_age}s old — start the toolbox's "
+                "main scan ('Start Scan' button) to refresh", 0,
+            )
         else:
             self._status_bar.showMessage(
                 "⚠ No crop files yet — start the toolbox's main scan "
                 "('Start Scan' button) to populate", 0,
             )
+
+    # ──────────────────────────────────────────
+    # Live broadcast handlers
+    # ──────────────────────────────────────────
+
+    def _on_pil_crop(self, field: str, pil) -> None:
+        """Bridge from OCR worker thread → UI thread.
+
+        Called by ``ocr.sc_ocr.live_broadcast`` on whichever thread
+        produced the crop. We just emit the Qt signal — the default
+        QueuedConnection will marshal the call to the UI thread.
+        """
+        try:
+            self._live_signaler.crop_ready.emit(field, pil)
+        except Exception:
+            pass
+
+    def _on_live_crop(self, field: str, pil) -> None:
+        """UI-thread slot for crops broadcast from the OCR pipeline.
+
+        Updates the relevant row control with the in-memory image —
+        no disk read, no PNG decode roundtrip.
+        """
+        import time as _time
+        self._last_broadcast_ts = _time.time()
+        ctrl = self._row_controls.get(field)
+        if ctrl is None or pil is None:
+            return
+        try:
+            if ctrl.is_locked():
+                ctrl._preview.update_crop(pil)
+            else:
+                box = self._read_live_box(field)
+                ctrl.update_live(pil, box)
+        except Exception as exc:
+            log.debug("live crop slot failed for %s: %s", field, exc)
+
+    def _on_record_next_scan(self) -> None:
+        """Force the next scan to write the FULL forensic disk dump.
+
+        One click = the next OCR scan that reaches a save site will
+        write every diagnostic PNG to disk regardless of which viewers
+        are watching. Counter is consumed at end-of-scan in
+        ``ocr.sc_ocr.api`` so it captures EXACTLY one scan.
+        """
+        try:
+            from ocr.sc_ocr import debug_overlay as _dbg
+            _dbg.force_capture_next(1)
+            self._status_bar.showMessage(
+                "📼 Recording next scan to disk…", 4000,
+            )
+        except Exception as exc:
+            log.warning("Record Next Scan failed: %s", exc)
+            self._status_bar.showMessage(
+                f"⚠ Record Next Scan failed: {exc}", 4000,
+            )
+
 
     def _crop_row_from_panel(self, field: str) -> Optional[Image.Image]:
         """Crop a row's strip from the latest panel image (for the
@@ -1195,6 +1414,32 @@ so you can switch between setups without losing your work.</p>
         if source == "cached":
             self._voice_status.setText("🔊 Playing…")
         self._voice_stop_btn.setEnabled(True)
+        # Fresh playback starts in the playing state; reset the pause
+        # button to the "⏸ Pause" face (it might be left as "▶ Resume"
+        # if the user paused a previous run and clicked Play again).
+        self._voice_pause_btn.setText("⏸ Pause")
+        self._voice_pause_btn.setEnabled(True)
+
+    def _on_voice_pause(self) -> None:
+        """Toggle between pause and resume on the same button.
+
+        Decision is based on the player's CURRENT state, not the
+        button's label, so we stay in sync even if Qt's playback state
+        change beats our click handler to the punch (the
+        ``_on_voice_state`` callback also rewrites the label).
+        """
+        if self._voice_player is None:
+            return
+        if self._voice_player.is_playing():
+            self._voice_player.pause()
+            # Optimistic UI: relabel immediately. The state-change
+            # callback will reaffirm a moment later.
+            self._voice_pause_btn.setText("▶ Resume")
+            self._voice_status.setText("⏸ Paused")
+        elif self._voice_player.is_paused():
+            self._voice_player.resume()
+            self._voice_pause_btn.setText("⏸ Pause")
+            self._voice_status.setText("🔊 Playing…")
 
     def _on_voice_stop(self) -> None:
         if self._voice_player is not None:
@@ -1202,18 +1447,30 @@ so you can switch between setups without losing your work.</p>
         self._voice_status.setText("Stopped")
         self._voice_btn.setEnabled(True)
         self._voice_stop_btn.setEnabled(False)
+        self._voice_pause_btn.setEnabled(False)
+        self._voice_pause_btn.setText("⏸ Pause")
 
     def _on_voice_state(self, state: str) -> None:
         if state == "stopped":
             self._voice_status.setText("Done")
             self._voice_btn.setEnabled(True)
             self._voice_stop_btn.setEnabled(False)
+            self._voice_pause_btn.setEnabled(False)
+            self._voice_pause_btn.setText("⏸ Pause")
         elif state == "playing":
             self._voice_status.setText("🔊 Playing…")
+            self._voice_pause_btn.setEnabled(True)
+            self._voice_pause_btn.setText("⏸ Pause")
+        elif state == "paused":
+            self._voice_status.setText("⏸ Paused")
+            self._voice_pause_btn.setEnabled(True)
+            self._voice_pause_btn.setText("▶ Resume")
         elif state.startswith("error"):
             self._voice_status.setText(f"❌ {state}")
             self._voice_btn.setEnabled(True)
             self._voice_stop_btn.setEnabled(False)
+            self._voice_pause_btn.setEnabled(False)
+            self._voice_pause_btn.setText("⏸ Pause")
 
     def _on_tab_changed(self, index: int) -> None:
         """Pause the OCR polling timer when leaving the Calibrate tab."""
@@ -1241,4 +1498,14 @@ so you can switch between setups without losing your work.</p>
                 self._voice_player.stop()
         except Exception:
             pass
+        # Unregister the live-broadcast listener so the dialog can be
+        # garbage-collected and reopened cleanly without leaking a
+        # reference to the old instance.
+        try:
+            if getattr(self, "_broadcast_registered", False):
+                from ocr.sc_ocr import live_broadcast as _bcast
+                _bcast.unregister_listener(self._on_pil_crop)
+                self._broadcast_registered = False
+        except Exception as exc:
+            log.debug("live_broadcast unregister failed: %s", exc)
         super().closeEvent(event)

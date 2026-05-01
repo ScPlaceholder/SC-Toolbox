@@ -17,7 +17,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: SC_Toolbox 1.2\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-04-16 00:49+0000\n"
+"POT-Creation-Date: 2026-05-01 02:49+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -28,6 +28,14 @@ msgstr ""
 
 #: skills/DPS_Calculator/dps_ui/app.py:197
 msgid "#DPS CALCULATOR"
+msgstr ""
+
+#: skills/Trade_Hub/basket_view.py:406
+msgid "%(n)d plan option(s) — click a card to open details, pin to keep up to 5 open."
+msgstr ""
+
+#: skills/Trade_Hub/basket_view.py:90
+msgid "%(n)d stop(s)"
 msgstr ""
 
 #: ui/settings_panel.py:794
@@ -42,7 +50,7 @@ msgstr ""
 msgid "AB speed:"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:735
+#: skills/Trade_Hub/trade_hub_app.py:812
 msgid "ALLOW ILLEGAL CARGO:"
 msgstr ""
 
@@ -94,15 +102,27 @@ msgstr ""
 msgid "Available"
 msgstr ""
 
+#: skills/Trade_Hub/trade_hub_app.py:783
+msgid "BASKET"
+msgstr ""
+
+#: skills/Trade_Hub/basket_view.py:74
+msgid "BASKET ROUTE"
+msgstr ""
+
 #: skills/DPS_Calculator/dps_ui/app.py:1319
 msgid "BOMBS"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:720
+#: skills/Trade_Hub/trade_hub_app.py:797
 msgid "BULK"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:812
+#: skills/Trade_Hub/basket_view.py:179
+msgid "BUY"
+msgstr ""
+
+#: skills/Trade_Hub/trade_hub_app.py:889
 msgid "BUY LOCATION"
 msgstr ""
 
@@ -114,19 +134,19 @@ msgstr ""
 msgid "Burst:"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:886 skills/Trade_Hub/trade_hub_data.py:43
+#: skills/Trade_Hub/trade_hub_app.py:963 skills/Trade_Hub/trade_hub_data.py:43
 msgid "Buy At"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:813
+#: skills/Trade_Hub/trade_hub_app.py:890
 msgid "Buy location..."
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:801
+#: skills/Trade_Hub/trade_hub_app.py:878
 msgid "Buy system..."
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:1821
+#: skills/Trade_Hub/trade_hub_app.py:1949
 msgid "CALCULATE"
 msgstr ""
 
@@ -138,7 +158,15 @@ msgstr ""
 msgid "CARGO FILTER"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:824
+#: skills/Trade_Hub/basket_view.py:208 skills/Trade_Hub/basket_view.py:282
+msgid "COMMODITIES TO ACQUIRE:"
+msgstr ""
+
+#: skills/Trade_Hub/basket_view.py:279
+msgid "COMMODITIES TO SELL:"
+msgstr ""
+
+#: skills/Trade_Hub/trade_hub_app.py:901
 msgid "COMMODITY"
 msgstr ""
 
@@ -154,7 +182,7 @@ msgstr ""
 msgid "COOLING"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:887 skills/Trade_Hub/trade_hub_app.py:892 skills/Trade_Hub/trade_hub_data.py:44 skills/Trade_Hub/trade_hub_data.py:49
+#: skills/Trade_Hub/trade_hub_app.py:964 skills/Trade_Hub/trade_hub_app.py:969 skills/Trade_Hub/trade_hub_data.py:44 skills/Trade_Hub/trade_hub_data.py:49
 msgid "CS"
 msgstr ""
 
@@ -222,6 +250,10 @@ msgstr ""
 msgid "Click a cell to assign a tool to that grid position."
 msgstr ""
 
+#: skills/Trade_Hub/basket_view.py:122
+msgid "Click to view details · Pin to keep open"
+msgstr ""
+
 #: skills/Cargo_loader/cargo_app.py:1012
 msgid "Close"
 msgstr ""
@@ -230,15 +262,15 @@ msgstr ""
 msgid "Cluster"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:908 skills/Trade_Hub/trade_hub_data.py:64
+#: skills/Trade_Hub/trade_hub_app.py:985 skills/Trade_Hub/trade_hub_data.py:64
 msgid "Commodity Chain"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:922 skills/Trade_Hub/trade_hub_data.py:75
+#: skills/Trade_Hub/trade_hub_app.py:999 skills/Trade_Hub/trade_hub_data.py:75
 msgid "Commodity Mix"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:825
+#: skills/Trade_Hub/trade_hub_app.py:902
 msgid "Commodity..."
 msgstr ""
 
@@ -330,7 +362,7 @@ msgstr ""
 msgid "Dist resist:"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:895 skills/Trade_Hub/trade_hub_data.py:52
+#: skills/Trade_Hub/trade_hub_app.py:972 skills/Trade_Hub/trade_hub_data.py:52
 msgid "Distance"
 msgstr ""
 
@@ -354,7 +386,7 @@ msgstr ""
 msgid "EMP GENERATORS"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:896 skills/Trade_Hub/trade_hub_data.py:53
+#: skills/Trade_Hub/trade_hub_app.py:973 skills/Trade_Hub/trade_hub_data.py:53
 msgid "ETA"
 msgstr ""
 
@@ -378,7 +410,7 @@ msgstr ""
 msgid "Enabled"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:1773
+#: skills/Trade_Hub/trade_hub_app.py:1901
 msgid "Ending Income  (aUEC)"
 msgstr ""
 
@@ -394,7 +426,7 @@ msgstr ""
 msgid "Enrg"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:910 skills/Trade_Hub/trade_hub_app.py:925 skills/Trade_Hub/trade_hub_data.py:66 skills/Trade_Hub/trade_hub_data.py:78
+#: skills/Trade_Hub/trade_hub_app.py:987 skills/Trade_Hub/trade_hub_app.py:1002 skills/Trade_Hub/trade_hub_data.py:66 skills/Trade_Hub/trade_hub_data.py:78
 msgid "Est. Total Profit"
 msgstr ""
 
@@ -406,7 +438,7 @@ msgstr ""
 msgid "FLEET VIEWER"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:717
+#: skills/Trade_Hub/trade_hub_app.py:794
 msgid "FREIGHT MODE:"
 msgstr ""
 
@@ -430,7 +462,11 @@ msgstr ""
 msgid "Fetching data from erkul.games…"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:923 skills/Trade_Hub/trade_hub_data.py:76
+#: skills/Trade_Hub/basket_view.py:360
+msgid "Fetching distances..."
+msgstr ""
+
+#: skills/Trade_Hub/trade_hub_app.py:1000 skills/Trade_Hub/trade_hub_data.py:76
 msgid "Fill %"
 msgstr ""
 
@@ -530,7 +566,7 @@ msgstr ""
 msgid "IR signature:"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:898 skills/Trade_Hub/trade_hub_data.py:55
+#: skills/Trade_Hub/trade_hub_app.py:975 skills/Trade_Hub/trade_hub_data.py:55
 msgid "Income"
 msgstr ""
 
@@ -538,7 +574,7 @@ msgstr ""
 msgid "Inert Mat."
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:948
+#: skills/Trade_Hub/trade_hub_app.py:1034
 msgid "Initializing..."
 msgstr ""
 
@@ -550,7 +586,7 @@ msgstr ""
 msgid "Instability"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:1808
+#: skills/Trade_Hub/trade_hub_app.py:1936
 msgid "Invalid ending income"
 msgstr ""
 
@@ -558,11 +594,11 @@ msgstr ""
 msgid "Invalid hotkey"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:1801
+#: skills/Trade_Hub/trade_hub_app.py:1929
 msgid "Invalid starting income"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:888
+#: skills/Trade_Hub/trade_hub_app.py:965
 msgid "Invest"
 msgstr ""
 
@@ -570,7 +606,7 @@ msgstr ""
 msgid "Invest..."
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:885 skills/Trade_Hub/trade_hub_data.py:42
+#: skills/Trade_Hub/trade_hub_app.py:962 skills/Trade_Hub/trade_hub_data.py:42
 msgid "Item"
 msgstr ""
 
@@ -594,7 +630,7 @@ msgstr ""
 msgid "LOADOUT STATS"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:706
+#: skills/Trade_Hub/trade_hub_app.py:779
 msgid "LOOPS"
 msgstr ""
 
@@ -606,7 +642,7 @@ msgstr ""
 msgid "Launch"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:907 skills/Trade_Hub/trade_hub_app.py:921 skills/Trade_Hub/trade_hub_data.py:63 skills/Trade_Hub/trade_hub_data.py:74
+#: skills/Trade_Hub/trade_hub_app.py:984 skills/Trade_Hub/trade_hub_app.py:998 skills/Trade_Hub/trade_hub_data.py:63 skills/Trade_Hub/trade_hub_data.py:74
 msgid "Legs"
 msgstr ""
 
@@ -646,7 +682,7 @@ msgstr ""
 msgid "Loading prices..."
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:1044
+#: skills/Trade_Hub/trade_hub_app.py:1132
 msgid "Loading trade data..."
 msgstr ""
 
@@ -686,11 +722,11 @@ msgstr ""
 msgid "MARKET FINDER"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:837
+#: skills/Trade_Hub/trade_hub_app.py:914
 msgid "MIN PROFIT/SCU"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:830
+#: skills/Trade_Hub/trade_hub_app.py:907
 msgid "MIN SCU"
 msgstr ""
 
@@ -702,8 +738,12 @@ msgstr ""
 msgid "MISSILE & BOMB RACKS"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:724
+#: skills/Trade_Hub/trade_hub_app.py:801
 msgid "MIXED"
+msgstr ""
+
+#: skills/Trade_Hub/basket_view.py:173
+msgid "MODE:"
 msgstr ""
 
 #: skills/Mining_Loadout/ui/components/turret_panel.py:116
@@ -738,7 +778,7 @@ msgstr ""
 msgid "Max Range"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:909 skills/Trade_Hub/trade_hub_app.py:924 skills/Trade_Hub/trade_hub_data.py:65 skills/Trade_Hub/trade_hub_data.py:77
+#: skills/Trade_Hub/trade_hub_app.py:986 skills/Trade_Hub/trade_hub_app.py:1001 skills/Trade_Hub/trade_hub_data.py:65 skills/Trade_Hub/trade_hub_data.py:77
 msgid "Min Avail SCU"
 msgstr ""
 
@@ -770,6 +810,10 @@ msgstr ""
 msgid "Missions"
 msgstr ""
 
+#: core/skill_registry.py:71 skills/Mouse_Blocker/ui/app.py:141 skills/Mouse_Blocker/ui/app.py:177
+msgid "Mouse Blocker"
+msgstr ""
+
 #: ui/settings_panel.py:534
 msgid "Mouse wheel adjusts sliders and spinboxes on hover"
 msgstr ""
@@ -778,7 +822,7 @@ msgstr ""
 msgid "NAV"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:742 skills/Trade_Hub/trade_hub_app.py:789
+#: skills/Trade_Hub/trade_hub_app.py:819 skills/Trade_Hub/trade_hub_app.py:866
 msgid "NO"
 msgstr ""
 
@@ -790,6 +834,10 @@ msgstr ""
 msgid "Name:"
 msgstr ""
 
+#: skills/Trade_Hub/basket_view.py:349
+msgid "No active buyers found for the selected commodities."
+msgstr ""
+
 #: skills/Cargo_loader/cargo_app.py:1872 skills/Cargo_loader/cargo_app.py:2098
 msgid "No brush"
 msgstr ""
@@ -798,8 +846,20 @@ msgstr ""
 msgid "No crafting data available for this version"
 msgstr ""
 
+#: skills/Trade_Hub/basket_view.py:352
+msgid "No in-stock sellers found for the selected commodities."
+msgstr ""
+
 #: skills/Mission_Database/ui/app.py:331
 msgid "No mining data for this version"
+msgstr ""
+
+#: skills/Trade_Hub/basket_view.py:397
+msgid "No route could be built."
+msgstr ""
+
+#: skills/Trade_Hub/basket_view.py:322
+msgid "No routes loaded yet — wait for data fetch."
 msgstr ""
 
 #: skills/DPS_Calculator/dps_ui/app.py:1186
@@ -818,7 +878,7 @@ msgstr ""
 msgid "Number of rows"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:781
+#: skills/Trade_Hub/trade_hub_app.py:858
 msgid "ONLY SYSTEM(S) SELECTED:"
 msgstr ""
 
@@ -842,7 +902,7 @@ msgstr ""
 msgid "Optimize"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:905 skills/Trade_Hub/trade_hub_app.py:919 skills/Trade_Hub/trade_hub_data.py:61 skills/Trade_Hub/trade_hub_data.py:72
+#: skills/Trade_Hub/trade_hub_app.py:982 skills/Trade_Hub/trade_hub_app.py:996 skills/Trade_Hub/trade_hub_data.py:61 skills/Trade_Hub/trade_hub_data.py:72
 msgid "Origin Terminal"
 msgstr ""
 
@@ -856,6 +916,14 @@ msgstr ""
 
 #: skills/Mission_Database/ui/app.py:161
 msgid "Owned Blueprints"
+msgstr ""
+
+#: skills/Trade_Hub/basket_view.py:221 skills/Trade_Hub/basket_view.py:283
+msgid "PLAN ROUTE"
+msgstr ""
+
+#: skills/Trade_Hub/basket_view.py:280
+msgid "PLAN SALE"
 msgstr ""
 
 #: skills/Cargo_loader/cargo_app.py:1840
@@ -896,6 +964,18 @@ msgstr ""
 
 #: skills/DPS_Calculator/dps_ui/app.py:601
 msgid "Phys resist:"
+msgstr ""
+
+#: skills/Trade_Hub/basket_view.py:330
+msgid "Pick a starting terminal, check the commodities to acquire, then click PLAN ROUTE."
+msgstr ""
+
+#: skills/Trade_Hub/basket_view.py:325
+msgid "Pick a starting terminal, check the commodities to sell, then click PLAN SALE."
+msgstr ""
+
+#: skills/Trade_Hub/basket_view.py:389
+msgid "Plan failed: "
 msgstr ""
 
 #: skills/DPS_Calculator/dps_ui/constants.py:237
@@ -970,11 +1050,11 @@ msgstr ""
 msgid "RETRO THRUSTERS"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:897 skills/Trade_Hub/trade_hub_data.py:54
+#: skills/Trade_Hub/trade_hub_app.py:974 skills/Trade_Hub/trade_hub_data.py:54
 msgid "ROI"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:702
+#: skills/Trade_Hub/trade_hub_app.py:775
 msgid "ROUTES"
 msgstr ""
 
@@ -1010,7 +1090,7 @@ msgstr ""
 msgid "Refreshing from erkul.games…"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:1054
+#: skills/Trade_Hub/trade_hub_app.py:1142
 msgid "Refreshing trade data..."
 msgstr ""
 
@@ -1066,7 +1146,7 @@ msgstr ""
 msgid "SCMDB // MISSION DATABASE"
 msgstr ""
 
-#: skills/Cargo_loader/cargo_app.py:1528 skills/Trade_Hub/trade_hub_app.py:889 skills/Trade_Hub/trade_hub_data.py:46
+#: skills/Cargo_loader/cargo_app.py:1528 skills/Trade_Hub/trade_hub_app.py:966 skills/Trade_Hub/trade_hub_data.py:46
 msgid "SCU"
 msgstr ""
 
@@ -1074,7 +1154,7 @@ msgstr ""
 msgid "SCU↓"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:844
+#: skills/Trade_Hub/trade_hub_app.py:921
 msgid "SEARCH"
 msgstr ""
 
@@ -1082,7 +1162,11 @@ msgstr ""
 msgid "SELECTED WEAPON"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:818
+#: skills/Trade_Hub/basket_view.py:183
+msgid "SELL"
+msgstr ""
+
+#: skills/Trade_Hub/trade_hub_app.py:895
 msgid "SELL LOCATION"
 msgstr ""
 
@@ -1110,11 +1194,15 @@ msgstr ""
 msgid "SIZE"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:800
+#: skills/Trade_Hub/basket_view.py:196
+msgid "START LOCATION:"
+msgstr ""
+
+#: skills/Trade_Hub/trade_hub_app.py:877
 msgid "SYSTEM: BUY"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:806
+#: skills/Trade_Hub/trade_hub_app.py:883
 msgid "SYSTEM: SELL"
 msgstr ""
 
@@ -1142,7 +1230,7 @@ msgstr ""
 msgid "Search items..."
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:845
+#: skills/Trade_Hub/trade_hub_app.py:922
 msgid "Search..."
 msgstr ""
 
@@ -1162,6 +1250,14 @@ msgstr ""
 msgid "Select an item to view details"
 msgstr ""
 
+#: skills/Trade_Hub/basket_view.py:339
+msgid "Select at least one commodity."
+msgstr ""
+
+#: skills/Trade_Hub/basket_view.py:214
+msgid "Select commodities..."
+msgstr ""
+
 #: skills/DPS_Calculator/dps_ui/widgets.py:261
 msgid "Select component or"
 msgstr ""
@@ -1174,19 +1270,19 @@ msgstr ""
 msgid "Select…"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:893 skills/Trade_Hub/trade_hub_data.py:50
+#: skills/Trade_Hub/trade_hub_app.py:970 skills/Trade_Hub/trade_hub_data.py:50
 msgid "Sell"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:891 skills/Trade_Hub/trade_hub_data.py:48
+#: skills/Trade_Hub/trade_hub_app.py:968 skills/Trade_Hub/trade_hub_data.py:48
 msgid "Sell At"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:819
+#: skills/Trade_Hub/trade_hub_app.py:896
 msgid "Sell location..."
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:807
+#: skills/Trade_Hub/trade_hub_app.py:884
 msgid "Sell system..."
 msgstr ""
 
@@ -1214,7 +1310,7 @@ msgstr ""
 msgid "Ship"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:774
+#: skills/Trade_Hub/trade_hub_app.py:851
 msgid "Ship..."
 msgstr ""
 
@@ -1254,11 +1350,15 @@ msgstr ""
 msgid "Spread:"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:1764
+#: skills/Trade_Hub/trade_hub_app.py:1892
 msgid "Starting Income  (aUEC)"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:906 skills/Trade_Hub/trade_hub_app.py:920 skills/Trade_Hub/trade_hub_data.py:62 skills/Trade_Hub/trade_hub_data.py:73
+#: skills/Trade_Hub/basket_view.py:202
+msgid "Starting terminal..."
+msgstr ""
+
+#: skills/Trade_Hub/trade_hub_app.py:983 skills/Trade_Hub/trade_hub_app.py:997 skills/Trade_Hub/trade_hub_data.py:62 skills/Trade_Hub/trade_hub_data.py:73
 msgid "Sys"
 msgstr ""
 
@@ -1326,11 +1426,11 @@ msgstr ""
 msgid "Update check failed"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:772
+#: skills/Trade_Hub/trade_hub_app.py:849
 msgid "VEHICLE:"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:699
+#: skills/Trade_Hub/trade_hub_app.py:772
 msgid "VIEW MODE:"
 msgstr ""
 
@@ -1350,11 +1450,11 @@ msgstr ""
 msgid "Win"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:738 skills/Trade_Hub/trade_hub_app.py:785
+#: skills/Trade_Hub/trade_hub_app.py:815 skills/Trade_Hub/trade_hub_app.py:862
 msgid "YES"
 msgstr ""
 
-#: skills/Mining_Loadout/ui/components/stats_panel.py:103 skills/Mining_Loadout/ui/main_window.py:310 skills/Mining_Loadout/ui/main_window.py:532 skills/Mining_Loadout/ui/main_window.py:534 skills/Trade_Hub/trade_hub_app.py:910 skills/Trade_Hub/trade_hub_app.py:925
+#: skills/Mining_Loadout/ui/components/stats_panel.py:103 skills/Mining_Loadout/ui/main_window.py:310 skills/Mining_Loadout/ui/main_window.py:532 skills/Mining_Loadout/ui/main_window.py:534 skills/Trade_Hub/trade_hub_app.py:987 skills/Trade_Hub/trade_hub_app.py:1002
 msgid "aUEC"
 msgstr ""
 
@@ -1370,7 +1470,7 @@ msgstr ""
 msgid "leave empty"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:1363 skills/Trade_Hub/trade_hub_app.py:1364
+#: skills/Trade_Hub/trade_hub_app.py:1455 skills/Trade_Hub/trade_hub_app.py:1456
 msgid "loops"
 msgstr ""
 
@@ -1378,8 +1478,12 @@ msgstr ""
 msgid "missile dmg"
 msgstr ""
 
-#: skills/Trade_Hub/trade_hub_app.py:1368 skills/Trade_Hub/trade_hub_app.py:1369
+#: skills/Trade_Hub/trade_hub_app.py:1460 skills/Trade_Hub/trade_hub_app.py:1461
 msgid "routes"
+msgstr ""
+
+#: skills/Trade_Hub/basket_view.py:114
+msgid "unresolved: "
 msgstr ""
 
 #: skills/DPS_Calculator/dps_ui/app.py:571

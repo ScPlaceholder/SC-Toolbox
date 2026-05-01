@@ -15,6 +15,24 @@ OCR_DIR = Path(__file__).resolve().parent.parent
 TEMPLATES_DIR = OCR_DIR / "sc_templates"
 PROFILES_DIR = Path(__file__).resolve().parent / "profiles"
 ONNX_MODEL_PATH = OCR_DIR / "models" / "model_cnn.onnx"
+# Optional sibling 28×28 classifier trained on polarity-INVERTED
+# crops (dark text on light bg).  When present, the secondary voter
+# in api._ocr_value_crop classifies the inverted version of the
+# primary's crops with this model — true peer voter, decorrelated
+# from the canonical model by both polarity and weights.  Absent
+# until the user trains it via:
+#     python scripts/make_inverted_dataset.py
+#     python -m ocr.train_model --inverted
+ONNX_MODEL_PATH_INV = OCR_DIR / "models" / "model_cnn_inv.onnx"
+CRNN_MODEL_PATH = OCR_DIR / "models" / "model_crnn.onnx"
+CRNN_META_PATH = OCR_DIR / "models" / "model_crnn.json"
+# Optional secondary CRNN — if present, runs in parallel with the
+# primary CRNN and their outputs are ensembled (highest-confidence
+# read wins). Train with e.g. different init or different augmentation
+# schedule to get decorrelated errors; copy the resulting
+# model_crnn.onnx + .json to these filenames to activate.
+CRNN2_MODEL_PATH = OCR_DIR / "models" / "model_crnn_v2.onnx"
+CRNN2_META_PATH = OCR_DIR / "models" / "model_crnn_v2.json"
 
 # ── Per-user writable state ────────────────────────────────────────
 _LOCALAPPDATA = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")

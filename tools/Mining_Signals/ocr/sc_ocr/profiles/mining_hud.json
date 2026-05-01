@@ -11,5 +11,28 @@
     "resistance": "pct",
     "instability": "instability"
   },
-  "label_keywords": ["mass", "resist", "instab"]
+  "label_keywords": ["mass", "resist", "instab"],
+  "model": "model_cnn.onnx",
+  "model_purpose": "mining_hud_digits_only",
+  "global_char_whitelist": "0123456789.%",
+  "min_confidence": 0.85,
+  "fields": {
+    "mass": {
+      "chars": "0123456789",
+      "min": 0,
+      "max": 200000,
+      "must_be_int": true
+    },
+    "resistance": {
+      "chars": "0123456789.%",
+      "min": 0,
+      "max": 100,
+      "must_end_with": "%"
+    },
+    "instability": {
+      "chars": "0123456789.",
+      "min": 0,
+      "max": 100
+    }
+  }
 }

@@ -9,6 +9,7 @@ name into the in-game MobiGlas.
 
 from __future__ import annotations
 
+import logging
 from typing import Callable, Optional
 import threading
 
@@ -30,9 +31,10 @@ from services.refinery_locations import (
 from services.refinery_yields import RefineryYieldData
 from services.refinery_distances import nearest_refineries, fmt_distance
 from .refinery_detail_popup import show_refinery_popup
+from .theme import ACCENT
 
 
-ACCENT = "#33dd88"   # matches the rest of Mining Signals
+log = logging.getLogger(__name__)
 
 
 def _fuzzy_match(needle: str, haystack: str) -> bool:
@@ -363,7 +365,11 @@ class RefineryLocationsTab(QWidget):
                 res = _fetch()
                 _done(res)
             except Exception:
-                pass
+                log.exception("refinery distance fetch failed")
+                QMetaObject.invokeMethod(
+                    self, "_on_distance_error",
+                    Qt.QueuedConnection,
+                )
 
         threading.Thread(target=_bg, daemon=True).start()
 
@@ -413,6 +419,27 @@ class RefineryLocationsTab(QWidget):
             self._row_layout.insertWidget(
                 self._row_layout.count() - 1, btn
             )
+
+    @Slot()
+    def _on_distance_error(self) -> None:
+        """Called on the main thread when the distance fetch raises."""
+        if not self._near_me or self._row_layout is None:
+            return
+        # Replace the "Calculating distances..." label with an error notice.
+        for i in range(self._row_layout.count()):
+            item = self._row_layout.itemAt(i)
+            if item and item.widget():
+                w = item.widget()
+                if isinstance(w, QLabel) and "Calculating" in (w.text() or ""):
+                    w.setText("Distance lookup failed (network error).")
+                    return
+        # Fallback: no calculating label found, append a fresh one.
+        err = QLabel("Distance lookup failed (network error).")
+        err.setStyleSheet(
+            f"font-family: Consolas, monospace; font-size: 9pt; "
+            f"color: {P.fg_dim}; background: transparent; padding: 8px;"
+        )
+        self._row_layout.insertWidget(self._row_layout.count() - 1, err)
 
     def _system_header(self, text: str) -> QLabel:
         lbl = QLabel(text.upper())

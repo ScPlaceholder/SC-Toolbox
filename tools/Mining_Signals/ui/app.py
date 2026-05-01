@@ -38,20 +38,28 @@ from services.breakability import (
     LaserConfig, GadgetInfo, BreakResult, FleetBreakResult,
     compute_with_gadgets, fleet_breakability, default_player_count,
 )
-from ocr.screen_reader import is_ocr_available, scan_region, tesseract_status
+from ocr.screen_reader import (
+    is_ocr_available, scan_region, tesseract_status, capture_region,
+)
 from ocr.onnx_hud_reader import scan_hud_onnx
+from ocr.sc_ocr.signal_anchor import find_icon as _find_signal_icon
+from ocr.sc_ocr.scan_results_match import (
+    find_scan_results_anchor as _find_scan_results,
+)
 
 from .scan_bubble import ScanBubble
 from .break_bubble import BreakBubble
 from .region_selector import RegionSelector
 from .display_placer import DisplayPlacer
 from .tutorial_popup import TutorialPopup
+from .tutorial_tip import TutorialTip
 from .resource_popup import ResourcePopup
 from .mining_ledger import MiningLedgerTab
 from .mining_chart import MiningChartTab
 from .refinery_locations_tab import RefineryLocationsTab
 from .refinery_yields_tab import RefineryYieldsTab
 from .break_panel import BreakPanel
+from .theme import ACCENT
 from . import chart_bubble
 
 log = logging.getLogger(__name__)
@@ -105,8 +113,6 @@ def _ml_turret_name(ship: str, index: int) -> str:
         return names[index]
     return f"Turret {index + 1}"
 
-
-ACCENT = "#33dd88"
 
 # Standard close button style matching the main title bar's X button
 _CLOSE_BTN_STYLE = """
@@ -382,6 +388,27 @@ class MiningSignalsApp(SCWindow):
         # Guard against scan pileup on slower machines
         self._scan_in_progress: bool = False
 
+        # Idempotency guard for _teardown(). Both closeEvent and the
+        # QApplication.aboutToQuit signal route through _teardown; the
+        # flag stops the second caller from double-stopping timers /
+        # double-flushing the ledger.
+        self._torn_down: bool = False
+
+        # Anchor-gate state. Master toggle ("Start Scan") drives this
+        # to "armed" (or "off"); per-tick anchor detection refines it
+        # to "active_signature" / "active_hud" / back to "armed". When
+        # neither anchor is present, OCR is skipped entirely so the
+        # downstream pipelines can't hallucinate readings from empty
+        # pixels (e.g. between rocks, in menus, with the UI hidden).
+        self._gate_state: str = "off"
+        # Hysteresis state for the signal anchor: NCC scores wobble
+        # 0.05-0.15 between captures even on a stable panel, so a
+        # binary threshold causes the bubble to flicker between
+        # match-mode and scanning-placeholder every time the score
+        # dips. Track recent sig_present results so once the anchor
+        # locks, a sub-threshold tick or two doesn't flip the gate.
+        self._sig_recent_hits: int = 0
+
         # Refinery order store
         from services.refinery_orders import RefineryOrderStore
         self._refinery_order_store = RefineryOrderStore(self._config)
@@ -419,6 +446,11 @@ class MiningSignalsApp(SCWindow):
         self._hud_mass_window: deque = deque(maxlen=7)
         self._hud_resistance_window: deque = deque(maxlen=7)
         self._hud_instability_window: deque = deque(maxlen=7)
+        # Mineral name uses the same rolling-window pattern, but with
+        # a tighter (5) window — the mineral is locked at the api.py
+        # layer per panel-visit, so we mainly want to outvote a
+        # single-frame OCR slip when the lock first establishes.
+        self._hud_mineral_window: deque = deque(maxlen=5)
         # Kept for back-compat with any code that reads these; the
         # real decision happens in `_commit_hud_from_window`.
         self._prev_hud_mass: float | None = None
@@ -426,6 +458,18 @@ class MiningSignalsApp(SCWindow):
         # Instability: latest raw read. No consensus smoothing — it's
         # used as an on/off IMPOSSIBLE flag, not a displayed number.
         self._last_hud_instability: float | None = None
+
+        # Wire teardown to QApplication.aboutToQuit so that destruction
+        # paths bypassing closeEvent (taskbar end-task, QApplication.quit,
+        # SIGINT handlers, etc.) still stop the RefineryMonitor thread,
+        # the Paddle daemon, and the scan timers. _teardown is idempotent
+        # so the closeEvent path remains safe.
+        try:
+            _qapp = QApplication.instance()
+            if _qapp is not None:
+                _qapp.aboutToQuit.connect(self._teardown)
+        except Exception as exc:
+            log.debug("aboutToQuit wiring failed: %s", exc)
 
         self._build_ui()
         self._setup_ipc()
@@ -2661,6 +2705,136 @@ class MiningSignalsApp(SCWindow):
         self._update_break_bubble()
         self._refresh_break_panel()
 
+    def _resource_name_for_break_bubble(self) -> str:
+        """Pick the resource name to display in the break bubble.
+
+        Priority:
+          1. HUD-OCR'd mineral name (``_last_hud_mineral``) — direct
+             read from the SCAN RESULTS panel.
+          2. Signal-scanner match (``_last_matched_resource``) — the
+             rock's signature value resolved to a canonical name via
+             the SignalMatcher database.
+          3. Empty.
+
+        The signal-match fallback was previously gated on ``_last_hud_mass
+        is None`` to defend against the "stale Silicon shown on a
+        Titanium rock" scenario where the signal scanner had been
+        pointed at a different rock previously. In practice that
+        defence backfired: the user's HUD mineral OCR is failing on
+        letters (CRNN reads 'Cfkv'/'Crfkve' garbage that doesn't
+        fuzzy-match), so suppressing the signal-match fallback when
+        HUD has data left the bubble showing nothing at all.
+
+        Decision: re-enable the unconditional fallback. When the
+        signal scanner is up to date (typical workflow: point it at
+        the rock before scanning) the match IS the right name. The
+        edge-case stale-match scenario is a smaller UX cost than the
+        current "always blank" behaviour.
+        """
+        hud_mineral = getattr(self, "_last_hud_mineral", None)
+        if hud_mineral:
+            return hud_mineral
+        return getattr(self, "_last_matched_resource", "") or ""
+
+    def _build_reassignable_pool(self) -> list[tuple[str, str, str, bool]]:
+        """Build the list of crew members eligible to fill empty MOLE turrets.
+
+        Returns: [(player_name, source_ship_id, source_display, is_mining_donor)]
+
+        Sources:
+        - Players on support ships (cargo/escort/repair/medical) flagged
+          can_reassign=True. ``is_mining_donor=False`` — their ship still
+          functions normally during the rock break.
+        - Players on weaker mining ships flagged BOTH can_reassign=True
+          AND auto_reassign=True. ``is_mining_donor=True`` — donor ship
+          gets excluded from the rock calculation.
+
+        The current user (assigned_user) is never reassigned away from
+        their own ship.
+        """
+        pool: list[tuple[str, str, str, bool]] = []
+        if not hasattr(self, "_ledger_tab"):
+            return pool
+        data = getattr(self._ledger_tab, "_data", None)
+        if data is None:
+            return pool
+
+        # Build lookup: player_name -> PlayerEntry
+        players_by_name = {p.name: p for p in (data.players or [])}
+        assigned_user = getattr(data, "assigned_user", "") or ""
+
+        # Walk mining ships across all buckets
+        all_mining_ships = list(getattr(data, "foreman_ships", []) or [])
+        all_mining_ships.extend(getattr(data, "unassigned_ships", []) or [])
+        for team in getattr(data, "teams", []) or []:
+            all_mining_ships.extend(getattr(team, "ships", []) or [])
+
+        for ship in all_mining_ships:
+            display = getattr(ship, "ship_name", "") or "ship"
+            ship_id = getattr(ship, "loadout_path", "") or ""
+            for player_name in (getattr(ship, "crew", []) or []):
+                if not player_name or player_name == assigned_user:
+                    continue
+                p = players_by_name.get(player_name)
+                if p is None:
+                    continue
+                # Mining ship donors require BOTH can_reassign + auto_reassign
+                if p.can_reassign and p.auto_reassign:
+                    pool.append((player_name, ship_id, display, True))
+
+        # Walk support ships (non-mining). Crew listed on support ships
+        # can be pulled if can_reassign is set.
+        # Note: FleetSupportShip currently doesn't carry crew names — skip
+        # for now. If/when support ships gain crew lists, add here.
+
+        return pool
+
+    def _build_ledger_ship_lookup(self) -> dict[str, object]:
+        """Map loadout_path -> CrewAssignment from the Mining Ledger.
+
+        Used to enrich fleet configs with per-laser crew assignments.
+        Returns an empty dict if the ledger isn't loaded.
+        """
+        lookup: dict[str, object] = {}
+        if not hasattr(self, "_ledger_tab"):
+            return lookup
+        data = getattr(self._ledger_tab, "_data", None)
+        if data is None:
+            return lookup
+
+        # Walk all assignment buckets in the ledger
+        all_ships: list = []
+        all_ships.extend(getattr(data, "foreman_ships", []) or [])
+        all_ships.extend(getattr(data, "unassigned_ships", []) or [])
+        for team in getattr(data, "teams", []) or []:
+            all_ships.extend(getattr(team, "ships", []) or [])
+
+        for s in all_ships:
+            path = getattr(s, "loadout_path", "")
+            if path:
+                lookup[path] = s
+        return lookup
+
+    @staticmethod
+    def _laser_crew_for_turret(
+        ship_crew: list[str],
+        laser_crew_map: dict[int, list[str]] | None,
+        turret_index: int,
+    ) -> list[str]:
+        """Determine which crew members are assigned to a specific turret.
+
+        Priority:
+        1. Explicit per-turret assignment in ``laser_crew_map[turret_index]``.
+        2. Fallback: deal the ship-level ``crew`` list across turrets in order
+           (turret 0 → first player, turret 1 → second, etc.).
+        """
+        if laser_crew_map and turret_index in laser_crew_map:
+            return list(laser_crew_map[turret_index])
+        # Fallback: split ship-level crew across turrets one-by-one
+        if ship_crew and 0 <= turret_index < len(ship_crew):
+            return [ship_crew[turret_index]]
+        return []
+
     def team_laser_configs(self, team_node) -> list:
         """Resolve LaserConfigs for all mining ships in a specific team."""
         configs = []
@@ -2683,6 +2857,7 @@ class MiningSignalsApp(SCWindow):
             crew = player_counts.get(snap.source_path, default_player_count(snap.ship))
             ship_uses = module_uses.get(snap.source_path)
             ship_crew = list(getattr(ship_node, "crew", []) or [])
+            laser_crew_map = getattr(ship_node, "laser_crew", None)
 
             for idx, c in enumerate(ship_configs):
                 c.name = f"{display_name} > {c.name}"
@@ -2694,6 +2869,7 @@ class MiningSignalsApp(SCWindow):
                 c.team_name = team_name
                 c.cluster = cluster
                 c.player_names = list(ship_crew)
+                c.laser_crew = self._laser_crew_for_turret(ship_crew, laser_crew_map, idx)
                 if ship_uses and idx < len(ship_uses):
                     c.active_uses_remaining = ship_uses[idx]
                 else:
@@ -2825,6 +3001,7 @@ class MiningSignalsApp(SCWindow):
             configs: list[LaserConfig] = []
             player_counts = self._config.get("fleet_player_counts", {})
             module_uses = self._config.get("module_uses_remaining", {})
+            ledger_lookup = self._build_ledger_ship_lookup()
             for snap in self._fleet_snapshots:
                 ship_configs = snapshot_to_laser_configs(snap)
                 display_name = self._fleet_display_name(snap)
@@ -2834,6 +3011,10 @@ class MiningSignalsApp(SCWindow):
                 )
                 # Get or initialize remaining module uses for this ship
                 ship_uses = module_uses.get(snap.source_path)
+                # Look up matching ledger entry for per-laser crew assignment
+                ledger_ship = ledger_lookup.get(snap.source_path)
+                ship_crew = list(getattr(ledger_ship, "crew", []) or []) if ledger_ship else []
+                laser_crew_map = getattr(ledger_ship, "laser_crew", None) if ledger_ship else None
                 for idx, c in enumerate(ship_configs):
                     c.name = f"{display_name} > {c.name}"
                     c.ship_id = snap.source_path
@@ -2841,6 +3022,8 @@ class MiningSignalsApp(SCWindow):
                     c.ship_type = snap.ship
                     c.player_count = crew
                     c.turret_index = idx
+                    c.player_names = list(ship_crew)
+                    c.laser_crew = self._laser_crew_for_turret(ship_crew, laser_crew_map, idx)
                     # Set remaining uses from config, or initialize from UEX max
                     if ship_uses and idx < len(ship_uses):
                         c.active_uses_remaining = ship_uses[idx]
@@ -3156,6 +3339,38 @@ class MiningSignalsApp(SCWindow):
             ResourcePopup(row, parent=self)
 
     def _on_set_region(self) -> None:
+        # Gate on a one-shot tutorial tip the first time the user
+        # clicks this button. After they tick "Do not show again" it
+        # skips straight to the region selector — and if a different
+        # tip is already on screen this click is absorbed (the user
+        # has to dismiss that one first).
+        TutorialTip.show_once(
+            self,
+            self._config,
+            lambda: _save_config(self._config),
+            key="set_scan_region",
+            title="Set Scanning Region",
+            body_html=(
+                "<p style='margin-top:0;'>Draw a tight box around the "
+                "<b style='color:#33dd88;'>signal value number</b> on "
+                "your mining-scanner HUD &mdash; the orange/red number "
+                "next to the resource icon (e.g. <b>10,150</b>).</p>"
+                "<p><b>Include only the digits.</b> Exclude:</p>"
+                "<ul style='margin-top:4px;'>"
+                "<li>The resource icon</li>"
+                "<li>The label text (\"SIGNAL\", \"VALUE\", etc.)</li>"
+                "<li>Empty space around the number</li>"
+                "</ul>"
+                "<p style='color:#888;'>A tighter box gives the OCR "
+                "fewer pixels to misread.</p>"
+            ),
+            on_proceed=self._open_scan_region_selector,
+        )
+
+    def _open_scan_region_selector(self) -> None:
+        """Actually open the scanning-region selector. Called either
+        directly (when the tip is dismissed) or as the on_proceed
+        callback when the user clicks OK on the tip."""
         self._region_selector = RegionSelector()
         self._region_selector.region_selected.connect(self._on_region_selected)
         self._region_selector.show()
@@ -3168,6 +3383,34 @@ class MiningSignalsApp(SCWindow):
 
     def _on_set_hud_region(self) -> None:
         """Open the region selector for the mining HUD (mass / resistance)."""
+        TutorialTip.show_once(
+            self,
+            self._config,
+            lambda: _save_config(self._config),
+            key="set_hud_region",
+            title="Set Mining HUD Region",
+            body_html=(
+                "<p style='margin-top:0;'>Select the <b "
+                "style='color:#33dd88;'>SCAN RESULTS</b> panel on "
+                "your mining HUD &mdash; the panel that shows "
+                "<b>MASS</b>, <b>RESISTANCE</b>, and <b>INSTABILITY</b> "
+                "for the rock you're scanning.</p>"
+                "<p><b style='color:#ff5533;'>Do NOT include the "
+                "COMPOSITION region</b> (the breakdown of mineral "
+                "percentages below the SCAN RESULTS panel). The "
+                "COMPOSITION text confuses the OCR pipeline and pulls "
+                "the row anchors to the wrong place.</p>"
+                "<p>Draw the box from just above the <b>SCAN RESULTS</b> "
+                "title down to just below the <b>INSTABILITY</b> row "
+                "&mdash; stop before COMPOSITION starts.</p>"
+            ),
+            on_proceed=self._open_hud_region_selector,
+        )
+
+    def _open_hud_region_selector(self) -> None:
+        """Actually open the HUD-region selector. Tip-gated entry
+        point splits the show-tip and open-selector paths so the
+        selector waits until the user dismisses the tip."""
         self._hud_region_selector = RegionSelector()
         self._hud_region_selector.region_selected.connect(self._on_hud_region_selected)
         self._hud_region_selector.show()
@@ -3356,17 +3599,65 @@ class MiningSignalsApp(SCWindow):
                     region.get("y", 400),
                 )
 
-            # Start scanning
-            interval = self._config.get("scan_interval_seconds", 1) * 1000
+            # Start scanning. Hard-cap the tick at 500 ms regardless
+            # of the saved config value — older configs have 1-3 s
+            # values that are way too slow for the post-mutex-fix
+            # pipeline (HUD scans now finish in well under a second
+            # when the gate stops dispatching the slow signal-OCR
+            # path). The OCR worker's ``_scan_in_progress`` guard
+            # prevents pile-up, so tighter cadence costs nothing
+            # but more responsive UI. Floor at 100 ms to avoid
+            # pegging a CPU.
+            interval_s = self._config.get("scan_interval_seconds", 0.5)
+            interval = max(100, min(500, int(float(interval_s) * 1000)))
             self._scan_timer = QTimer(self)
             self._scan_timer.timeout.connect(self._do_scan)
             self._scan_timer.start(interval)
+            self._gate_state = "armed"
             self._do_scan()  # immediate first scan
+
+            # First-run tutorial tip. Fires AFTER the scan has actually
+            # started (no on_proceed needed) — the tip is informational
+            # only and shouldn't gate the scan kickoff. If the user
+            # already ticked "Do not show again" on a prior session,
+            # show_once is a no-op.
+            TutorialTip.show_once(
+                self,
+                self._config,
+                lambda: _save_config(self._config),
+                key="start_scan",
+                title="Scanning Tips",
+                body_html=(
+                    "<p style='margin-top:0;'>Two scanners run in "
+                    "parallel:</p>"
+                    "<ul style='margin-top:4px;'>"
+                    "<li><b style='color:#33dd88;'>Signal scanner</b> "
+                    "&mdash; reads the orange/red signal-value number "
+                    "from the region you set. Matches it against the "
+                    "community signal table to identify the resource.</li>"
+                    "<li><b style='color:#33dd88;'>HUD scanner</b> "
+                    "&mdash; reads MASS, RESISTANCE, and INSTABILITY "
+                    "from the SCAN RESULTS panel. Feeds the breakability "
+                    "calculation.</li>"
+                    "</ul>"
+                    "<p><b style='color:#ffb347;'>If a result looks wrong:</b> "
+                    "look away from the rock and wait for the bubble to "
+                    "clear, then look back. This forces a fresh OCR pass "
+                    "and clears any locked-in misread.</p>"
+                    "<p><b style='color:#ffb347;'>For best accuracy:</b> "
+                    "keep the scanning HUD elements clear of in-game "
+                    "obstructions &mdash; bright backgrounds, ship parts, "
+                    "particle effects, and other overlays all reduce OCR "
+                    "confidence.</p>"
+                ),
+            )
         else:
             self._btn_scan_toggle.setText("Start Scan")
             if self._scan_timer:
                 self._scan_timer.stop()
                 self._scan_timer = None
+            self._gate_state = "off"
+            self._inline_result.setText("")
 
             self._scan_hint.setVisible(False)
 
@@ -3445,7 +3736,23 @@ class MiningSignalsApp(SCWindow):
                 else:
                     mass_counts[v] = mass_counts.get(v, 0) + 1
 
-            if mass_counts:
+            # Recency-weighted decay: if the LAST 3 entries are all
+            # None, the user has moved off the rock for a sustained
+            # window — clear regardless of older successful reads
+            # still sitting in the back of the deque. The earlier
+            # "wait until window is fully None" rule meant a single
+            # cached value held the bubble visible for ~21 s on
+            # 3-second scans (7 entries × 3 s) even after the user
+            # was clearly elsewhere. 3 trailing Nones gives ~9 s of
+            # absence tolerance, which rides out FRACTURE MODE
+            # transitions without staring at stale data forever.
+            _recent_mass = list(self._hud_mass_window)[-3:]
+            if (
+                len(_recent_mass) == 3
+                and all(v is None for v in _recent_mass)
+            ):
+                self._last_hud_mass = None
+            elif mass_counts:
                 best_val = max(mass_counts, key=mass_counts.get)
                 # Commit immediately: the mode of the window is always
                 # better than no value at all. With the in-scan 3-engine
@@ -3454,8 +3761,10 @@ class MiningSignalsApp(SCWindow):
                 # delaying results too much and on some users' machines
                 # prevented the break bubble from ever populating.
                 self._last_hud_mass = float(best_val)
-            elif none_count >= 2:
-                # All recent reads are None → panel unreadable, clear.
+            elif none_count >= 5:
+                # Belt-and-braces fallback for the case where window
+                # is partial (just-started scanning) and we haven't
+                # filled the trailing-3 buffer yet.
                 self._last_hud_mass = None
 
         # Resistance ────
@@ -3491,11 +3800,18 @@ class MiningSignalsApp(SCWindow):
                 else:
                     res_counts[v] = res_counts.get(v, 0) + 1
 
-            if res_counts:
+            # See mass: trailing-3-Nones decay rule.
+            _recent_res = list(self._hud_resistance_window)[-3:]
+            if (
+                len(_recent_res) == 3
+                and all(v is None for v in _recent_res)
+            ):
+                self._last_hud_resistance = None
+            elif res_counts:
                 best_val = max(res_counts, key=res_counts.get)
                 # Same policy as mass: commit the mode immediately.
                 self._last_hud_resistance = float(best_val)
-            elif res_nones >= 2:
+            elif res_nones >= 5:
                 self._last_hud_resistance = None
 
         # Instability ────
@@ -3535,16 +3851,24 @@ class MiningSignalsApp(SCWindow):
                 else:
                     inst_counts[v] = inst_counts.get(v, 0) + 1
 
-            if inst_counts:
+            # See mass: trailing-3-Nones decay rule.
+            _recent_inst = list(self._hud_instability_window)[-3:]
+            if (
+                len(_recent_inst) == 3
+                and all(v is None for v in _recent_inst)
+            ):
+                self._last_hud_instability = None
+            elif inst_counts:
                 best_key = max(inst_counts, key=inst_counts.get)
                 self._last_hud_instability = best_key / 100.0
-            elif inst_nones >= 2:
+            elif inst_nones >= 5:
                 self._last_hud_instability = None
 
     def _do_scan(self) -> None:
         region = self._config.get("ocr_region")
-        if not region:
-            log.info("_do_scan: no ocr_region set — skipping")
+        hud_region = self._config.get("hud_region")
+        if not region and not hud_region:
+            log.info("_do_scan: no regions set — skipping")
             return
 
         # Skip if the previous scan is still running (prevents pileup
@@ -3552,13 +3876,220 @@ class MiningSignalsApp(SCWindow):
         if self._scan_in_progress:
             log.info("_do_scan: previous scan still in flight — skipping")
             return
-        log.info("_do_scan: firing region=%s", region)
+        log.debug(
+            "_do_scan: firing region=%s hud_region=%s",
+            region, hud_region,
+        )
 
         self._scan_in_progress = True
-        hud_region = self._config.get("hud_region")
 
         def _run():
             try:
+                # ── ANCHOR GATE ──
+                # Capture each configured region with a SINGLE frame
+                # (not the 300 ms averaged composite the OCR pipeline
+                # uses) and run its anchor matcher. Only the scanner
+                # whose anchor is present this tick gets dispatched.
+                # If neither anchor is present, OCR is skipped entirely
+                # — this is the no-hallucination guarantee: empty pixels
+                # never reach the OCR fallback paths.
+                #
+                # Anchors are mutually exclusive in normal play (signal
+                # scanner UI and rock-scan panel are different game
+                # modes); if both somehow cross threshold simultaneously
+                # the signal scanner wins by convention.
+                import numpy as _np
+
+                sig_present = False
+                hud_present = False
+                sig_score: float | None = None
+                hud_score: float | None = None
+                hud_bypass = False
+
+                # Calibration bypass: if the user has explicitly
+                # saved per-row calibration for the HUD region, that's
+                # a direct assertion that the panel lives at those
+                # coordinates. We trust it over a per-tick NCC anchor
+                # that may fail on edge cases (HUD scale, color, anti-
+                # aliasing). Without this bypass the gate could lock
+                # us out of OCR even when the panel is plainly on
+                # screen — which is exactly what was happening on the
+                # user's region 2717,905,369,291.
+                if hud_region:
+                    try:
+                        from ocr.sc_ocr import calibration as _cal
+                        hud_bypass = bool(_cal.load(hud_region))
+                    except Exception as _cal_exc:
+                        log.debug(
+                            "gate: calibration lookup failed: %r",
+                            _cal_exc,
+                        )
+
+                if region:
+                    sig_img = capture_region(region)
+                    if sig_img is not None:
+                        try:
+                            # Use max-of-RGB-channels rather than ITU-R
+                            # 601 luma. The SC HUD renders the location-
+                            # pin icon with chromatic aberration on dark
+                            # backgrounds (cyan/red fringes ringing each
+                            # stroke). PIL's ``convert("L")`` blends
+                            # channels with weights (R*0.30 + G*0.59 +
+                            # B*0.11), which spatially blurs the AA'd
+                            # strokes and tanks NCC against the clean
+                            # template — empirically dropping real
+                            # matches from 0.85+ down to ~0.55. Max-
+                            # channel keeps each glyph's brightest
+                            # channel intact, so the stroke shape NCC
+                            # was trained on stays recognizable. Same
+                            # trick ``find_scan_results_anchor`` uses.
+                            _rgb = _np.asarray(
+                                sig_img.convert("RGB"), dtype=_np.uint8,
+                            )
+                            _gray = _rgb.max(axis=2).astype(_np.uint8)
+                            # Hysteresis-aware threshold pair.
+                            #   * STRICT (0.74) = "fresh enter" floor.
+                            #     Empty screens score up to 0.72 (false
+                            #     positives), so we keep entry above.
+                            #   * RELAXED (0.55) = "stay locked" floor.
+                            #     Once we've already confirmed the
+                            #     anchor, brief frame-to-frame score
+                            #     wobble (chromatic aberration shifts,
+                            #     anti-alias differences) shouldn't
+                            #     flip the gate to None and force the
+                            #     scan bubble to flicker into the
+                            #     "Scanning Please Wait" placeholder.
+                            #     We only drop the gate after 3
+                            #     consecutive sub-strict ticks, which
+                            #     rides out wobble while still catching
+                            #     "user moved off the panel".
+                            _SIG_STRICT = 0.74
+                            _SIG_RELAXED = 0.55
+                            _SIG_STICK_TICKS = 3
+                            _floor = (
+                                _SIG_RELAXED
+                                if self._sig_recent_hits > 0
+                                else _SIG_STRICT
+                            )
+                            _sig_match = _find_signal_icon(
+                                _gray, min_score=_floor,
+                            )
+                            if _sig_match is not None:
+                                sig_present = True
+                                sig_score = float(_sig_match[4])
+                                self._sig_recent_hits = min(
+                                    _SIG_STICK_TICKS,
+                                    self._sig_recent_hits + 1,
+                                )
+                            else:
+                                # Decay the stick counter. Gate stays
+                                # True until the run reaches 0.
+                                if self._sig_recent_hits > 0:
+                                    self._sig_recent_hits -= 1
+                                    sig_present = True  # hysteresis-held
+                        except Exception as exc:
+                            log.info(
+                                "gate: signal anchor check failed: %r",
+                                exc,
+                            )
+
+                if hud_region:
+                    if hud_bypass:
+                        # User-calibrated → assume panel is present.
+                        hud_present = True
+                    else:
+                        hud_img = capture_region(hud_region)
+                        if hud_img is not None:
+                            try:
+                                _hud_anchor = _find_scan_results(hud_img)
+                                if _hud_anchor is not None:
+                                    hud_present = True
+                                    try:
+                                        hud_score = float(
+                                            _hud_anchor.get("score", 0.0)
+                                        )
+                                    except (AttributeError, TypeError):
+                                        hud_score = None
+                            except Exception as exc:
+                                log.info(
+                                    "gate: scan-results anchor check failed: %r",
+                                    exc,
+                                )
+
+                # Per-tick gate diagnostic so it's possible to see
+                # WHY OCR isn't running from the log alone instead of
+                # having to instrument the panel-finder viewer.
+                log.info(
+                    "gate: sig_present=%s sig_score=%s hud_present=%s "
+                    "hud_score=%s hud_bypass=%s",
+                    sig_present,
+                    f"{sig_score:.2f}" if sig_score is not None else "—",
+                    hud_present,
+                    f"{hud_score:.2f}" if hud_score is not None else "—",
+                    hud_bypass,
+                )
+
+                # No mutex: when both anchors fire, both scans run.
+                #
+                # Earlier revisions tried to pick a winner because we
+                # were worried about NCC false positives flipping the
+                # gate state. Now that the signal anchor's threshold
+                # has its hysteresis pair (0.74 strict / 0.55 relaxed)
+                # AND the HUD anchor benefits from the calibration
+                # bypass, false positives from EITHER anchor are
+                # individually rare. The two scanners read different
+                # screen regions and dispatch to different futures in
+                # the persistent pool — running both in parallel is
+                # cheap and lets the user populate BOTH bubbles
+                # simultaneously when both panels are on screen.
+                #
+                # Net: holding the scanner on a rock no longer makes
+                # the break bubble flicker off — HUD scans dispatch
+                # every tick the calibration bypass is active, so
+                # _last_hud_mass refreshes in lock-step instead of
+                # going stale and decaying.
+
+                # Distinct ``active_both`` state when both anchors
+                # fire so ``_apply_gate_state`` doesn't clear one
+                # side's cached values just because the other side
+                # also matched. With the mutex removed, both scans
+                # actually run in parallel — but the previous
+                # if/elif chain only set one flag, and the gate-state
+                # handler then nuked the other side's state on every
+                # tick, causing the break bubble (and the scan
+                # bubble) to flicker.
+                if sig_present and hud_present:
+                    self._gate_state = "active_both"
+                elif sig_present:
+                    self._gate_state = "active_signature"
+                elif hud_present:
+                    self._gate_state = "active_hud"
+                else:
+                    self._gate_state = "armed"
+                QMetaObject.invokeMethod(
+                    self, "_apply_gate_state",
+                    Qt.QueuedConnection,
+                    Q_ARG(str, self._gate_state),
+                )
+
+                # ── ARMED BUT WAITING ──
+                # No anchor present → no panel on screen → skip OCR
+                # entirely. The cache + bubble cleanup is handled by
+                # ``_apply_gate_state`` on the main thread (queued
+                # above), so all this path needs to do is re-show the
+                # "Scanning…" placeholder and bail before dispatch.
+                # ``_maybe_show_scanning`` runs AFTER the gate-state
+                # slot, so by then ``_scan_bubble._matches`` is empty
+                # and the break bubble is hidden — its early-return
+                # guards will pass and the placeholder will appear.
+                if not sig_present and not hud_present:
+                    QMetaObject.invokeMethod(
+                        self, "_maybe_show_scanning",
+                        Qt.QueuedConnection,
+                    )
+                    return
+
+                # ── DISPATCH ──
                 # Use a PERSISTENT module-level pool. A `with
                 # ThreadPoolExecutor() as pool:` block calls
                 # pool.shutdown(wait=True) on exit, which waits for
@@ -3570,19 +4101,22 @@ class MiningSignalsApp(SCWindow):
                 # `_scan_in_progress` stuck True, starving every
                 # subsequent timer tick.
                 pool = _get_scan_pool()
-                sig_future = pool.submit(scan_region, region)
-
+                sig_future = None
                 hud_future = None
-                if hud_region:
+                if sig_present:
+                    sig_future = pool.submit(scan_region, region)
+                if hud_present:
                     hud_future = pool.submit(scan_hud_onnx, hud_region)
 
-                try:
-                    signal_value = sig_future.result(timeout=6)
-                except Exception as exc:
-                    log.info(
-                        "signal scan timed out/failed after 6s: %r", exc,
-                    )
-                    signal_value = None
+                signal_value = None
+                if sig_future is not None:
+                    try:
+                        signal_value = sig_future.result(timeout=6)
+                    except Exception as exc:
+                        log.info(
+                            "signal scan timed out/failed after 6s: %r",
+                            exc,
+                        )
 
                 if True:
 
@@ -3604,42 +4138,68 @@ class MiningSignalsApp(SCWindow):
                             hud_inst = hud_result.get("instability")
                             hud_mineral = hud_result.get("mineral_name")
                             panel_visible = hud_result.get("panel_visible", False)
+                            # Push to the rolling window regardless — None
+                            # entries signal "this scan didn't read",
+                            # which weakens the vote without erasing
+                            # prior signal.
+                            self._hud_mineral_window.append(
+                                hud_mineral if hud_mineral else None,
+                            )
                             if hud_mineral:
-                                # Stash on the app so the breakability
-                                # popup / HUD UI can pick it up. Stays
-                                # set until the panel disappears (cleared
-                                # below in the `not panel_visible` branch).
-                                self._last_hud_mineral = hud_mineral
+                                # Vote across the window: the most-
+                                # common non-None mineral wins. If
+                                # there's already a stable value,
+                                # require ≥2 votes for a candidate to
+                                # override it — protects the locked
+                                # mineral from a single noisy frame
+                                # (a fuzzy-match collision e.g.
+                                # "Borase" vs "Beryl"). If there's no
+                                # prior stable value, accept the
+                                # latest read immediately so the UI
+                                # doesn't sit blank waiting for a
+                                # second confirmation.
+                                _counts: dict[str, int] = {}
+                                for _v in self._hud_mineral_window:
+                                    if _v:
+                                        _counts[_v] = _counts.get(_v, 0) + 1
+                                if _counts:
+                                    _winner, _votes = max(
+                                        _counts.items(), key=lambda kv: kv[1],
+                                    )
+                                    if (self._last_hud_mineral is None
+                                            or _votes >= 2
+                                            or _winner == self._last_hud_mineral):
+                                        self._last_hud_mineral = _winner
+                                    # else: stick with the existing
+                                    # stable value; a single dissenting
+                                    # read isn't enough to flip it.
+                                else:
+                                    self._last_hud_mineral = hud_mineral
 
-                            # If the scan panel isn't visible at all (the
-                            # tall mineral-name row wasn't found), the
-                            # player is looking away from a rock. Clear
-                            # all cached values so the break bubble hides
-                            # and stale data doesn't persist.
+                            # If the scan panel isn't visible (mineral-row
+                            # finder returned None), push None reads
+                            # through the consensus windows instead of
+                            # nuking the cached values. The consensus
+                            # logic decays naturally after a few
+                            # consecutive Nones — that pattern is robust
+                            # to transient capture failures (FRACTURE
+                            # MODE animation frames, brief overlays from
+                            # other UI elements) without flushing values
+                            # that just locked in.
+                            #
+                            # Previously this branch hard-cleared every
+                            # cached value AND the windows, which meant
+                            # one bad frame between rocks reset
+                            # ``_last_hud_mass`` to None and dropped the
+                            # break bubble + re-armed the scan bubble.
+                            # On HUDs where ``_find_mineral_row``
+                            # occasionally fails on a panel that's
+                            # plainly on screen (FRACTURE MODE, anti-
+                            # aliasing edge cases) it looked like OCR
+                            # had stopped working entirely.
                             if not panel_visible:
-                                self._last_hud_mass = None
-                                self._last_hud_resistance = None
-                                self._last_hud_instability = None
-                                self._last_hud_mineral = None
-                                self._prev_hud_mass = None
-                                self._prev_hud_resistance = None
-                                self._hud_mass_window.clear()
-                                self._hud_resistance_window.clear()
-                                self._hud_instability_window.clear()
-                                # Hide the BREAK bubble (HUD data is gone)
-                                # but do NOT clear signal matches or hide
-                                # the scan bubble — the signal scanner is
-                                # independent of the HUD panel. Wiping
-                                # _scan_bubble._matches here was causing
-                                # signal results to vanish whenever the
-                                # HUD panel wasn't detected (e.g. between
-                                # rocks, or when SC-OCR's mineral-row
-                                # finder fails on a background it doesn't
-                                # handle yet).
-                                QMetaObject.invokeMethod(
-                                    self._break_bubble, "hide",
-                                    Qt.QueuedConnection,
-                                )
+                                self._push_hud_read(None, None, None)
+                                self._hud_mineral_window.append(None)
                             else:
                                 # Panel is visible. Push raw reads into
                                 # the rolling consensus windows and let
@@ -3663,12 +4223,46 @@ class MiningSignalsApp(SCWindow):
                             Qt.QueuedConnection,
                             Q_ARG(int, signal_value),
                         )
-
-                    # Always update the break bubble on the main thread,
-                    # even when signal scan returns None (e.g. fracture mode).
-                    if self._last_hud_mass is not None or self._last_hud_resistance is not None:
+                    elif sig_future is not None:
+                        # Signal scan was DISPATCHED (anchor matched
+                        # this tick or hysteresis-held) but the OCR
+                        # returned no value. That's the "signature
+                        # panel is no longer on screen but the anchor
+                        # still false-locks via hysteresis" case —
+                        # the bubble would otherwise sit on stale
+                        # matches indefinitely because
+                        # ``_on_scan_result`` is what manages the
+                        # match lifecycle and it's only called on
+                        # successful reads. Queue an
+                        # ``_on_signal_no_value`` slot to drive the
+                        # no-value streak counter on the UI thread.
                         QMetaObject.invokeMethod(
-                            self, "_update_break_bubble",
+                            self, "_on_signal_no_value",
+                            Qt.QueuedConnection,
+                        )
+
+                    # ALWAYS invoke _update_break_bubble. It's the
+                    # single source of truth for whether the break
+                    # bubble should be shown, hidden, or re-rendered
+                    # — gating the call on cached values being non-
+                    # None means a successful decay (mass/resistance
+                    # going to None after 5 consecutive None reads,
+                    # i.e. user looked away from the rock) leaves the
+                    # bubble frozen on whatever was last shown,
+                    # because nobody calls back in to hide it. The
+                    # function's own ``mass is None or resistance is
+                    # None`` branch already handles the hide-and-
+                    # placeholder path.
+                    QMetaObject.invokeMethod(
+                        self, "_update_break_bubble",
+                        Qt.QueuedConnection,
+                    )
+                    if self._last_hud_mass is not None or self._last_hud_resistance is not None:
+                        # HUD has data — the break bubble owns the
+                        # screen real estate; dismiss the scanning
+                        # placeholder so it doesn't sit on top.
+                        QMetaObject.invokeMethod(
+                            self, "_dismiss_scanning",
                             Qt.QueuedConnection,
                         )
                     elif signal_value is None:
@@ -3701,27 +4295,37 @@ class MiningSignalsApp(SCWindow):
                 self._resistance_input.setText(new_val)
                 self._auto_resistance = new_val
 
-        # Always try to match and show. Consensus logic only adjusts
-        # the displayed value toward the average of two agreeing reads.
+        # Use the value verbatim. The previous behaviour averaged two
+        # consecutive reads when their diff was ≤ max(50, 5%) — for
+        # a 5-digit signature like 7680 that was a 384-unit window,
+        # so a single outlier scan reading 7860 between consistent
+        # 7680s averaged to 7770 and matched the wrong mineral
+        # (Agricium's DB signature is 7770). Database lookups need
+        # exact values: averaging two valid signatures from different
+        # rocks produces a non-signature value or, worse, lands on a
+        # third unrelated rock's exact signature. The upstream
+        # ``_STABLE_SIGNAL`` filter in ``_signal_recognize_pil``
+        # already requires multiple consecutive identical reads
+        # before swapping, so single-frame OCR blips can't reach
+        # this slot in the first place — averaging here was both
+        # redundant and actively harmful.
         effective_value = value
-        if self._last_ocr_value is not None:
-            diff = abs(value - self._last_ocr_value)
-            threshold = max(50, int(self._last_ocr_value * 0.05))
-            if diff <= threshold:
-                # Two reads agree — average them for a stable value
-                effective_value = (value + self._last_ocr_value) // 2
-                if effective_value != self._confirmed_value:
-                    self._confirmed_value = effective_value
-                    log.info("Confirmed: %d", effective_value)
-                    # Consensus-confirmed — highest quality training label
-                    try:
-                        from ocr.screen_reader import get_last_capture
-                        from ocr.training_collector import collect_training_sample
-                        cap = get_last_capture()
-                        if cap is not None:
-                            collect_training_sample(cap, effective_value, confidence="consensus")
-                    except Exception:
-                        pass
+        if (
+            self._last_ocr_value == value
+            and value != self._confirmed_value
+        ):
+            # Two consecutive EXACT matches — high-confidence label
+            # for the training collector.
+            self._confirmed_value = value
+            log.info("Confirmed: %d", value)
+            try:
+                from ocr.screen_reader import get_last_capture
+                from ocr.training_collector import collect_training_sample
+                cap = get_last_capture()
+                if cap is not None:
+                    collect_training_sample(cap, value, confidence="consensus")
+            except Exception:
+                pass
         self._last_ocr_value = value
 
         self._search_input.setText(str(effective_value))
@@ -3736,6 +4340,14 @@ class MiningSignalsApp(SCWindow):
             value = effective_value
             log.info("Matched %d result(s) for %d", len(matches), value)
             self._last_matched_resource = matches[0].name if matches else ""
+            # Reset the no-match streak on every successful match so
+            # a single bad-read tick doesn't carry hysteresis from
+            # previous misreads into the next batch of valid scans.
+            self._no_match_streak = 0
+            # Same reset for the no-value streak — a real match means
+            # the signature panel IS still on screen and producing
+            # readable data.
+            self._signal_no_value_streak = 0
 
             # Update inline result label (always visible)
             parts = []
@@ -3770,11 +4382,35 @@ class MiningSignalsApp(SCWindow):
             except Exception as exc:
                 log.error("Bubble show_matches failed: %s", exc, exc_info=True)
         else:
-            self._inline_result.setText("")
-            self._scan_bubble._matches = []  # clear stale match
-            self._scan_bubble.hide()
-            log.debug("No match for confirmed value %d", value)
-            self._maybe_show_scanning()
+            # Don't tear down the bubble on a single bad-read tick.
+            # Signal OCR can produce one-off misreads (16690 instead
+            # of a real value like 7,680) that don't match any
+            # database entry. Hiding the bubble + re-showing the
+            # scanning placeholder on every miss caused 2 Hz flicker
+            # whenever the signal value alternated between a
+            # canonical match and a misread.
+            #
+            # Track a no-match streak; only clear/hide once we've
+            # seen ``_NO_MATCH_TOLERANCE`` consecutive no-match
+            # results. For genuinely-unknown signatures this just
+            # delays the cleanup by ~1.5 s, which is invisible.
+            _NO_MATCH_TOLERANCE = 3
+            self._no_match_streak = (
+                getattr(self, "_no_match_streak", 0) + 1
+            )
+            log.debug(
+                "No match for confirmed value %d (streak=%d/%d)",
+                value, self._no_match_streak, _NO_MATCH_TOLERANCE,
+            )
+            if self._no_match_streak >= _NO_MATCH_TOLERANCE:
+                self._inline_result.setText("")
+                self._scan_bubble._matches = []
+                self._scan_bubble.hide()
+                self._maybe_show_scanning()
+            # Otherwise leave the previous match visible — the next
+            # tick will either confirm the rock changed (streak
+            # crosses threshold and we clear) or recover the
+            # canonical value (streak resets in the matches branch).
 
     def _build_gadget_infos(self) -> tuple[list[GadgetInfo], bool]:
         """Build the available gadget list from config quantities.
@@ -3840,27 +4476,48 @@ class MiningSignalsApp(SCWindow):
         """Map TeamBreakResult to break_bubble.show_team_breakability."""
         instability = self._last_hud_instability
         team_configs = team_configs or []
+        # Centralised resource-name resolution — see
+        # ``_resource_name_for_break_bubble`` for the priority chain.
+        # In particular, this no longer falls back to a stale
+        # signal-scanner match when HUD data is present for the
+        # current rock.
+        resource_name = self._resource_name_for_break_bubble()
 
         def _home(used):
             return self._build_home_team_breakdown(team_configs, used)
+
+        # Convert breakability.Reallocation objects to dicts for the bubble
+        realloc_dicts = [
+            {
+                "player": r.player_name,
+                "source_ship": r.source_ship_display,
+                "target_ship": r.target_ship_display,
+                "target_turret": r.target_turret_index + 1,
+                "donor_disabled": r.is_mining_donor,
+            }
+            for r in getattr(result, "reallocations", []) or []
+        ]
 
         if result.user_can_solo and result.solo_result:
             r = result.solo_result
             # User can break solo — no need to show team breakdown,
             # just display the player's own ship info.
             self._break_bubble.show_team_breakability(
-                bx, by, mass=mass, resistance=resistance,
+                bx, by, resource_name=resource_name,
+                mass=mass, resistance=resistance,
                 instability=instability,
                 search_scope="solo", can_break=True,
                 power_percentage=r.percentage,
                 used_lasers=r.used_lasers,
                 active_modules_needed=r.active_modules_needed,
                 gadget_recommendation=r.gadget_used or "",
+                reallocations=realloc_dicts,
             )
         elif result.team_can_break and result.team_result:
             r = result.team_result
             self._break_bubble.show_team_breakability(
-                bx, by, mass=mass, resistance=resistance,
+                bx, by, resource_name=resource_name,
+                mass=mass, resistance=resistance,
                 instability=instability,
                 search_scope="team", can_break=True,
                 power_percentage=r.percentage,
@@ -3868,6 +4525,7 @@ class MiningSignalsApp(SCWindow):
                 active_modules_needed=r.active_modules_needed,
                 gadget_recommendation=r.gadget_used or "",
                 home_team=_home(r.used_lasers),
+                reallocations=realloc_dicts,
             )
         elif result.substitute_result and not result.substitute_result.insufficient:
             r = result.substitute_result
@@ -3882,7 +4540,8 @@ class MiningSignalsApp(SCWindow):
                 for s in result.substitutes
             ]
             self._break_bubble.show_team_breakability(
-                bx, by, mass=mass, resistance=resistance,
+                bx, by, resource_name=resource_name,
+                mass=mass, resistance=resistance,
                 instability=instability,
                 search_scope=result.search_scope, can_break=True,
                 power_percentage=r.percentage,
@@ -3891,12 +4550,15 @@ class MiningSignalsApp(SCWindow):
                 gadget_recommendation=r.gadget_used or "",
                 substitutes=subs,
                 home_team=_home(r.used_lasers),
+                reallocations=realloc_dicts,
             )
         else:
             self._break_bubble.show_team_breakability(
-                bx, by, mass=mass, resistance=resistance,
+                bx, by, resource_name=resource_name,
+                mass=mass, resistance=resistance,
                 instability=instability,
                 search_scope="", can_break=False,
+                reallocations=realloc_dicts,
             )
 
     @Slot()
@@ -3904,7 +4566,15 @@ class MiningSignalsApp(SCWindow):
         """Show/update the breakability HUD bubble from current data."""
         mass, resistance = self._get_mass_resistance()
         if mass is None or resistance is None:
-            # No HUD data — re-show "Scanning" if no signal match either
+            # No HUD data — the consensus has decayed (5 consecutive
+            # None reads = ~2.5 s off-rock at 500 ms tick). Hide the
+            # break bubble so the user isn't staring at stale data
+            # from the previous rock, then re-show the scanning
+            # placeholder to indicate we're still actively looking.
+            try:
+                self._break_bubble.hide()
+            except Exception:
+                pass
             self._maybe_show_scanning()
             return
 
@@ -4008,11 +4678,13 @@ class MiningSignalsApp(SCWindow):
 
                 from services.breakability import team_breakability as _team_break
                 gadgets, always_best = self._build_gadget_infos()
+                reassignable = self._build_reassignable_pool()
                 t_result = _team_break(
                     mass, resistance, user_ship_id,
                     team_configs, cluster_configs, fleet_cfgs,
                     available_gadgets=gadgets,
                     always_use_best_gadget=always_best,
+                    reassignable_pool=reassignable,
                 )
                 self._show_team_break_result(
                     t_result, mass, resistance, bx, by,
@@ -4033,15 +4705,7 @@ class MiningSignalsApp(SCWindow):
             if fleet_result.user_can_solo:
                 # User's ship can handle it — show normal bubble
                 result = fleet_result.solo_result
-                # Prefer the HUD-OCR'd mineral name (read from the SCAN
-                # RESULTS panel directly) over the signal-scanner match.
-                # The HUD text is authoritative — it's what the player
-                # sees. Fall back to the signal-scanner match if HUD
-                # OCR didn't find a mineral name this scan.
-                resource_name = (
-                    getattr(self, "_last_hud_mineral", None)
-                    or getattr(self, "_last_matched_resource", "")
-                )
+                resource_name = self._resource_name_for_break_bubble()
                 try:
                     cp = result.charge_profile
                     self._break_bubble.show_breakability(
@@ -4065,8 +4729,10 @@ class MiningSignalsApp(SCWindow):
                 try:
                     lp_gadget = fleet_result.least_players.gadget_used if fleet_result.least_players else None
                     ls_gadget = fleet_result.least_ships.gadget_used if fleet_result.least_ships else None
+                    sub_resource_name = self._resource_name_for_break_bubble()
                     self._break_bubble.show_fleet_substitution(
                         bx, by,
+                        resource_name=sub_resource_name,
                         mass=mass,
                         resistance=resistance,
                         instability=self._last_hud_instability,
@@ -4127,15 +4793,7 @@ class MiningSignalsApp(SCWindow):
                 _save_config(self._config)
                 self._update_consumables_display()
 
-        # Prefer the HUD-OCR'd mineral name (read from the SCAN
-        # RESULTS panel directly) over the signal-scanner match.
-        # The HUD text is authoritative — it's what the player sees.
-        # Fall back to the signal-scanner match if HUD OCR didn't
-        # find a mineral name this scan.
-        resource_name = (
-            getattr(self, "_last_hud_mineral", None)
-            or getattr(self, "_last_matched_resource", "")
-        )
+        resource_name = self._resource_name_for_break_bubble()
 
         try:
             # Extract charge simulation data if available
@@ -4635,6 +5293,212 @@ class MiningSignalsApp(SCWindow):
             self._scan_bubble.hide()
 
     @Slot()
+    def _on_signal_no_value(self) -> None:
+        """Handle a signal scan that ran but returned no usable value.
+
+        When the signature scanner UI disappears from screen but the
+        anchor's hysteresis keeps ``sig_present=True``, the OCR
+        produces no integer to match — so ``_on_scan_result`` never
+        fires and the matches the bubble was last showing stay frozen
+        indefinitely. Track a no-value streak parallel to the
+        no-match streak; once we've seen ``_NO_VALUE_TOLERANCE``
+        consecutive None reads, treat that as "the signature panel
+        is gone" and tear down the bubble.
+
+        Only counts when the bubble currently has a SignalMatch — we
+        don't care about no-value reads when nothing was being
+        displayed anyway. Resets on the next successful match (in
+        ``_on_scan_result``) so brief no-value blips during real
+        scanning don't accumulate.
+        """
+        # Don't count if no match was being displayed.
+        if not self._scan_bubble._matches:
+            return
+        first = self._scan_bubble._matches[0]
+        # Only real SignalMatch instances count — skip the HUD
+        # placeholder sentinel.
+        if not (hasattr(first, "name") and hasattr(first, "rarity")):
+            return
+        _NO_VALUE_TOLERANCE = 3
+        self._signal_no_value_streak = (
+            getattr(self, "_signal_no_value_streak", 0) + 1
+        )
+        if self._signal_no_value_streak >= _NO_VALUE_TOLERANCE:
+            log.info(
+                "scan bubble: clearing matches after %d no-value reads "
+                "(signature panel gone)",
+                self._signal_no_value_streak,
+            )
+            self._inline_result.setText("")
+            self._scan_bubble._matches = []
+            self._scan_bubble.hide()
+            self._maybe_show_scanning()
+            self._signal_no_value_streak = 0
+
+    @Slot()
+    def _show_hud_readings_in_bubble(self) -> None:
+        """Repaint the scan bubble with the live HUD readings.
+
+        Runs on the UI thread (queued from the OCR worker). When the
+        signal scanner isn't matching but the HUD scanner IS, the
+        scan bubble would otherwise sit on "Scanning Please Wait"
+        forever. Filling it with live readings makes the OCR work
+        visible regardless of fleet/loadout configuration.
+        """
+        if self._scan_timer is None:
+            return  # not scanning
+        # Don't overwrite a real signal match. SignalMatch has .name
+        # and .rarity; our HUD-readings placeholder sentinel doesn't.
+        if self._scan_bubble._matches:
+            first = self._scan_bubble._matches[0]
+            if hasattr(first, "name") and hasattr(first, "rarity"):
+                return
+        # Compute anchor (same logic as _maybe_show_scanning)
+        bubble_pos = self._config.get("bubble_position")
+        if bubble_pos:
+            ax, ay = int(bubble_pos["x"]), int(bubble_pos["y"])
+        else:
+            region = (self._config.get("ocr_region") or {})
+            ax = int(region.get("x", 500)) + int(region.get("w", 200)) + 10
+            ay = int(region.get("y", 400))
+        self._scan_bubble.show_hud_readings(
+            mineral=self._last_hud_mineral,
+            mass=self._last_hud_mass,
+            resistance=self._last_hud_resistance,
+            instability=self._last_hud_instability,
+            anchor_x=ax,
+            anchor_y=ay,
+        )
+
+    @Slot(str)
+    def _apply_gate_state(self, state: str) -> None:
+        """Reflect anchor-gate state in the inline status label.
+
+        Called from the worker thread via ``QMetaObject.invokeMethod``
+        each tick after the gate decides which scanner to dispatch.
+        Only the ``armed`` and ``active_hud`` paths set text here —
+        ``active_signature`` results flow through ``_on_scan_result``
+        which writes a richer match string to the same label.
+        """
+        # Race guard: a worker thread queues this slot before the
+        # user clicks Stop; by the time it runs we may no longer be
+        # scanning, in which case the toggle's else branch has already
+        # cleared the label and we mustn't overwrite it.
+        if self._scan_timer is None:
+            return
+
+        # ── Clear stale per-scanner state for whichever scanner is
+        # NOT active this tick. Without this:
+        # • A leftover ``_scan_bubble._matches`` list keeps
+        #   ``_maybe_show_scanning`` from re-showing the placeholder
+        #   when the user looks away from a signal panel — the bubble
+        #   silently disappears with nothing taking its place.
+        # • Cached ``_last_hud_*`` values keep the break bubble
+        #   visible after the SCAN RESULTS panel is gone, so the user
+        #   stares at stale rock data while looking at empty space.
+        # The gate's whole point is "show only what's being scanned
+        # right now"; that requires actively tearing down the other
+        # side's UI, not just refusing to update it.
+        # ``active_both`` means BOTH the signal AND HUD scanners are
+        # firing this tick — preserve both sides' state.
+        _sig_active = state in ("active_signature", "active_both")
+        _hud_active = state in ("active_hud", "active_both")
+
+        # Only run the per-side teardown when the state actually
+        # CHANGED since last tick. The cleanup logic below
+        # unconditionally calls ``self._scan_bubble.hide()`` and sets
+        # ``self._scan_bubble._matches = []`` which, when fired on
+        # every tick, races with the bubble's own show paths and
+        # produces visible flicker as the widget transitions
+        # hidden/shown rapidly. The intent of the cleanup is to
+        # tear down the OTHER side's UI when the gate switches —
+        # that's a transition event, not a per-tick event.
+        _prev_state = getattr(self, "_prev_gate_state", None)
+        _state_changed = state != _prev_state
+        self._prev_gate_state = state
+
+        if _state_changed and not _sig_active:
+            self._scan_bubble._matches = []
+            if _hud_active:
+                # HUD bubble is taking the screen; hide the scan
+                # bubble outright so it doesn't sit behind the break
+                # bubble. In ``armed`` we leave it for
+                # ``_maybe_show_scanning`` to repurpose as the
+                # placeholder a moment later.
+                self._scan_bubble.hide()
+        if _state_changed and not _hud_active:
+            self._last_hud_mass = None
+            self._last_hud_resistance = None
+            self._last_hud_instability = None
+            self._last_hud_mineral = None
+            self._prev_hud_mass = None
+            self._prev_hud_resistance = None
+            self._hud_mass_window.clear()
+            self._hud_resistance_window.clear()
+            self._hud_instability_window.clear()
+            self._hud_mineral_window.clear()
+            self._break_bubble.hide()
+
+        if state == "armed":
+            self._inline_result.setStyleSheet(f"""
+                font-family: Electrolize, Consolas, monospace;
+                font-size: 11pt; font-weight: bold;
+                color: {P.fg_dim}; background: transparent;
+                padding: 0 6px;
+            """)
+            self._inline_result.setText("Watching…")
+        elif state in ("active_hud", "active_both"):
+            self._inline_result.setStyleSheet(f"""
+                font-family: Electrolize, Consolas, monospace;
+                font-size: 11pt; font-weight: bold;
+                color: {ACCENT}; background: transparent;
+                padding: 0 6px;
+            """)
+            # Show the live HUD readings inline when we have them —
+            # without a fleet/loadout the break bubble doesn't render,
+            # so this label is the only visible sign that OCR is
+            # actually working. Format mirrors how the panel renders:
+            # mass as integer, resistance as int %, instability as 2dp.
+            parts: list[str] = []
+            if self._last_hud_mass is not None:
+                parts.append(f"M={self._last_hud_mass:.0f}")
+            if self._last_hud_resistance is not None:
+                parts.append(f"R={self._last_hud_resistance:.0f}%")
+            if self._last_hud_instability is not None:
+                parts.append(f"I={self._last_hud_instability:.2f}")
+            if parts:
+                self._inline_result.setText(
+                    "Reading SCAN RESULTS — " + " · ".join(parts)
+                )
+            else:
+                self._inline_result.setText("Reading SCAN RESULTS")
+            # Also populate the mass/resistance text inputs so the
+            # breakability calc has values to chew on. Same logic as
+            # ``_on_scan_result`` — HUD OCR has priority over manual
+            # input in ``_get_mass_resistance``.
+            if self._last_hud_mass is not None:
+                _v = f"{self._last_hud_mass:.0f}"
+                if self._mass_input.text().strip() != _v:
+                    self._mass_input.setText(_v)
+                    self._auto_mass = _v
+            if self._last_hud_resistance is not None:
+                _v = f"{self._last_hud_resistance:.0f}"
+                if self._resistance_input.text().strip() != _v:
+                    self._resistance_input.setText(_v)
+                    self._auto_resistance = _v
+        elif state == "active_signature":
+            # Restore accent color for the upcoming match text written
+            # by ``_on_scan_result``. Don't overwrite any existing text
+            # — a previous tick's match should keep showing until the
+            # new value resolves.
+            self._inline_result.setStyleSheet(f"""
+                font-family: Electrolize, Consolas, monospace;
+                font-size: 11pt; font-weight: bold;
+                color: {ACCENT}; background: transparent;
+                padding: 0 6px;
+            """)
+
+    @Slot()
     def _maybe_show_scanning(self) -> None:
         """Re-show the 'Scanning' bubble if we're in scan mode and have no results."""
         if self._scan_timer is None:
@@ -4644,6 +5508,17 @@ class MiningSignalsApp(SCWindow):
             return  # signal bubble is showing a result
         if self._break_bubble.isVisible():
             return  # break bubble is showing
+        # HUD is actively reading — even if the break bubble can't
+        # render (no loadout / no fleet configured), the user is
+        # getting OCR results, so don't claim we're "Scanning Please
+        # Wait". Suppresses the misleading placeholder for users who
+        # only use the HUD scanner without the breakability calc.
+        if (
+            self._last_hud_mass is not None
+            or self._last_hud_resistance is not None
+            or self._last_hud_instability is not None
+        ):
+            return
         # Re-show the scanning placeholder
         bubble_pos = self._config.get("bubble_position")
         if bubble_pos:
@@ -4676,18 +5551,25 @@ class MiningSignalsApp(SCWindow):
         resistance = self._last_hud_resistance
 
         # Fallback to manual inputs when the corresponding HUD OCR
-        # value is unavailable.
+        # value is unavailable AND the input was actually typed by the
+        # user. Auto-populated input text (mirrored from HUD reads via
+        # ``_apply_gate_state``) is NOT a fallback — when HUD decays
+        # to None the auto value should decay too, otherwise the
+        # bubble would persist indefinitely on stale data even after
+        # the user moved off the rock. ``_auto_mass`` /
+        # ``_auto_resistance`` track the value we last auto-wrote;
+        # if the input still equals that, treat it as ghost data.
         if mass is None:
             try:
                 mt = self._mass_input.text().strip()
-                if mt:
+                if mt and mt != getattr(self, "_auto_mass", ""):
                     mass = float(mt)
             except (ValueError, AttributeError):
                 pass
         if resistance is None:
             try:
                 rt = self._resistance_input.text().strip()
-                if rt:
+                if rt and rt != getattr(self, "_auto_resistance", ""):
                     resistance = float(rt)
             except (ValueError, AttributeError):
                 pass
@@ -4850,7 +5732,24 @@ class MiningSignalsApp(SCWindow):
                 return row
         return None
 
-    def closeEvent(self, event) -> None:
+    def _teardown(self) -> None:
+        """Idempotent shutdown — runs from closeEvent OR aboutToQuit.
+
+        Either path may fire first depending on how the app is being
+        destroyed (window close vs taskbar end-task vs QApplication.quit).
+        The _torn_down flag ensures we only run cleanup once.
+        """
+        if self._torn_down:
+            return
+        self._torn_down = True
+        # Flush any pending debounced ledger save before tearing down
+        # timers, otherwise edits made within the 500ms debounce window
+        # are lost when the user quits quickly after editing.
+        try:
+            if hasattr(self, "_ledger_tab"):
+                self._ledger_tab.flush_pending_save()
+        except Exception as exc:
+            log.debug("ledger flush on close failed: %s", exc)
         if self._scan_timer:
             self._scan_timer.stop()
         if self._refinery_monitor is not None:
@@ -4870,6 +5769,9 @@ class MiningSignalsApp(SCWindow):
             paddle_client.shutdown()
         except Exception:
             pass
+
+    def closeEvent(self, event) -> None:
+        self._teardown()
         super().closeEvent(event)
 
 

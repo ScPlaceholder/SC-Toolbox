@@ -105,12 +105,18 @@ if !errorlevel! neq 0 (
 :: still works — users see "signal scan works, mass/resistance never
 :: appears" and assume the tool is broken.
 echo  [*] Installing PySide6, requests, pynput, mss, pytesseract, Pillow, onnxruntime, numpy...
-"%STAGE%\python\python.exe" -m pip install PySide6>=6.5.0 requests>=2.28.0 pynput>=1.7.6 mss>=9.0.0 pytesseract>=0.3.10 Pillow>=10.0.0 cryptography>=42.0.0 onnxruntime>=1.17.0 numpy>=1.24.0 --no-warn-script-location --quiet
+"%STAGE%\python\python.exe" -m pip install PySide6>=6.5.0 requests>=2.28.0 pynput>=1.7.6 mss>=9.0.0 pytesseract>=0.3.10 Pillow>=10.0.0 cryptography>=42.0.0 onnxruntime>=1.17.0 numpy>=1.24.0 onnx>=1.15.0 --no-warn-script-location --quiet
 if !errorlevel! neq 0 (
     echo  [!] Dependency installation failed.
     goto :fail
 )
 echo  [OK] Dependencies installed.
+
+:: pip generates Scripts\*.exe wrappers (pip.exe, pyside6-*, etc.) with
+:: the build-machine python path baked into a shebang. SC_Toolbox calls
+:: every package as `python -m <pkg>`, so these wrappers are unused at
+:: runtime — and shipping them leaks the build-machine username.
+if exist "%STAGE%\python\Scripts" rmdir /s /q "%STAGE%\python\Scripts"
 
 :: ── Step 6b: Bundle Tesseract OCR ──
 :: Prefer a system install (fastest), fall back to downloading the
@@ -218,6 +224,8 @@ for %%S in (Cargo_loader Craft_Database DPS_Calculator Market_Finder Mining_Load
         del /q "%STAGE%\skills\%%S\generate_layout.py" 2>nul
         del /q "%STAGE%\skills\%%S\cargo_grid_editor.html" 2>nul
         del /q "%STAGE%\skills\%%S\requirements.txt" 2>nul
+        :: pytest coverage data — contains absolute source paths.
+        del /q "%STAGE%\skills\%%S\.coverage" 2>nul
     )
 )
 
@@ -241,6 +249,15 @@ for %%T in (Battle_Buddy Mining_Signals) do (
         del /q "%STAGE%\tools\%%T\refinery_ocr_debug.txt" 2>nul
         :: Remove tesseract installer if accidentally staged
         del /q "%STAGE%\tools\%%T\tesseract\tesseract-setup.exe" 2>nul
+        :: Per-user dev/runtime artifacts that contain absolute paths
+        :: (Claude Code session config, labeler error log, training metadata
+        :: JSON sidecar of the OCR model). The .onnx model itself is binary
+        :: weights only — safe to ship.
+        if exist "%STAGE%\tools\%%T\.claude" rmdir /s /q "%STAGE%\tools\%%T\.claude"
+        del /q "%STAGE%\tools\%%T\labeler_err.txt" 2>nul
+        del /q "%STAGE%\tools\%%T\labeler.log" 2>nul
+        del /q "%STAGE%\tools\%%T\.coverage" 2>nul
+        del /q "%STAGE%\tools\%%T\ocr\models\model_signal_cnn.json" 2>nul
     )
 )
 
@@ -298,6 +315,63 @@ del /q "%STAGE%\tools\Mining_Signals\refinery_orders.json" 2>nul
 del /q "%STAGE%\tools\Mining_Signals\mining_signals.log" 2>nul
 del /q "%STAGE%\tools\Mining_Signals\mining_signals.log.*" 2>nul
 
+:: Strip OCR training infrastructure — end users do not retrain models.
+:: All training collection / labeling tools are dev-only. This shrinks
+:: the installer by ~150 MB and removes the screenshot dataset
+:: (potential third-party data exposure surface).
+echo  [*] Removing OCR training data, scripts, and dev artifacts...
+:: Training datasets (the LIVE training_data/ stub from above is preserved).
+for %%D in (
+    training_data_blacklist
+    training_data_clean
+    training_data_crnn
+    training_data_panels
+    training_data_split
+    training_data_user_panel
+    training_data_user_panel_inv
+    training_data_user_sig
+    template_source_panels
+    scripts
+    debug_glyphs
+) do (
+    if exist "%STAGE%\tools\Mining_Signals\%%D" rmdir /s /q "%STAGE%\tools\Mining_Signals\%%D"
+)
+:: Trainer modules and synthesis helpers in ocr/ — no runtime imports.
+for %%F in (
+    pretrain_crnn.py
+    train_crnn.py
+    train_model.py
+    train_sklearn.py
+    train_torch.py
+    synth_data.py
+    templates_furore.py
+) do (
+    del /q "%STAGE%\tools\Mining_Signals\ocr\%%F" 2>nul
+)
+:: Debug captures, font-comparison dumps, and dev-tree state files.
+del /q "%STAGE%\tools\Mining_Signals\debug_yt_frame.jpg" 2>nul
+del /q "%STAGE%\tools\Mining_Signals\debug_yt_frame_right.jpg" 2>nul
+del /q "%STAGE%\tools\Mining_Signals\debug_overlay_*.txt" 2>nul
+del /q "%STAGE%\tools\Mining_Signals\capture_diag.txt" 2>nul
+del /q "%STAGE%\tools\Mining_Signals\labeler_*.txt" 2>nul
+del /q "%STAGE%\tools\Mining_Signals\font_compare.png" 2>nul
+del /q "%STAGE%\tools\Mining_Signals\furore_compare.png" 2>nul
+del /q "%STAGE%\tools\Mining_Signals\.dual_capture_state.json" 2>nul
+del /q "%STAGE%\tools\Mining_Signals\.gitignore" 2>nul
+del /q "%STAGE%\tools\Mining_Signals\run_voice_tester.bat" 2>nul
+
+:: Strip torch.onnx stack-trace metadata from any ONNX model that
+:: still embeds it. PyTorch's default ONNX exporter records the
+:: full python file path of every layer in pkg.torch.onnx.stack_trace
+:: per node — leaks the build-machine username. Helper script
+:: preserves external-data layout (.onnx + .onnx.data).
+echo  [*] Stripping torch metadata from ONNX models...
+"%STAGE%\python\python.exe" "%BUILD%strip_onnx_metadata.py" "%STAGE%\tools\Mining_Signals\ocr\models"
+if !errorlevel! neq 0 (
+    echo  [!] ONNX metadata strip failed — installer may leak username in model files.
+    set "VALIDATION_OK=0"
+)
+
 :: ── Step 7b: Deterministic Paddle sidecar setup ──
 :: The Paddle sidecar uses its own bundled Python 3.13 with
 :: paddlepaddle + paddleocr installed. When xcopy picks it up from
@@ -350,6 +424,11 @@ if exist "%PADDLE_PY%" (
     echo  [OK] Paddle sidecar installed from scratch.
 )
 
+:: Same Scripts\ wrapper cleanup as the main Python — these .exes
+:: bake the build-machine path into a shebang and aren't called at
+:: runtime (paddleocr is invoked as `python -m paddleocr`).
+if exist "%PADDLE_DIR%\Scripts" rmdir /s /q "%PADDLE_DIR%\Scripts"
+
 :: ── Step 7b.1: Prune Paddle sidecar bloat ──
 :: paddlepaddle + paddleocr pull in many transitive deps (modelscope,
 :: c++ headers, tests, docs) that aren't needed at runtime AND have
@@ -370,6 +449,45 @@ if exist "%PY313_SP%\paddle\include" rmdir /s /q "%PY313_SP%\paddle\include"
 ::    etc.). Not imported by PaddleOCR's text recognition pipeline
 ::    and has the deepest paths (312 chars) that bust MAX_PATH.
 if exist "%PY313_SP%\modelscope\msdatasets\dataset_cls\custom_datasets" rmdir /s /q "%PY313_SP%\modelscope\msdatasets\dataset_cls\custom_datasets"
+:: 2b. modelscope's CV-task model implementations (face_detection,
+::     animal_recognition, abnormal_object_detection, etc.) — none
+::     used by PaddleOCR text recognition. ~50 subtrees, many of which
+::     have 270+ char paths (mmdet_ms/roi_head/roi_extractors/...).
+::     Keep the parent dir + __init__.py so `import modelscope.models.cv`
+::     still works.
+if exist "%PY313_SP%\modelscope\models\cv" (
+    for /d %%D in ("%PY313_SP%\modelscope\models\cv\*") do rmdir /s /q "%%D"
+)
+:: 2c. modelscope diffusion / audio pipelines — not used by OCR. These
+::     each contain a single file or directory with paths past 240 chars.
+if exist "%PY313_SP%\modelscope\pipelines\multi_modal\diffusers_wrapped" rmdir /s /q "%PY313_SP%\modelscope\pipelines\multi_modal\diffusers_wrapped"
+if exist "%PY313_SP%\modelscope\pipelines\multi_modal\disco_guided_diffusion_pipeline" rmdir /s /q "%PY313_SP%\modelscope\pipelines\multi_modal\disco_guided_diffusion_pipeline"
+if exist "%PY313_SP%\modelscope\trainers\multi_modal\efficient_diffusion_tuning" rmdir /s /q "%PY313_SP%\modelscope\trainers\multi_modal\efficient_diffusion_tuning"
+del /q "%PY313_SP%\modelscope\pipelines\audio\speaker_diarization_semantic_speaker_turn_detection_pipeline.py" 2>nul
+:: 2d. paddlex non-OCR config / inference subtrees — image classification,
+::     object detection, instance segmentation, vehicle/pedestrian attributes,
+::     and the doc_vlm / open_vocabulary_detection inference models.
+::     PaddleOCR's text-recognition pipeline does not import these.
+for %%D in (
+    image_classification
+    image_multilabel_classification
+    instance_segmentation
+    object_detection
+    pedestrian_attribute_recognition
+    vehicle_attribute_recognition
+    multilabel_classification
+) do (
+    if exist "%PY313_SP%\paddlex\configs\modules\%%D" rmdir /s /q "%PY313_SP%\paddlex\configs\modules\%%D"
+)
+for %%D in (doc_vlm open_vocabulary_detection) do (
+    if exist "%PY313_SP%\paddlex\inference\models\%%D" rmdir /s /q "%PY313_SP%\paddlex\inference\models\%%D"
+)
+:: 2e. paddle GPU compile-config tile data — only used if running on
+::     specific NVIDIA GPUs (V100, A100). The OCR sidecar runs CPU-only
+::     in the shipped installer, so this is dead weight with deep paths.
+if exist "%PY313_SP%\paddle\cinn_config\tile_config" (
+    for /d %%D in ("%PY313_SP%\paddle\cinn_config\tile_config\NVGPU_*") do rmdir /s /q "%%D"
+)
 :: 3. tests / examples / docs subtrees — never imported.
 for %%P in (paddle paddleocr paddlex numpy pandas) do (
     if exist "%PY313_SP%\%%P\tests" rmdir /s /q "%PY313_SP%\%%P\tests"
@@ -426,10 +544,12 @@ if not exist "%STAGE%\python\Lib\site-packages\PIL" (
     set "VALIDATION_OK=0"
 )
 
-:: Clean config (no personal data)
-findstr /C:"prjgn" "%STAGE%\tools\Mining_Signals\mining_signals_config.json" >nul 2>&1
+:: Clean config (no personal data) — fail the build if any home-directory
+:: path leaked into the staged config. Catches "C:\Users\<name>\..." and
+:: "C:/Users/<name>/..." regardless of who built the installer.
+findstr /I /C:"Users\\" /C:"Users/" "%STAGE%\tools\Mining_Signals\mining_signals_config.json" >nul 2>&1
 if !errorlevel!==0 (
-    echo  [!] POLLUTED: mining_signals_config.json contains personal paths
+    echo  [!] POLLUTED: mining_signals_config.json contains a home-directory path
     set "VALIDATION_OK=0"
 )
 

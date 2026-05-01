@@ -499,6 +499,7 @@ class ShipNode(LedgerNodeBase):
     drag_released = Signal(object)  # emits self — fired on mouse release after drag
     ship_dropped_on_me = Signal(object)  # emits ship info dict (mothership only)
     request_add_strike_group = Signal(object)  # emits self (mothership only)
+    request_config_turret_crew = Signal(object)  # emits self (MOLE only)
 
     def __init__(
         self,
@@ -510,6 +511,7 @@ class ShipNode(LedgerNodeBase):
         unique_id: str = "",
         mothership_id: str = "",
         strike_group: str = "",
+        laser_crew: dict[int, list[str]] | None = None,
         parent=None,
     ) -> None:
         super().__init__(_SHIP_W, _SHIP_H, parent)
@@ -521,6 +523,8 @@ class ShipNode(LedgerNodeBase):
         self.unique_id = unique_id or uuid.uuid4().hex[:8]
         self.mothership_id = mothership_id
         self.strike_group = strike_group
+        # Per-turret crew for MOLEs: {turret_index: [player_names]}
+        self.laser_crew: dict[int, list[str]] = laser_crew or {}
         self._accent = SHIP_TYPE_COLORS.get(ship_type, P.fg_dim)
         self.setAcceptDrops(True)
 
@@ -656,6 +660,12 @@ class ShipNode(LedgerNodeBase):
             a = menu.addAction("⚔  Add Strike Group")
             a.setData(("add_strike_group", None))
 
+        # MOLE: per-turret crew configuration
+        if self.ship_type.upper() == "MOLE" and self.crew:
+            menu.addSeparator()
+            a = menu.addAction("⚙  Configure Turret Crew...")
+            a.setData(("config_turret_crew", None))
+
         # Crew unassign options
         if self.crew:
             menu.addSeparator()
@@ -677,6 +687,8 @@ class ShipNode(LedgerNodeBase):
             self.request_snap.emit(self, None)
         elif action_type == "add_strike_group":
             self.request_add_strike_group.emit(self)
+        elif action_type == "config_turret_crew":
+            self.request_config_turret_crew.emit(self)
         elif action_type == "unassign_crew":
             if payload in self.crew:
                 self.crew.remove(payload)

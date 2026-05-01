@@ -13,11 +13,16 @@ names, method) use Tesseract with fuzzy matching against known lists.
 from __future__ import annotations
 
 import logging
+import os
 import re
 from difflib import get_close_matches
 from typing import Optional
 
 log = logging.getLogger(__name__)
+
+# Gate debug image / text dumps from the hot-path scanner. Set
+# MINING_SIGNALS_DEBUG_OCR=1 in the environment to enable them.
+_DEBUG_OCR = os.environ.get("MINING_SIGNALS_DEBUG_OCR") == "1"
 
 # ---------------------------------------------------------------------------
 # Known Star Citizen refinery data
@@ -456,22 +461,40 @@ _MINERAL_ALIASES: dict[str, str] = {
 
 def _fuzzy_mineral(text: str) -> str | None:
     """Match text to a known mineral name. Strips (RAW)/(ORE) suffixes."""
+    result = _fuzzy_mineral_scored(text)
+    return result[0] if result is not None else None
+
+
+def _fuzzy_mineral_scored(text: str) -> tuple[str, float] | None:
+    """Score-aware variant of :func:`_fuzzy_mineral`.
+
+    Returns ``(canonical_name, similarity_ratio)`` where similarity is
+    in ``[0.0, 1.0]`` (1.0 = exact alias hit, 0.6 = cutoff floor),
+    or ``None`` if nothing meets the cutoff. Multi-pass OCR callers use
+    the score to vote across preprocessing variants without committing
+    to the first match they happen to find.
+    """
     text_clean = re.sub(r"\s*\([A-Z]+\)\s*$", "", text.strip(), flags=re.IGNORECASE).strip()
     if not text_clean or len(text_clean) < 3:
         return None
-    # Check aliases first (handles OCR truncations like "WICE")
+    # Check aliases first (handles OCR truncations like "WICE"). An
+    # alias hit is a clean known transformation — score 1.0.
     upper = text_clean.upper()
     if upper in _MINERAL_ALIASES:
-        return _MINERAL_ALIASES[upper]
-    # Also try title-case version for better matching
-    candidates = [text_clean, text_clean.title(), text_clean.capitalize()]
-    for candidate in candidates:
+        return (_MINERAL_ALIASES[upper], 1.0)
+    # Try title-case + capitalize variants so e.g. "copper" snaps to
+    # "Copper" without difflib having to spend its budget on case.
+    from difflib import SequenceMatcher
+    best: tuple[str, float] | None = None
+    for candidate in (text_clean, text_clean.title(), text_clean.capitalize()):
         matches = get_close_matches(
-            candidate, KNOWN_MINERALS, n=1, cutoff=0.6
+            candidate, KNOWN_MINERALS, n=3, cutoff=0.6,
         )
-        if matches:
-            return matches[0]
-    return None
+        for m in matches:
+            ratio = SequenceMatcher(None, candidate.lower(), m.lower()).ratio()
+            if best is None or ratio > best[1]:
+                best = (m, ratio)
+    return best
 
 
 def _fuzzy_method(text: str) -> str | None:
@@ -832,12 +855,12 @@ def scan_refinery(region: dict, station: str = "") -> list[dict] | None:
         return None
 
     # Save debug screenshot
-    import os
     _debug_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    try:
-        img.save(os.path.join(_debug_dir, "refinery_ocr_capture.png"))
-    except Exception:
-        pass
+    if _DEBUG_OCR:
+        try:
+            img.save(os.path.join(_debug_dir, "refinery_ocr_capture.png"))
+        except Exception:
+            pass
 
     debug_path = os.path.join(_debug_dir, "refinery_ocr_debug.txt")
 
@@ -845,17 +868,18 @@ def scan_refinery(region: dict, station: str = "") -> list[dict] | None:
     paddle_regions = _engine_paddle(img)
     if paddle_regions is not None:
         # Write debug
-        try:
-            with open(debug_path, "w", encoding="utf-8") as f:
-                f.write("=== PADDLE OCR RESULTS ===\n\n")
-                for r in paddle_regions:
-                    f.write(f"  x={r.get('x_mid', '?'):>4}  "
-                            f"y={r.get('y_mid', '?'):>4}  "
-                            f"conf={r.get('conf', 0):.2f}  "
-                            f"text={r.get('text', '')!r}\n")
-                f.write("\n")
-        except OSError:
-            pass
+        if _DEBUG_OCR:
+            try:
+                with open(debug_path, "w", encoding="utf-8") as f:
+                    f.write("=== PADDLE OCR RESULTS ===\n\n")
+                    for r in paddle_regions:
+                        f.write(f"  x={r.get('x_mid', '?'):>4}  "
+                                f"y={r.get('y_mid', '?'):>4}  "
+                                f"conf={r.get('conf', 0):.2f}  "
+                                f"text={r.get('text', '')!r}\n")
+                    f.write("\n")
+            except OSError:
+                pass
 
         # Gate check: do the paddle results contain refinery keywords?
         all_paddle_text = " ".join(r.get("text", "") for r in paddle_regions).lower()
@@ -884,25 +908,27 @@ def scan_refinery(region: dict, station: str = "") -> list[dict] | None:
 
     hits = sum(1 for kw in _ANCHOR_KEYWORDS if kw in gate_text)
 
-    try:
-        with open(debug_path, "w", encoding="utf-8") as f:
-            f.write(f"=== TESSERACT GATE CHECK: {hits} hits ===\n")
-            f.write(f"Gate text:\n{gate_text}\n\n")
-    except OSError:
-        pass
+    if _DEBUG_OCR:
+        try:
+            with open(debug_path, "w", encoding="utf-8") as f:
+                f.write(f"=== TESSERACT GATE CHECK: {hits} hits ===\n")
+                f.write(f"Gate text:\n{gate_text}\n\n")
+        except OSError:
+            pass
 
     if hits < 2:
         return None
 
     tesseract_texts = _engine_a_full_text(img)
 
-    try:
-        with open(debug_path, "a", encoding="utf-8") as f:
-            f.write("=== TESSERACT ENGINE A OUTPUTS ===\n\n")
-            for i, text in enumerate(tesseract_texts):
-                f.write(f"--- Variant {i} ---\n{text}\n\n")
-    except OSError:
-        pass
+    if _DEBUG_OCR:
+        try:
+            with open(debug_path, "a", encoding="utf-8") as f:
+                f.write("=== TESSERACT ENGINE A OUTPUTS ===\n\n")
+                for i, text in enumerate(tesseract_texts):
+                    f.write(f"--- Variant {i} ---\n{text}\n\n")
+        except OSError:
+            pass
 
     orders = _parse_ocr_results(tesseract_texts, [])
 

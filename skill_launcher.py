@@ -173,6 +173,23 @@ class SCToolboxApp:
                 args = [str(geom.x), str(geom.y), str(geom.w), str(geom.h)]
                 args.extend(skill.custom_args)
                 args.append(str(geom.opacity))
+
+                # NOTE: SC_TOOLBOX_PRELOAD is intentionally NOT in the
+                # registered env here.  It's injected only for the
+                # one-shot pre-spawn launch via mp.start_with_env in
+                # _preload_skills below.  Putting it in the registered
+                # env makes EVERY cold spawn (including the user's
+                # 'press hotkey to open it after the launcher restart
+                # killed the subprocess' path) start hidden, which is
+                # confusing — the user presses Shift+0 and nothing
+                # appears, so they press it again, the second press
+                # then sends 'hide', the third 'show', etc.  Scoping
+                # PRELOAD to the deliberate pre-spawn keeps the user-
+                # toggle path showing the window on the very first
+                # press (at the cost of one cold-spawn worth of latency
+                # ≈700 ms — acceptable, no multi-press confusion).
+                skill_env = dict(lang_env)
+
                 self._pm.register(
                     skill_id=skill.id,
                     python_exe=self._python,
@@ -180,7 +197,7 @@ class SCToolboxApp:
                     cwd=folder,
                     args=args,
                     base_dir=_skill_dir,
-                    env=lang_env,
+                    env=skill_env,
                 )
                 # Register exit-watcher so the launcher re-shows instantly
                 # when a skill closes (instead of waiting for polling).
@@ -246,6 +263,54 @@ class SCToolboxApp:
 
         # ── IPC command watcher ──
         self._start_cmd_watcher()
+
+        # ── Pre-spawn skills marked preload=true ──
+        # Spawned hidden (SC_TOOLBOX_PRELOAD=1 in their env) so the
+        # expensive Qt cold start happens once now, in the background.
+        # Every subsequent hotkey/tile press is just an IPC show.
+        # Deferred ~250 ms so the launcher window paints first.
+        QTimer.singleShot(250, self._preload_skills)
+
+    def _preload_skills(self) -> None:
+        """Spawn preload-marked skills in hidden state for instant later show."""
+        for skill in self._skills:
+            if not skill.preload:
+                continue
+            if skill.id in self._settings.disabled_skills:
+                continue
+            mp = self._pm.get(skill.id)
+            if not mp or mp.running:
+                continue
+            try:
+                # start_with_env injects SC_TOOLBOX_PRELOAD=1 for THIS
+                # launch only, so the subprocess starts hidden and
+                # pre-warms its DWM layered-window buffer (very fast
+                # subsequent IPC show).
+                #
+                # visible_after=False makes the PM mark the skill as
+                # NOT visible immediately after the spawn, so the
+                # first user toggle correctly issues 'show'.  We do
+                # NOT call mp.hide() here because that would queue a
+                # 'hide' IPC into the cmd file; the subprocess hasn't
+                # started its IPC watcher yet and the queued hide
+                # would later race against the subprocess's own
+                # pre-warm hide timer, sometimes hiding the window
+                # immediately after the user opens it.
+                #
+                # Crucially, the PRELOAD flag is NOT in the registered
+                # env, so if the subprocess later dies (e.g. the user
+                # restarts the launcher) and the next user-triggered
+                # toggle re-spawns it, that cold respawn shows the
+                # window on first press — no multi-press dance.
+                if not mp.start_with_env(
+                    {"SC_TOOLBOX_PRELOAD": "1"},
+                    visible_after=False,
+                ):
+                    logger.info("preload: %s already running; skip", skill.id)
+                    continue
+                logger.info("preload: spawned %s in pre-warm hidden state", skill.id)
+            except (OSError, subprocess.SubprocessError) as exc:
+                logger.warning("preload: failed to spawn %s: %s", skill.id, exc)
 
     # ── Thread-safe dispatch queue helpers ─────────────────────────────
 

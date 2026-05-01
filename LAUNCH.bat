@@ -6,6 +6,14 @@ cd /d "%~dp0"
 :: Try to find Python (same search order as INSTALL_AND_LAUNCH.bat)
 set "PY="
 
+:: Explicit Python 3.14 (winget pythoncore install) — preferred for SC_Toolbox.
+:: Python 3.13 was installed separately for the OCR trainer (torch); it lacks
+:: the SC_Toolbox runtime deps. Force 3.14 first to use the correct env.
+if exist "%LOCALAPPDATA%\Python\pythoncore-3.14-64\python.exe" (
+    set "PY=%LOCALAPPDATA%\Python\pythoncore-3.14-64\python.exe"
+    goto :run
+)
+
 :: Standard Python.org installs
 for %%V in (314 313 312 311 310 39 38) do (
     if exist "%LOCALAPPDATA%\Programs\Python\Python%%V\python.exe" (
@@ -93,20 +101,29 @@ call "%~dp0INSTALL_AND_LAUNCH.bat"
 exit /b
 
 :run
+echo Using Python: %PY%
+echo Verifying dependencies...
 :: Verify dependencies
 set "NEED_INSTALL=0"
-"%PY%" -c "import PySide6" >nul 2>&1
+echo  - PySide6
+"%PY%" -c "import PySide6"
 if !errorlevel! neq 0 set "NEED_INSTALL=1"
-"%PY%" -c "import requests" >nul 2>&1
+echo  - requests
+"%PY%" -c "import requests"
 if !errorlevel! neq 0 set "NEED_INSTALL=1"
-"%PY%" -c "import pynput" >nul 2>&1
+echo  - pynput
+"%PY%" -c "import pynput"
 if !errorlevel! neq 0 set "NEED_INSTALL=1"
-"%PY%" -c "import mss" >nul 2>&1
+echo  - mss
+"%PY%" -c "import mss"
 if !errorlevel! neq 0 set "NEED_INSTALL=1"
-"%PY%" -c "import pytesseract" >nul 2>&1
+echo  - pytesseract
+"%PY%" -c "import pytesseract"
 if !errorlevel! neq 0 set "NEED_INSTALL=1"
-"%PY%" -c "import PIL" >nul 2>&1
+echo  - PIL
+"%PY%" -c "import PIL"
 if !errorlevel! neq 0 set "NEED_INSTALL=1"
+echo Dependency check complete.
 
 if "!NEED_INSTALL!"=="1" (
     echo  Dependencies missing. Installing from requirements.txt...
@@ -124,9 +141,8 @@ if "!NEED_INSTALL!"=="1" (
     )
 )
 
+echo Launching skill_launcher.py...
 "%PY%" "%~dp0skill_launcher.py" 100 100 500 550 0.95 nul
-if !errorlevel! neq 0 (
-    echo.
-    echo  SC_Toolbox exited with an error.
-    pause
-)
+echo.
+echo  skill_launcher exited with code !errorlevel!
+pause

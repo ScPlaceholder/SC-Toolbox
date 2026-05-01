@@ -28,7 +28,13 @@ import numpy as np
 log = logging.getLogger(__name__)
 
 _MODULE_DIR = Path(__file__).parent
-_TRAINING_DIR = _MODULE_DIR.parent / "training_data"
+# Source training dir — can be overridden via OCR_TRAIN_SOURCE env var
+# so the live labeler can feed user-labeled glyphs
+# (training_data_user_panel/) without touching the default path.
+_TRAINING_DIR = Path(
+    os.environ.get("OCR_TRAIN_SOURCE")
+    or str(_MODULE_DIR.parent / "training_data")
+)
 _MODEL_DIR = _MODULE_DIR / "models"
 _ORIGINAL_MODEL = _MODEL_DIR / "model_cnn.onnx"
 _FINETUNED_MODEL = _MODEL_DIR / "model_cnn_finetuned.onnx"
@@ -275,16 +281,24 @@ def train(epochs: int = 20, lr: float = 0.001, val_split: float = 0.15):
         "valSamples": len(val_idx),
         "fineTuned": True,
     }
-    meta_path = _MODEL_DIR / "model_cnn_finetuned.json"
+    # Metadata sidecar lives next to the .onnx with matching stem.
+    meta_path = _FINETUNED_MODEL.with_suffix(".json")
     with open(meta_path, "w") as f:
         json.dump(meta, f, indent=2)
 
     print(f"Saved fine-tuned model to {_FINETUNED_MODEL}")
     print(f"Metadata saved to {meta_path}")
-    print(f"\nTo use the fine-tuned model:")
-    print(f"  1. Back up: models/model_cnn.onnx → models/model_cnn_original.onnx")
-    print(f"  2. Rename: models/model_cnn_finetuned.onnx → models/model_cnn.onnx")
-    print(f"  3. Restart the tool")
+    out_name = _FINETUNED_MODEL.name
+    if out_name == "model_cnn_inv.onnx":
+        # Inverted-polarity sibling — already lands at its production
+        # filename, no rename step needed.
+        print(f"\nThe inverted classifier is now active.")
+        print(f"  Restart the tool to load {out_name}.")
+    else:
+        print(f"\nTo use the fine-tuned model:")
+        print(f"  1. Back up: models/model_cnn.onnx → models/model_cnn_original.onnx")
+        print(f"  2. Rename: models/{out_name} → models/model_cnn.onnx")
+        print(f"  3. Restart the tool")
 
 
 def main():
@@ -292,9 +306,30 @@ def main():
     parser.add_argument("--epochs", type=int, default=20, help="Training epochs (default: 20)")
     parser.add_argument("--lr", type=float, default=0.001, help="Learning rate (default: 0.001)")
     parser.add_argument("--stats", action="store_true", help="Just show dataset stats, don't train")
+    parser.add_argument(
+        "--inverted", action="store_true",
+        help=(
+            "Train the polarity-INVERTED sibling classifier.  Reads "
+            "training_data_inv/{0..9}/ (produced by "
+            "scripts/make_inverted_dataset.py) and writes models/"
+            "model_cnn_inv.onnx + .json.  Used by the secondary voter "
+            "in api._ocr_value_crop for polarity-decorrelated voting."
+        ),
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
+
+    if args.inverted:
+        # Re-bind the module-level path constants so load_training_data
+        # and the train() exporter pick up the inverted dataset and
+        # write to the inverted model file.
+        global _TRAINING_DIR, _FINETUNED_MODEL
+        _TRAINING_DIR = _MODULE_DIR.parent / "training_data_inv"
+        _FINETUNED_MODEL = _MODEL_DIR / "model_cnn_inv.onnx"
+        print(f"[inverted] reading from {_TRAINING_DIR}")
+        print(f"[inverted] writing to    {_FINETUNED_MODEL}")
+        print()
 
     if args.stats:
         images, labels = load_training_data()

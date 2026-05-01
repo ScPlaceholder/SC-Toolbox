@@ -11,18 +11,19 @@ Run from the DPS_Calculator directory:
 """
 
 import json
+import os
 import sys
 import re
 
 # ── Ensure DPS Calculator modules are importable ────────────────────────────
-DPS_DIR = "C:/Users/prjgn/AppData/Roaming/ShipBit/WingmanAI/custom_skills/SC_Toolbox_Beta_V1.2/skills/DPS_Calculator"
+DPS_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, DPS_DIR)
 
 from services.slot_extractor import extract_slots_by_type
 
 
 # ── Load Erkul cache ─────────────────────────────────────────────────────────
-CACHE_PATH = f"{DPS_DIR}/.erkul_cache.json"
+CACHE_PATH = os.path.join(DPS_DIR, ".erkul_cache.json")
 with open(CACHE_PATH, encoding="utf-8") as f:
     cache = json.load(f)
 

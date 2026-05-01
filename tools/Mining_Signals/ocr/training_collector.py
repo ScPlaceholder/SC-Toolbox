@@ -33,10 +33,28 @@ log = logging.getLogger(__name__)
 
 _MODULE_DIR = os.path.dirname(os.path.abspath(__file__))
 _TRAINING_DIR = os.path.join(os.path.dirname(_MODULE_DIR), "training_data")
+# Separate dataset for the value-crop CRNN: whole-value images
+# (e.g. "499", "0.61", "62%") alongside a JSON manifest mapping each
+# file to its decoded label. Organised flat so filesystem labels don't
+# have to encode characters like '.' or '%'.
+_CRNN_TRAINING_DIR = os.path.join(os.path.dirname(_MODULE_DIR), "training_data_crnn")
+_CRNN_MANIFEST_PATH = os.path.join(_CRNN_TRAINING_DIR, "manifest.json")
+
+# ── Master kill switch ──
+# When False, every collect_* function returns 0 immediately without
+# touching disk. Use this when hand-labeling so the auto-collector
+# can't dilute the curated corpus with 2-of-3-vote noise. Override
+# via env var SC_TOOLBOX_AUTO_COLLECT=1 to re-enable for a session
+# without editing this file.
+_AUTO_COLLECT_ENABLED = (
+    os.environ.get("SC_TOOLBOX_AUTO_COLLECT", "0") == "1"
+)
 
 # Track how many samples we've saved to avoid filling disk
 _session_count = 0
+_crnn_session_count = 0
 _MAX_PER_SESSION = 2000  # stop collecting after this many per app session
+_MAX_CRNN_PER_SESSION = 500  # per-session cap for the whole-value CRNN data
 _MIN_CONFIDENCE_VARIANTS = 2  # require at least N Tesseract variants to agree
 
 
@@ -159,6 +177,9 @@ def collect_training_sample(
     """
     global _session_count
 
+    if not _AUTO_COLLECT_ENABLED:
+        return 0
+
     # Skip lowest-quality tier
     if confidence == "single":
         return 0
@@ -231,3 +252,161 @@ def get_training_stats() -> dict[str, int]:
 def get_total_samples() -> int:
     """Return total number of training samples collected."""
     return sum(get_training_stats().values())
+
+
+# ── Whole-value CRNN dataset ───────────────────────────────────────
+
+
+def _ensure_crnn_dir() -> None:
+    os.makedirs(_CRNN_TRAINING_DIR, exist_ok=True)
+
+
+def collect_crnn_value_sample(
+    value_crop: "Image.Image",
+    label: str,
+    source: str = "live",
+) -> bool:
+    """Save a labeled whole-value crop for the CRNN dataset.
+
+    Used by the live scanner to opportunistically build a dataset of
+    REAL value crops with their decoded text labels, closing the
+    domain gap that pure synthetic training suffers from.
+
+    The caller (in sc_ocr.api) should only invoke this when both the
+    Tesseract LSTM and the 28×28 ONNX classifier agreed on the same
+    text — giving a consensus label that's high-confidence enough to
+    trust as ground truth.
+
+    Returns True if a sample was saved, False if skipped (cap reached,
+    bad label, I/O failure).
+    """
+    global _crnn_session_count
+
+    if not _AUTO_COLLECT_ENABLED:
+        return False
+
+    if _crnn_session_count >= _MAX_CRNN_PER_SESSION:
+        return False
+    if not label or len(label) > 24:
+        return False
+    # Expanded alphabet: digits + punct + letters + space + parens.
+    _allowed = "0123456789.-% ()ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+    if any(c not in _allowed for c in label):
+        return False
+
+    try:
+        _ensure_crnn_dir()
+        import json
+        now_ms = int(time.time() * 1000) % 1_000_000_000
+        # Sanitize the label for use in the filename.
+        safe = label.replace(".", "dot").replace("%", "pct")
+        fname = f"{now_ms}_{safe}.png"
+        fpath = os.path.join(_CRNN_TRAINING_DIR, fname)
+        value_crop.save(fpath)
+
+        # Append to manifest.json (cheap: it stays small — 500 entries
+        # per session cap).
+        manifest: dict = {"files": []}
+        if os.path.isfile(_CRNN_MANIFEST_PATH):
+            try:
+                with open(_CRNN_MANIFEST_PATH, "r", encoding="utf-8") as f:
+                    manifest = json.load(f)
+            except Exception:
+                manifest = {"files": []}
+        manifest.setdefault("files", []).append({
+            "path": fname,
+            "label": label,
+            "source": source,
+            "ts_ms": int(time.time() * 1000),
+        })
+        # Atomic write: a crash mid-write would otherwise leave a
+        # truncated JSON file, and the read path resets the manifest
+        # to empty on a parse error — losing every entry from this
+        # session. Tempfile + os.replace guarantees readers either
+        # see the previous valid file or the new valid file.
+        tmp_path = _CRNN_MANIFEST_PATH + ".tmp"
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(manifest, f)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, _CRNN_MANIFEST_PATH)
+        except Exception:
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
+            raise
+
+        _crnn_session_count += 1
+        log.debug(
+            "training: saved CRNN sample %r (%s, session total: %d)",
+            label, source, _crnn_session_count,
+        )
+        return True
+    except Exception as exc:
+        log.debug("training: crnn collection failed: %s", exc)
+        return False
+
+
+def get_crnn_sample_count() -> int:
+    """Return total number of CRNN value-crop samples collected."""
+    if not os.path.isdir(_CRNN_TRAINING_DIR):
+        return 0
+    return sum(1 for f in os.listdir(_CRNN_TRAINING_DIR) if f.endswith(".png"))
+
+
+# ── Pending (unlabeled) crop capture ───────────────────────────────
+
+_PENDING_DIR = os.path.join(_CRNN_TRAINING_DIR, "pending")
+# Rate-limit: one crop per field every ~5 seconds, and a rolling cap
+# of 120 images to bound disk usage between manual labeling passes.
+_PENDING_LAST_SAVE: dict[str, float] = {}
+_PENDING_MIN_INTERVAL_S = 5.0
+_PENDING_MAX_FILES = 120
+
+
+def save_pending_crop(value_crop: "Image.Image", field: str) -> bool:
+    """Save every value crop to a pending/ buffer for later manual labeling.
+
+    Captures the exact image that the OCR pipeline processed, one per
+    field every _PENDING_MIN_INTERVAL_S seconds, with a rolling cap
+    on total files. The user periodically browses this buffer, labels
+    any crops that show new values, moves them into the main
+    training_data_crnn/ dataset with labels in manifest.json, and
+    retrains.
+
+    This is the data-collection path that works even when Tesseract
+    and the 28×28 classifier DISAGREE (the normal consensus path
+    fails there). It's how we get training samples for misread rocks.
+    """
+    global _PENDING_LAST_SAVE
+    try:
+        now = time.time()
+        last = _PENDING_LAST_SAVE.get(field, 0.0)
+        if now - last < _PENDING_MIN_INTERVAL_S:
+            return False
+        _PENDING_LAST_SAVE[field] = now
+
+        os.makedirs(_PENDING_DIR, exist_ok=True)
+
+        # Rolling cap: delete oldest when we exceed the limit.
+        existing = sorted(
+            (f for f in os.listdir(_PENDING_DIR) if f.endswith(".png")),
+            key=lambda f: os.path.getmtime(os.path.join(_PENDING_DIR, f)),
+        )
+        excess = len(existing) - _PENDING_MAX_FILES + 1
+        for f in existing[:max(0, excess)]:
+            try:
+                os.remove(os.path.join(_PENDING_DIR, f))
+            except OSError:
+                pass
+
+        stamp = int(now * 1000) % 1_000_000_000
+        fname = f"{field}_{stamp}.png"
+        value_crop.save(os.path.join(_PENDING_DIR, fname))
+        return True
+    except Exception as exc:
+        log.debug("training: pending save failed: %s", exc)
+        return False

@@ -25,6 +25,8 @@ class PlayerEntry:
     name: str
     is_leader: bool = False
     profession: str = ""   # profession name (see services.professions)
+    can_reassign: bool = False    # user-flagged: may fill an empty MOLE turret if needed
+    auto_reassign: bool = False   # True = auto pull on demand; False = manual only
 
 
 @dataclass
@@ -46,6 +48,9 @@ class CrewAssignment:
     unique_id: str = ""        # stable id for mothership references
     mothership_id: str = ""    # unique_id of parent mothership if in a strike group
     strike_group: str = ""     # strike group name ("" = not in a strike group)
+    # Per-turret crew assignment (MOLEs). turret_index -> [player_names].
+    # Empty dict = use ship-level `crew` distributed across turrets in order.
+    laser_crew: dict[int, list[str]] = field(default_factory=dict)
 
 
 @dataclass
@@ -95,10 +100,22 @@ def _crew_to_dict(c: CrewAssignment) -> dict[str, Any]:
         "unique_id": c.unique_id,
         "mothership_id": c.mothership_id,
         "strike_group": c.strike_group,
+        # JSON object keys must be strings — store turret index as str.
+        "laser_crew": {str(k): list(v) for k, v in c.laser_crew.items()},
     }
 
 
 def _crew_from_dict(raw: dict[str, Any]) -> CrewAssignment:
+    raw_laser = raw.get("laser_crew", {})
+    laser_crew: dict[int, list[str]] = {}
+    if isinstance(raw_laser, dict):
+        for k, v in raw_laser.items():
+            try:
+                idx = int(k)
+            except (TypeError, ValueError):
+                continue
+            if isinstance(v, list):
+                laser_crew[idx] = [str(p) for p in v if p]
     return CrewAssignment(
         loadout_path=raw.get("loadout_path", ""),
         ship_name=raw.get("ship_name", "Unknown"),
@@ -109,6 +126,7 @@ def _crew_from_dict(raw: dict[str, Any]) -> CrewAssignment:
         unique_id=raw.get("unique_id", ""),
         mothership_id=raw.get("mothership_id", ""),
         strike_group=raw.get("strike_group", ""),
+        laser_crew=laser_crew,
     )
 
 
@@ -133,6 +151,8 @@ def ledger_to_dict(data: LedgerData) -> dict[str, Any]:
                 "name": p.name,
                 "is_leader": p.is_leader,
                 "profession": p.profession,
+                "can_reassign": p.can_reassign,
+                "auto_reassign": p.auto_reassign,
             }
             for p in data.players
         ],
@@ -176,6 +196,8 @@ def ledger_from_dict(raw: dict[str, Any]) -> LedgerData:
             name=p.get("name", ""),
             is_leader=p.get("is_leader", False),
             profession=p.get("profession", ""),
+            can_reassign=bool(p.get("can_reassign", False)),
+            auto_reassign=bool(p.get("auto_reassign", False)),
         )
         for p in raw.get("players", [])
     ]
@@ -258,6 +280,8 @@ def export_player_roster(players: list[PlayerEntry], path: str) -> None:
             "name": p.name,
             "is_leader": p.is_leader,
             "profession": p.profession,
+            "can_reassign": p.can_reassign,
+            "auto_reassign": p.auto_reassign,
         }
         for p in players
     ]
@@ -280,6 +304,8 @@ def import_player_roster(path: str) -> list[PlayerEntry]:
                     name=p.get("name", ""),
                     is_leader=p.get("is_leader", False),
                     profession=p.get("profession", ""),
+                    can_reassign=bool(p.get("can_reassign", False)),
+                    auto_reassign=bool(p.get("auto_reassign", False)),
                 )
                 for p in raw if isinstance(p, dict) and p.get("name")
             ]

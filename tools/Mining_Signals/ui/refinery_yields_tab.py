@@ -26,9 +26,10 @@ from services.refinery_yields import (
     load_refinery_yields, short_name, shared_profile_label,
 )
 
+from .theme import ACCENT
+
 log = logging.getLogger(__name__)
 
-ACCENT = "#33dd88"
 GREEN = "#33dd88"
 RED = "#ff4444"
 

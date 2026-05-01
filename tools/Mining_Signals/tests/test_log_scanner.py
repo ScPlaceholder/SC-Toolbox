@@ -18,6 +18,7 @@ from services.log_scanner import (
     _parse_refinery_line,
     _make_id,
     _resolve_location,
+    RefineryMonitor,
 )
 
 
@@ -140,6 +141,92 @@ class TestLocationRegex(unittest.TestCase):
         line = "Some other log line"
         m = _LOCATION_RE.search(line)
         self.assertIsNone(m)
+
+
+class TestRotationClearsSeenIds(unittest.TestCase):
+    """Verify the live-tail loop clears _seen_ids on log rotation.
+
+    Drives the relevant section of RefineryMonitor._run by writing a
+    log line, advancing _pos, then truncating + appending so the next
+    poll trips the rotation branch (current_size < self._pos). After
+    rotation, the same entry ID must be re-emitted, not swallowed.
+    """
+
+    def test_rotation_clears_seen_ids(self) -> None:
+        import os as _os
+        import shutil
+        import tempfile
+        import time
+
+        # Build a tmp dir that looks like a Star Citizen LIVE folder.
+        tmp = tempfile.mkdtemp(prefix="mining_test_")
+        try:
+            log_path = _os.path.join(tmp, "Game.log")
+            backup_dir = _os.path.join(tmp, "LogBackups")
+            _os.makedirs(backup_dir, exist_ok=True)
+
+            line_a = (
+                '<2026-04-30T10:00:00.000Z> [Notice] '
+                '<SHUDEvent_OnNotification> event="Generic" '
+                'subtitle="A Refinery Work Order has been Completed '
+                'at HUR-L2: Stanton"\n'
+            )
+            line_b = (
+                '<2026-04-30T11:00:00.000Z> [Notice] '
+                '<SHUDEvent_OnNotification> event="Generic" '
+                'subtitle="A Refinery Work Order has been Completed '
+                'at CRU-L1: Stanton"\n'
+            )
+
+            # Pre-populate with two entries so post-rotation file is
+            # smaller (single line) — required to trip the
+            # current_size < self._pos branch.
+            with open(log_path, "w", encoding="utf-8") as fh:
+                fh.write(line_a)
+                fh.write(line_b)
+
+            received: list[list[dict]] = []
+            mon = RefineryMonitor(tmp)
+            mon.subscribe(lambda entries: received.append(list(entries)))
+            mon.start()
+
+            # Wait for backfill to dispatch the originals.
+            deadline = time.time() + 5.0
+            while time.time() < deadline and not received:
+                time.sleep(0.05)
+            self.assertTrue(received, "backfill never dispatched")
+            self.assertEqual(len(received[0]), 2)
+            initial_dispatches = len(received)
+
+            # Give the live-tail loop a moment to enter phase 2 and
+            # set self._pos = current file size.
+            time.sleep(0.5)
+
+            # Simulate rotation: truncate to a single (shorter) line
+            # whose ID matches one of the backfill entries. Without
+            # _seen_ids.clear() in the rotation branch, the new read
+            # would silently dedup-skip and not re-emit.
+            with open(log_path, "w", encoding="utf-8") as fh:
+                fh.write(line_a)
+
+            # Wait for the rotation branch to fire and re-dispatch.
+            deadline = time.time() + 5.0
+            while (
+                time.time() < deadline
+                and len(received) <= initial_dispatches
+            ):
+                time.sleep(0.05)
+
+            mon.stop()
+
+            # With the fix, the post-rotation read of line_a re-emits
+            # the entry. Without the fix, the dispatch never happens.
+            self.assertGreater(
+                len(received), initial_dispatches,
+                "rotation did not re-emit the entry — _seen_ids leak",
+            )
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
 
 class TestResolveLocation(unittest.TestCase):

@@ -402,7 +402,7 @@ _TABS = [
 
 class _CloseBtn(QPushButton):
     def __init__(self, parent=None):
-        super().__init__("x", parent)
+        super().__init__("✕", parent)  # ✕
         self.setObjectName("tutClose")
         self.setFixedSize(32, 28)
         self.setCursor(Qt.PointingHandCursor)

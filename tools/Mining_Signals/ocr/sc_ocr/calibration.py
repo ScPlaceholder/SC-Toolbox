@@ -238,6 +238,30 @@ def save_row(
         "w": int(box["w"]),
         "h": int(box["h"]),
     }
+    # ── Save-time collision guard ──
+    # Warn loudly when locking a row whose y collides with an existing
+    # row's y (within 4 px). Real panel rows are at least one font
+    # height apart (~30-50 px); identical y means a degraded panel
+    # finder fed every "Lock" click the same crop coordinates. Logging
+    # alone instead of refusing the save: the user might be deliberately
+    # nudging rows close together for an unusual HUD scale, and the
+    # load-time validator (``to_label_rows``) is the real safety net.
+    _other_ys: dict[str, int] = {
+        f: int(b.get("y", -1))
+        for f, b in entry["rows"].items()
+        if f != field and f != "_mineral_row" and isinstance(b, dict)
+    }
+    _new_y = int(box["y"])
+    for _other_field, _other_y in _other_ys.items():
+        if abs(_other_y - _new_y) <= 4:
+            log.warning(
+                "calibration.save_row: SUSPECT region=%s field=%s y=%d "
+                "is within 4 px of field=%s y=%d. Saved anyway, but the "
+                "panel finder likely returned identical crops for "
+                "multiple rows — verify in the dialog before relying "
+                "on this calibration.",
+                key, field, _new_y, _other_field, _other_y,
+            )
     if image_size is not None:
         entry["image_size"] = [int(image_size[0]), int(image_size[1])]
     if value_column_left is not None:
@@ -311,9 +335,52 @@ def to_label_rows(
     if not all(field in rows for field in ("mass", "resistance", "instability")):
         return None
 
+    # ── Sanity-check the saved layout ──
+    # Calibration files written by older builds (or by Lock-clicks
+    # against a degraded panel finder) sometimes contain garbage where
+    # every row got the same y, or where the rows are out of order
+    # (mass below resistance, etc.). Returning that data poisons
+    # ``_find_label_rows`` because it short-circuits all detection.
+    # Reject obviously-broken layouts so the runtime falls through to
+    # SCAN RESULTS anchor + NCC instead. The user can re-lock once
+    # those produce sensible row bands.
+    try:
+        _y_mass = int(rows["mass"]["y"])
+        _y_res  = int(rows["resistance"]["y"])
+        _y_inst = int(rows["instability"]["y"])
+        # Pitch must be positive AND non-trivial (≥6 px) between every
+        # adjacent pair. A pitch of 0 means rows collide; a negative
+        # pitch means the file claims instability is above mass.
+        _pitch_mr = _y_res - _y_mass
+        _pitch_ri = _y_inst - _y_res
+        if _pitch_mr < 6 or _pitch_ri < 6:
+            log.warning(
+                "calibration.to_label_rows: rejecting corrupt layout for "
+                "region=%s — y_mass=%d y_resistance=%d y_instability=%d "
+                "(pitch_mr=%d pitch_ri=%d). Falling through to detection. "
+                "Re-lock rows in the Calibration dialog to repair.",
+                _region_key(region), _y_mass, _y_res, _y_inst,
+                _pitch_mr, _pitch_ri,
+            )
+            return None
+    except (KeyError, TypeError, ValueError) as _exc:
+        log.warning(
+            "calibration.to_label_rows: malformed rows for region=%s "
+            "(%s) — falling through to detection.",
+            _region_key(region), _exc,
+        )
+        return None
+
     # Auto-detect value_column_left by scanning rows for the
     # rightmost label-text column (just past the colon). This is
-    # MUCH more robust than trusting the user's box x-coords.
+    # MUCH more robust than trusting the user's box x-coords —
+    # BUT only when the gap walk stops cleanly at the colon. On
+    # tight HUD layouts where the post-colon gap is < _INTRA_LABEL_GAP
+    # the walk bridges into the value's leading digit, placing
+    # ``value_column_left`` AFTER the leading "1". Clamp the auto-
+    # detect result so it can refine LEFT of the user's box (good)
+    # but never lands RIGHT of it (bad). The user told us where the
+    # value lives by drawing those boxes — that's the hard cap.
     value_column_left: Optional[int] = None
     if img is not None:
         try:
@@ -322,9 +389,46 @@ def to_label_rows(
             )
         except Exception:
             pass
+    user_min_x: Optional[int] = None
+    try:
+        user_min_x = min(
+            int(rows[f]["x"])
+            for f in ("mass", "resistance", "instability")
+            if f in rows
+        )
+    except (KeyError, TypeError, ValueError):
+        user_min_x = None
+    # Subtract _CALLER_MARGIN so that callers' ``x_min = lr + 6`` lands
+    # EXACTLY at the user's box left edge — not 6 px inside it. The
+    # user dragged the box to where the value starts; the OCR crop
+    # should start there too, not past the leading digit.
+    _CALLER_MARGIN = 6
+    user_lr_clamp: Optional[int] = (
+        max(0, user_min_x - _CALLER_MARGIN) if user_min_x is not None else None
+    )
+    if user_lr_clamp is not None:
+        # Trust the user's calibration. The auto-detect was a
+        # historical refinement attempt, but in practice it has TWO
+        # failure modes that both produce visibly broken crops:
+        #   * auto > user_lr_clamp → gap-walk over-shot into the
+        #     value's leading digit (chops "1" off "16007").
+        #   * auto < user_lr_clamp → cluster scan coalesced label
+        #     and value, so the rightmost cluster's left edge is
+        #     the LABEL's left edge (sweeps the colon into the
+        #     value crop, the OCR misclassifies it as a digit).
+        # The user drew that box specifically to mark where the
+        # value lives. There's no win from refining away from it.
+        value_column_left = user_lr_clamp
     if value_column_left is None:
-        # Fall back to saved value_column_left if it exists
-        value_column_left = cal.get("value_column_left")
+        # Auto-detect failed — prefer the user's calibrated box X
+        # (guaranteed before the leading digit by definition: it's
+        # what the user dragged in the Calibration dialog) over the
+        # legacy saved value_column_left, which was written by older
+        # algorithms and may itself be past the leading digit.
+        if user_lr_clamp is not None:
+            value_column_left = user_lr_clamp
+        else:
+            value_column_left = cal.get("value_column_left")
     if value_column_left is None:
         # Last resort: use right edge of widest label box
         value_column_left = max(
@@ -349,30 +453,63 @@ def to_label_rows(
 def _auto_detect_value_column_left(
     img, rows: dict, image_w: int,
 ) -> Optional[int]:
-    """For each value row in the calibration, scan its strip for the
-    rightmost label-text column (the colon). Return the MAX across
-    rows (= the longest label's colon position = where values
-    LEFT-align in the panel).
+    """Find the value column's left edge by scanning each row's
+    RIGHTMOST text cluster.
 
-    Returns None if scan fails for all rows.
+    SC HUD invariant: in every value row, the value digits are the
+    RIGHTMOST text. Labels are always to the LEFT of values, never
+    to the right. Anchoring on the right side of the row sidesteps
+    every fragile aspect of the previous label-end detection
+    (gap-walk threshold, density floors at the colon, intra-label
+    letter spacing) — we don't need to know where the label ENDS,
+    only where the rightmost text cluster BEGINS.
+
+    Per-row algorithm:
+      1. Build a column-density mask over the row strip with Otsu
+         + 25 %-of-row-height density floor.
+      2. Find every contiguous run of "hot" columns.
+      3. Coalesce runs separated by ≤ ``_COALESCE_GAP`` (bridges
+         intra-digit and decimal-point gaps in multi-character
+         values without bridging the larger label-to-value gap).
+      4. Rightmost coalesced run is the value cluster.
+      5. Subtract ``_VALUE_MARGIN`` so the caller's ``lr + 6`` lands
+         exactly at the cluster's leftmost detected pixel.
+
+    Returns ``min(per_row_lefts)`` so the shared ``value_column_left``
+    is safe for whichever row's value sits leftmost. Returns None
+    only when no row produces a cluster (typically a fully-empty
+    panel).
+
+    On TIGHT HUDs where the post-colon gap is < ``_COALESCE_GAP``,
+    the label and value coalesce into one cluster and the result
+    is too far left. ``to_label_rows`` clamps against the
+    user-calibrated box X to catch that case.
     """
     try:
         import numpy as _np
-        from PIL import Image as _PILImage
     except ImportError:
         return None
     try:
         rgb = _np.asarray(img.convert("RGB"), dtype=_np.uint8)
-        # Use max-of-channels so colored text registers as bright
+        # Max-of-channels so colored text registers as bright on
+        # both light- and dark-background HUDs.
         detect = rgb.max(axis=2).astype(_np.uint8)
     except Exception:
         return None
 
-    # Restrict label-text scan to the LEFT 60% of the image
-    # (the value column lives in the right 40%; we don't want to
-    # accidentally scan into it for the label end).
-    half_w = max(1, int(image_w * 0.60))
-    label_ends: list[int] = []
+    # Coalesce runs separated by ≤ this many px. Bridges intra-digit
+    # gaps in multi-character values (3-6 px between SC digits, plus
+    # decimal points up to ~10 px) without bridging the typical
+    # 12-15 px label-to-value gap. Matches the same constant in
+    # ``onnx_hud_reader._value_left_for_row``. Tight HUDs where the
+    # post-colon gap is ≤ 12 px land in the clamp branch of
+    # ``to_label_rows``.
+    _COALESCE_GAP = 12
+    # Caller adds +6 to land at x_min, so subtracting 6 here makes
+    # x_min = (cluster_left - 6) + 6 = cluster_left exactly.
+    _VALUE_MARGIN = 6
+
+    value_lefts: list[int] = []
     for field in ("mass", "resistance", "instability"):
         if field not in rows:
             continue
@@ -381,10 +518,11 @@ def _auto_detect_value_column_left(
         y2 = min(detect.shape[0], int(b["y"] + b["h"]))
         if y2 - y1 < 4:
             continue
-        region = detect[y1:y2, :half_w]
+        # Scan the FULL row width — the value can sit anywhere up
+        # to the right edge.
+        region = detect[y1:y2, :]
         if region.size == 0:
             continue
-        # Otsu threshold
         thr = _otsu_uint8(region)
         bright = int((region > thr).sum())
         if (region.size - bright) < bright:
@@ -395,24 +533,37 @@ def _auto_detect_value_column_left(
         hot = col_d >= floor
         if not hot.any():
             continue
-        idxs = _np.where(hot)[0]
-        first_hot = int(idxs[0])
-        last_hot = first_hot
-        gap = 0
-        i = first_hot
-        while i < hot.size:
-            if hot[i]:
-                last_hot = i
-                gap = 0
+        # Find every contiguous run of hot columns.
+        runs: list[tuple[int, int]] = []
+        in_run = False
+        rs = 0
+        W_row = hot.size
+        for x in range(W_row):
+            if hot[x] and not in_run:
+                in_run = True
+                rs = x
+            elif not hot[x] and in_run:
+                in_run = False
+                runs.append((rs, x))
+        if in_run:
+            runs.append((rs, W_row))
+        if not runs:
+            continue
+        # Coalesce nearby runs into glyph clusters.
+        coalesced: list[tuple[int, int]] = [runs[0]]
+        for cur_rs, cur_re in runs[1:]:
+            prev_rs, prev_re = coalesced[-1]
+            if (cur_rs - prev_re) <= _COALESCE_GAP:
+                coalesced[-1] = (prev_rs, cur_re)
             else:
-                gap += 1
-                if gap >= 12:
-                    break
-            i += 1
-        label_ends.append(int(last_hot) + 4)
-    if not label_ends:
+                coalesced.append((cur_rs, cur_re))
+        # Rightmost cluster = value (HUD invariant).
+        value_left = int(coalesced[-1][0])
+        value_lefts.append(max(0, value_left - _VALUE_MARGIN))
+    if not value_lefts:
         return None
-    return max(label_ends)
+    # MIN across rows so the leftmost value's leading digit is safe.
+    return min(value_lefts)
 
 
 def _otsu_uint8(arr) -> int:

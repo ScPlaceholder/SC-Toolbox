@@ -20,7 +20,8 @@ from shared.qt.theme import P
 from services.refinery_locations import RefineryLocation
 from services.refinery_yields import RefineryYieldData
 
-ACCENT = "#33dd88"
+from .theme import ACCENT
+
 GREEN = "#33dd88"
 RED = "#ff4444"
 

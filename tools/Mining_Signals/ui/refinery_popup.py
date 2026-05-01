@@ -18,10 +18,11 @@ from PySide6.QtWidgets import (
 
 from shared.qt.theme import P
 
+from .theme import ACCENT
+
 if TYPE_CHECKING:
     from services.refinery_orders import RefineryOrder, RefineryOrderStore
 
-ACCENT = "#33dd88"
 MAX_OPEN_POPUPS = 5
 BRACKET_LEN = 18
 
@@ -60,7 +61,7 @@ def _pin_qss(pinned: bool) -> str:
 
 class _CloseBtn(QPushButton):
     def __init__(self, parent=None):
-        super().__init__("x", parent)
+        super().__init__("✕", parent)  # ✕
         self.setFixedSize(32, 28)
         self.setCursor(Qt.PointingHandCursor)
         self.setStyleSheet(f"""

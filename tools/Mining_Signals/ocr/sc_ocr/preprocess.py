@@ -1,6 +1,7 @@
 """Color-aware preprocessing: polarity detection, channel isolation, binarization.
 
-A single pipeline handles all four background cases:
+A single pipeline handles five background cases:
+- Magenta/pink text on warm bg (mining HUD overcharge): B channel
 - Light (sunlit asteroid leak): invert grayscale
 - Dark + cyan/green text (normal HUD): G channel
 - Dark + orange/red text (warnings): R channel
@@ -29,6 +30,9 @@ def isolate_channel(rgb: np.ndarray, mode: ColorIsolate = "auto") -> np.ndarray:
     separation based on a quick statistic: take the mean of each
     channel + grayscale luminance, and:
 
+    - Magenta/pink text on warm bg (overcharge HUD): use B
+      (R is saturated by both text and bg, but B is high in pink
+      and low in orange — the cleanest separation available)
     - If luminance mean > 140: bright background → invert grayscale
     - If G − R > 15 (cyan/green text on dark): use G
     - If R − G > 15 (orange/red text on dark): use R
@@ -39,16 +43,28 @@ def isolate_channel(rgb: np.ndarray, mode: ColorIsolate = "auto") -> np.ndarray:
     assert rgb.ndim == 3 and rgb.shape[2] == 3
 
     if mode == "auto":
+        r = rgb[..., 0]
+        b = rgb[..., 2]
         gray = rgb.mean(axis=2)
         lum = gray.mean()
-        r_mean = rgb[..., 0].mean()
+        r_mean = r.mean()
         g_mean = rgb[..., 1].mean()
+        # Overcharge HUD: pink text on bright orange background.
+        # Both colors saturate R (≈240–255) so R-channel and luminance
+        # lose the text contrast, and the lum>140 branch below would
+        # incorrectly invert. Distinguish from sunlit (where all three
+        # channels co-vary with asteroid texture) by checking that B
+        # has substantially more spread than R.
+        r_std = float(r.std())
+        b_std = float(b.std())
+        if r_mean > 180 and b_std > 30 and b_std > r_std * 1.5:
+            return b.astype(np.uint8)
         if lum > 140:
             return (255 - gray).astype(np.uint8)
         if g_mean - r_mean > 15:
             return rgb[..., 1].astype(np.uint8)
         if r_mean - g_mean > 15:
-            return rgb[..., 0].astype(np.uint8)
+            return r.astype(np.uint8)
         return rgb.max(axis=2).astype(np.uint8)
 
     if mode == "g":

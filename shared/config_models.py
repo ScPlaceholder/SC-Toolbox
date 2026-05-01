@@ -85,6 +85,10 @@ class SkillConfig:
     hotkey: str = ""
     settings_key: str = ""
     custom_args: list[str] = field(default_factory=list)
+    # If True, the launcher pre-spawns this skill's subprocess at
+    # startup (kept hidden) so the first hotkey activation is just an
+    # IPC show — sub-100ms instead of the 1-2s subprocess cold start.
+    preload: bool = False
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> SkillConfig:
@@ -98,6 +102,7 @@ class SkillConfig:
             hotkey=str(data.get("hotkey", "")),
             settings_key=str(data.get("settings_key", "")),
             custom_args=list(data.get("custom_args", [])),
+            preload=bool(data.get("preload", False)),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -113,6 +118,8 @@ class SkillConfig:
         }
         if self.custom_args:
             d["custom_args"] = self.custom_args
+        if self.preload:
+            d["preload"] = True
         return d
 
 

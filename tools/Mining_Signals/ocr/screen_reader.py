@@ -35,6 +35,7 @@ _TESSERACT_URL = (
 # SHA-256 of the installer for integrity verification after download.
 # Update this hash when bumping the Tesseract version.  Set to "" to
 # skip verification (logs a warning instead of blocking install).
+# Pin to released installer SHA256 to enable integrity check before elevated install.
 _TESSERACT_SHA256 = ""
 
 # Lazy-loaded flags — set on first use, guarded by _init_lock
@@ -709,6 +710,19 @@ def scan_region(region: dict) -> Optional[int]:
     animation (see ``capture_region_averaged`` docstring). Falls
     back to a single capture if averaging fails.
 
+    Two-stage OCR strategy:
+
+      1. **PRIMARY**: ``sc_ocr.api._signal_recognize_pil`` — icon-
+         anchored NCC + Tesseract. ~30 ms when it works, ~80%
+         accuracy on real captures, returns None when unsure.
+      2. **FALLBACK**: legacy 3-engine vote (Tesseract A + B +
+         Paddle) — ~700 ms but ~95% accuracy. Runs only when stage 1
+         returns None.
+
+    Net effect: most scans return in ~30 ms with sc_ocr; the slower
+    legacy path only fires for the captures sc_ocr can't anchor or
+    Tesseract can't read confidently.
+
     Returns the extracted integer or None. Entirely in-memory.
     """
     global _last_capture
@@ -718,4 +732,24 @@ def scan_region(region: dict) -> Optional[int]:
     if img is None:
         return None
     _last_capture = img
+
+    # ── STAGE 1: sc_ocr icon-anchored pipeline (primary) ──
+    try:
+        from .sc_ocr.api import _signal_recognize_pil
+        sc_val = _signal_recognize_pil(img)
+        if sc_val is not None:
+            log.debug(
+                "scan_region: sc_ocr returned %d (skipping legacy fallback)",
+                sc_val,
+            )
+            return sc_val
+        log.debug(
+            "scan_region: sc_ocr returned None, falling back to legacy"
+        )
+    except Exception as exc:
+        log.debug(
+            "scan_region: sc_ocr raised %s, falling back to legacy", exc,
+        )
+
+    # ── STAGE 2: legacy 3-engine vote (fallback) ──
     return extract_number(img)

@@ -21,9 +21,10 @@ from PySide6.QtWidgets import (
 
 from shared.qt.theme import P
 
+from .theme import ACCENT
+
 log = logging.getLogger(__name__)
 
-ACCENT = "#33dd88"
 RED = "#ff4444"
 YELLOW = "#ffc107"
 DIM = P.fg_dim
@@ -37,6 +38,78 @@ _PADDING = 24
 _LEFT_LABEL_W = 110           # wider for "Min Throttle:" etc.
 _RIGHT_LABEL_W = 60
 _SECTION_ICON_SIZE = 14
+
+
+def _breakability_signature(**kwargs) -> tuple:
+    """Produce a cheap hashable fingerprint of everything that affects
+    how :meth:`BreakBubble.show_breakability` renders. Used as an
+    equality gate so re-renders triggered by HUD jitter (same data,
+    new anchor) don't tear down and rebuild the widget tree. Includes
+    rounded numeric values so sub-unit OCR jitter doesn't trip it."""
+
+    def _round_n(v, n=2):
+        if v is None:
+            return None
+        try:
+            return round(float(v), n)
+        except Exception:
+            return v
+
+    def _list_sig(lst, keys=None):
+        if not lst:
+            return ()
+        out = []
+        for item in lst:
+            if isinstance(item, dict):
+                if keys is None:
+                    out.append(tuple(sorted(
+                        (k, _round_n(v) if isinstance(v, (int, float)) else v)
+                        for k, v in item.items()
+                        if not callable(v)
+                    )))
+                else:
+                    out.append(tuple(item.get(k) for k in keys))
+            else:
+                out.append(item)
+        return tuple(out)
+
+    return (
+        kwargs.get("resource_name", ""),
+        _round_n(kwargs.get("mass"), 0),
+        _round_n(kwargs.get("resistance"), 0),
+        _round_n(kwargs.get("instability"), 2),
+        _round_n(kwargs.get("power_required"), 0),
+        _round_n(kwargs.get("power_percentage"), 0),
+        bool(kwargs.get("can_break", True)),
+        bool(kwargs.get("unbreakable", False)),
+        _round_n(kwargs.get("missing_power", 0.0), 0),
+        tuple(kwargs.get("used_lasers") or ()),
+        int(kwargs.get("active_modules_needed", 0) or 0),
+        kwargs.get("gadget_recommendation", ""),
+        _round_n(kwargs.get("min_throttle"), 0),
+        _round_n(kwargs.get("est_crack_time"), 0),
+        kwargs.get("ship_name", ""),
+        kwargs.get("laser_name", ""),
+        _list_sig(kwargs.get("team_members")),
+        _list_sig(kwargs.get("cluster_teams")),
+        _list_sig(kwargs.get("substitutes")),
+        _list_sig(kwargs.get("home_team")),
+        _list_sig(kwargs.get("additional_crew")),
+        kwargs.get("search_scope", "solo"),
+        int(kwargs.get("num_ships_needed", 1) or 1),
+        tuple(kwargs.get("ship_names") or ()),
+        _round_n(kwargs.get("solo_missing_power", 0.0), 0),
+        _round_n(kwargs.get("lp_power_pct", 0.0), 0),
+        int(kwargs.get("lp_players", 0) or 0),
+        tuple(kwargs.get("lp_ships") or ()),
+        _round_n(kwargs.get("lp_stability", 0.0), 1),
+        kwargs.get("lp_gadget", ""),
+        _round_n(kwargs.get("ls_power_pct", 0.0), 0),
+        int(kwargs.get("ls_ship_count", 0) or 0),
+        tuple(kwargs.get("ls_ships") or ()),
+        _round_n(kwargs.get("ls_stability", 0.0), 1),
+        kwargs.get("ls_gadget", ""),
+    )
 
 
 # ─────────────────────────────────────────────────────────────
@@ -253,8 +326,13 @@ class BreakBubble(QWidget):
         self._fade_timer.timeout.connect(self._start_fade_out)
 
     def _clear(self) -> None:
-        """Remove all dynamic child widgets."""
+        """Remove all dynamic child widgets.
+
+        ``hide()`` before removal prevents Qt from painting an
+        intermediate empty frame on translucent frameless windows.
+        """
         for w in self._children:
+            w.hide()
             self._layout.removeWidget(w)
             w.deleteLater()
         self._children.clear()
@@ -301,6 +379,10 @@ class BreakBubble(QWidget):
         substitutes: list[dict] | None = None,
         home_team: list[dict] | None = None,
         additional_crew: list[dict] | None = None,
+        # Crew reallocations (optional) — list of dicts with keys:
+        #   player, source_ship, target_ship, target_turret (1-based),
+        #   donor_disabled (bool — True if source is a mining donor)
+        reallocations: list[dict] | None = None,
         search_scope: str = "solo",
         # Legacy fleet substitution tab data
         num_ships_needed: int = 1,
@@ -318,7 +400,136 @@ class BreakBubble(QWidget):
         ls_gadget: str = "",
     ) -> None:
         """Unified breakability display — adapts to available data."""
-        self._clear()
+        # ── Anti-flicker: if the data hasn't changed, just move the
+        # window to the new anchor and return. The HUD jitter animation
+        # repositions the anchor several times a second; re-building
+        # the widget tree every frame produces a visible flash as
+        # widgets are destroyed/recreated. Building a hashable
+        # signature of everything this method reads (all kwargs
+        # except anchor_x/anchor_y) lets us short-circuit the common
+        # case cleanly.
+        try:
+            sig = _breakability_signature(
+                resource_name=resource_name,
+                mass=mass, resistance=resistance, instability=instability,
+                power_required=power_required,
+                power_percentage=power_percentage,
+                can_break=can_break, unbreakable=unbreakable,
+                missing_power=missing_power, used_lasers=used_lasers,
+                active_modules_needed=active_modules_needed,
+                gadget_recommendation=gadget_recommendation,
+                min_throttle=min_throttle, est_crack_time=est_crack_time,
+                ship_name=ship_name, laser_name=laser_name,
+                team_members=team_members, cluster_teams=cluster_teams,
+                substitutes=substitutes, home_team=home_team,
+                additional_crew=additional_crew, reallocations=reallocations, search_scope=search_scope,
+                num_ships_needed=num_ships_needed, ship_names=ship_names,
+                solo_missing_power=solo_missing_power,
+                lp_power_pct=lp_power_pct, lp_players=lp_players,
+                lp_ships=lp_ships, lp_stability=lp_stability,
+                lp_gadget=lp_gadget,
+                ls_power_pct=ls_power_pct, ls_ship_count=ls_ship_count,
+                ls_ships=ls_ships, ls_stability=ls_stability,
+                ls_gadget=ls_gadget,
+            )
+        except Exception:
+            sig = None
+        if sig is not None and getattr(self, "_last_sig", None) == sig \
+                and self.isVisible():
+            # Data identical. Just reposition (cheap, no repaint of
+            # internals) and bail before any teardown happens.
+            if self.pos().x() != anchor_x or self.pos().y() != anchor_y:
+                self.move(anchor_x, anchor_y)
+            return
+        # Log which field forced the rebuild — critical for hunting
+        # flicker caused by a single jittery input. INFO-level so it
+        # shows up without enabling DEBUG, but only fires on actual
+        # rebuilds (≤ a few per second worst case).
+        prev_sig = getattr(self, "_last_sig", None)
+        if prev_sig is not None and sig is not None and prev_sig != sig:
+            try:
+                _SIG_FIELDS = (
+                    "resource_name", "mass", "resistance", "instability",
+                    "power_required", "power_percentage", "can_break",
+                    "unbreakable", "missing_power", "used_lasers",
+                    "active_modules_needed", "gadget_recommendation",
+                    "min_throttle", "est_crack_time",
+                    "ship_name", "laser_name",
+                    "team_members", "cluster_teams", "substitutes",
+                    "home_team", "additional_crew", "search_scope",
+                    "num_ships_needed", "ship_names", "solo_missing_power",
+                    "lp_power_pct", "lp_players", "lp_ships", "lp_stability",
+                    "lp_gadget", "ls_power_pct", "ls_ship_count", "ls_ships",
+                    "ls_stability", "ls_gadget",
+                )
+                diffs = [
+                    f"{name}: {prev_sig[i]!r} → {sig[i]!r}"
+                    for i, name in enumerate(_SIG_FIELDS)
+                    if i < len(prev_sig) and i < len(sig)
+                    and prev_sig[i] != sig[i]
+                ]
+                if diffs:
+                    log.info("break_bubble rebuild: %s", "; ".join(diffs))
+            except Exception:
+                pass
+        self._last_sig = sig
+        # Suppress paints across the teardown so Qt shows the NEW tree
+        # in one atomic flip instead of flashing empty mid-rebuild.
+        self.setUpdatesEnabled(False)
+        try:
+            self._clear()
+            self._can_break = can_break and not unbreakable
+            self._is_fleet_mode = False
+            self._do_show_breakability_body(
+                anchor_x, anchor_y,
+                resource_name=resource_name,
+                mass=mass, resistance=resistance, instability=instability,
+                power_required=power_required,
+                power_percentage=power_percentage,
+                can_break=can_break, unbreakable=unbreakable,
+                missing_power=missing_power, used_lasers=used_lasers,
+                active_modules_needed=active_modules_needed,
+                gadget_recommendation=gadget_recommendation,
+                min_throttle=min_throttle, est_crack_time=est_crack_time,
+                ship_name=ship_name, laser_name=laser_name,
+                team_members=team_members, cluster_teams=cluster_teams,
+                substitutes=substitutes, home_team=home_team,
+                additional_crew=additional_crew, reallocations=reallocations, search_scope=search_scope,
+                num_ships_needed=num_ships_needed, ship_names=ship_names,
+                solo_missing_power=solo_missing_power,
+                lp_power_pct=lp_power_pct, lp_players=lp_players,
+                lp_ships=lp_ships, lp_stability=lp_stability,
+                lp_gadget=lp_gadget,
+                ls_power_pct=ls_power_pct, ls_ship_count=ls_ship_count,
+                ls_ships=ls_ships, ls_stability=ls_stability,
+                ls_gadget=ls_gadget,
+            )
+        finally:
+            self.setUpdatesEnabled(True)
+        return
+
+    def _do_show_breakability_body(
+        self, anchor_x: int, anchor_y: int,
+        *,
+        resource_name="", mass=None, resistance=None, instability=None,
+        power_required=None, power_percentage=None, can_break=True,
+        unbreakable=False, missing_power=0.0, used_lasers=None,
+        active_modules_needed=0, gadget_recommendation="",
+        min_throttle=None, est_crack_time=None,
+        ship_name="", laser_name="",
+        team_members=None, cluster_teams=None,
+        substitutes=None, home_team=None, additional_crew=None,
+        reallocations=None,
+        search_scope="solo",
+        num_ships_needed=1, ship_names=None, solo_missing_power=0.0,
+        lp_power_pct=0.0, lp_players=0, lp_ships=None,
+        lp_stability=0.0, lp_gadget="",
+        ls_power_pct=0.0, ls_ship_count=0, ls_ships=None,
+        ls_stability=0.0, ls_gadget="",
+    ) -> None:
+        """Original build body, unchanged. Called by
+        :meth:`show_breakability` only when the signature-gate
+        determined a rebuild is actually needed."""
         self._can_break = can_break and not unbreakable
         self._is_fleet_mode = False
 
@@ -523,6 +734,32 @@ class BreakBubble(QWidget):
                     self._layout.addWidget(w)
                     self._children.append(w)
 
+        # Reallocations: crew pulled from one ship to fill a MOLE turret
+        if reallocations:
+            sep_r = _build_separator(self)
+            self._layout.addWidget(sep_r)
+            self._children.append(sep_r)
+
+            ra_section = _CollapsibleSection(
+                "REALLOCATIONS", "", icon="⇄",
+                accent_color=ACCENT, parent=self,
+            )
+            ra_rows: list[tuple[str, str, str]] = []
+            for r in reallocations:
+                player = r.get("player", "?")
+                src = r.get("source_ship", "?")
+                tgt = r.get("target_ship", "?")
+                tgt_t = r.get("target_turret", 1)
+                arrow = f"{src} → {tgt} T{tgt_t}"
+                ra_rows.append((f"{player}:", arrow, ACCENT))
+                if r.get("donor_disabled"):
+                    ra_rows.append((
+                        "", f"{src} sits this rock out", YELLOW,
+                    ))
+            ra_section.add_rows(ra_rows, label_width=_RIGHT_LABEL_W)
+            self._layout.addWidget(ra_section)
+            self._children.append(ra_section)
+
         # ── Size calculation ──
         has_multi_col = bool(team_members or cluster_teams)
         width = _WIDTH_TWO_COL if has_multi_col else _WIDTH
@@ -541,6 +778,7 @@ class BreakBubble(QWidget):
         anchor_x: int,
         anchor_y: int,
         *,
+        resource_name: str = "",
         mass: float,
         resistance: float,
         instability: float | None = None,
@@ -559,6 +797,7 @@ class BreakBubble(QWidget):
         """Fleet substitution display — delegates to unified method."""
         self.show_breakability(
             anchor_x, anchor_y,
+            resource_name=resource_name,
             mass=mass,
             resistance=resistance,
             instability=instability,
@@ -582,6 +821,7 @@ class BreakBubble(QWidget):
         anchor_x: int,
         anchor_y: int,
         *,
+        resource_name: str = "",
         mass: float = 0.0,
         resistance: float = 0.0,
         instability: float | None = None,
@@ -594,10 +834,12 @@ class BreakBubble(QWidget):
         substitutes: list[dict] | None = None,
         home_team: list[dict] | None = None,
         additional_crew: list[dict] | None = None,
+        reallocations: list[dict] | None = None,
     ) -> None:
         """Team-mode display — delegates to unified method."""
         self.show_breakability(
             anchor_x, anchor_y,
+            resource_name=resource_name,
             mass=mass,
             resistance=resistance,
             instability=instability,
@@ -610,6 +852,7 @@ class BreakBubble(QWidget):
             substitutes=substitutes,
             home_team=home_team,
             additional_crew=additional_crew,
+            reallocations=reallocations,
         )
 
     # ─────────────────────────────────────────────────────────
@@ -695,6 +938,16 @@ class BreakBubble(QWidget):
 
     def _on_tab_changed(self, index: int) -> None:
         self._last_tab_index = index
+
+    def hideEvent(self, event) -> None:
+        # Invalidate the anti-flicker signature cache whenever the
+        # bubble becomes hidden (user closed it, panel disappeared,
+        # etc.) so a subsequent show call always performs a full
+        # rebuild. Without this, show_breakability can early-return
+        # when the same data comes back in and the user never sees
+        # the bubble re-appear.
+        self._last_sig = None
+        super().hideEvent(event)
 
     def _show_at(self, x: int, y: int, fade: bool = False) -> None:
         anim = getattr(self, "_anim", None)

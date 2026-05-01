@@ -17,14 +17,14 @@ from __future__ import annotations
 
 import logging
 import os
-import re
+import threading
 import time
 from typing import Optional
 
 import numpy as np
 from PIL import Image
 
-from .screen_reader import capture_region, capture_region_averaged, _check_tesseract
+from .screen_reader import _check_tesseract
 
 log = logging.getLogger(__name__)
 
@@ -40,12 +40,6 @@ except ImportError:
     from pathlib import Path as _Path
     _ONLINE_MODEL_PATH = _Path(os.environ.get("LOCALAPPDATA", "")) / "SC_Toolbox" / "model_cnn_online.onnx"
 
-# Thread-local side channel: _segment_and_infer stashes the 28×28
-# uint8 digit crops here so the harvest trigger can read them without
-# changing the function's return type.
-import threading as _thr
-_harvest_tls = _thr.local()
-
 # Lazy-loaded
 _session = None
 _char_classes: str = "0123456789.-%"
@@ -56,102 +50,6 @@ _char_classes: str = "0123456789.-%"
 # cleared when the panel disappears or after TTL expires.
 _label_cache: dict[tuple[int, int, int, int], tuple[float, dict]] = {}
 _LABEL_CACHE_TTL_SEC = 60.0  # safe upper bound; rocks scan for <60s
-
-# Row detection thresholds
-_MIN_ROW_HEIGHT = 14   # filters thin separator bars (~9px)
-_MIN_VALUE_WIDTH = 15  # filters noise/artifacts in value crops
-_TALL_ROW_HEIGHT = 35  # mineral name row is taller than data rows
-
-
-# ─────────────────────────────────────────────────────────────
-# Debug image throttling
-# ─────────────────────────────────────────────────────────────
-# Debug crops are useful for offline analysis when the OCR misreads,
-# but the PIL encode + disk write adds ~80-120ms per scan. Throttle
-# to every _DEBUG_SAVE_INTERVAL_S seconds so the hot path stays fast.
-_DEBUG_SAVE_INTERVAL_S = 5.0
-_last_debug_save_ts: float = 0.0
-
-
-def _should_save_debug() -> bool:
-    """Return True if enough time has elapsed since the last debug save.
-
-    The timestamp is NOT updated here — call ``_mark_debug_saved()``
-    once per full scan after all the debug artifacts are written.
-    This ensures the raw capture, rows overlay, and individual crops
-    are either all saved or all skipped for a given scan, so offline
-    analysis always has a consistent snapshot.
-    """
-    return (time.time() - _last_debug_save_ts) >= _DEBUG_SAVE_INTERVAL_S
-
-
-def _mark_debug_saved() -> None:
-    """Reset the debug save timer; call after a full debug burst."""
-    global _last_debug_save_ts
-    _last_debug_save_ts = time.time()
-
-
-def _debug_save_raw(img: Image.Image, filename: str) -> None:
-    """Save a pristine copy of the HUD capture for offline re-analysis."""
-    try:
-        out_dir = os.path.dirname(_MODULE_DIR)
-        img.save(os.path.join(out_dir, filename))
-    except Exception as exc:
-        log.debug("debug_save_raw failed (%s): %s", filename, exc)
-
-
-def _debug_save_hud_rows(img: Image.Image, rows: list[tuple[int, int]]) -> None:
-    """Save the full HUD capture with each detected row drawn as a box.
-
-    Rows are numbered so the logs (and a human) can tell which row
-    index was treated as MASS / RESISTANCE / INSTABILITY.
-    """
-    try:
-        from PIL import ImageDraw
-        out_dir = os.path.dirname(_MODULE_DIR)
-        copy = img.copy().convert("RGB")
-        draw = ImageDraw.Draw(copy)
-        w = copy.width
-        for idx, (y1, y2) in enumerate(rows):
-            # Box
-            draw.rectangle([(0, y1), (w - 1, y2 - 1)], outline=(0, 255, 0), width=1)
-            # Row index label
-            draw.text((2, max(0, y1 - 2)), f"r{idx}", fill=(0, 255, 0))
-        copy.save(os.path.join(out_dir, "debug_live_hud_rows.png"))
-    except Exception as exc:
-        log.debug("debug_save_hud_rows failed: %s", exc)
-
-
-def _debug_save_crop(crop_img: Image.Image, filename: str) -> None:
-    """Save a crop + its binarized version to the tool dir for inspection.
-
-    Writes two files per scan: the raw color crop and a max-of-channels
-    binarized version (what the OCR engines actually see). Silent on
-    failure — never breaks the scan loop.
-    """
-    try:
-        # _MODULE_DIR is .../Mining_Signals/ocr — the debug pngs live one level up
-        out_dir = os.path.dirname(_MODULE_DIR)
-        # Raw upscaled crop (4x LANCZOS) so the user can actually see it
-        w, h = crop_img.size
-        if w > 0 and h > 0:
-            big = crop_img.resize((w * 4, h * 4), Image.LANCZOS)
-            big.save(os.path.join(out_dir, filename))
-
-        # Binarized max-of-channels version (what Tesseract sees)
-        rgb = np.array(crop_img.convert("RGB"), dtype=np.uint8)
-        if rgb.ndim == 3 and rgb.size > 0:
-            max_ch = rgb.max(axis=2).astype(np.uint8)
-            scaled = Image.fromarray(max_ch).resize(
-                (max_ch.shape[1] * 4, max_ch.shape[0] * 4), Image.LANCZOS,
-            )
-            arr = np.array(scaled, dtype=np.uint8)
-            thr = _otsu(arr)
-            binary = (arr > thr).astype(np.uint8) * 255
-            bin_name = filename.replace(".png", "_bin.png")
-            Image.fromarray(binary).save(os.path.join(out_dir, bin_name))
-    except Exception as exc:
-        log.debug("debug_save_crop failed (%s): %s", filename, exc)
 
 
 def _ensure_model() -> bool:
@@ -499,35 +397,6 @@ def _find_value_crop(
     return img.crop((x_lo, y1, x_lo + v_right_local, y2))
 
 
-
-
-def _find_text_rows(channel: np.ndarray, min_height: int = 8) -> list[tuple[int, int]]:
-    """Find contiguous horizontal bands containing text pixels.
-
-    Uses the polarity-independent text mask (pixels that deviate from
-    their row's median brightness) so this works on both dark-
-    background HUDs (bright text) and light-background HUDs (dark
-    text on sunlit panels).
-    """
-    text_mask = _build_text_mask(channel, deviation=35)
-    row_counts = text_mask.sum(axis=1)
-    h = len(row_counts)
-
-    rows: list[tuple[int, int]] = []
-    in_row = False
-    start = 0
-    for y in range(h + 1):
-        val = row_counts[y] if y < h else 0
-        if val > 3 and not in_row:
-            in_row = True
-            start = y
-        elif val <= 3 and in_row:
-            in_row = False
-            if y - start >= min_height:
-                rows.append((start, y))
-    return rows
-
-
 # ─────────────────────────────────────────────────────────────
 # ONNX inference pipeline
 # ─────────────────────────────────────────────────────────────
@@ -552,190 +421,6 @@ def _otsu(gray: np.ndarray) -> int:
             max_var = var
             threshold = t
     return threshold
-
-
-def _segment_and_infer(gray: np.ndarray, binary: np.ndarray) -> list[tuple[str, float]]:
-    """Segment characters from a binarized image and run ONNX inference.
-
-    Returns list of (character, confidence) per detected glyph.
-    """
-    if _session is None:
-        return []
-
-    h, w = gray.shape
-
-    # Vertical projection segmentation. Min span width 2 (was 3) so
-    # narrow chars like '1' and '.' aren't dropped — matches the
-    # offline extractor that produced the high-accuracy training data.
-    proj = np.sum(binary > 0, axis=0)
-    spans: list[tuple[int, int]] = []
-    in_char = False
-    start = 0
-    for x in range(w + 1):
-        val = proj[x] if x < w else 0
-        if val > 0 and not in_char:
-            in_char = True
-            start = x
-        elif val == 0 and in_char:
-            in_char = False
-            if x - start >= 2:
-                spans.append((start, x))
-
-    # Right-anchored span filter:
-    # SC HUD values are read right-to-left and the LEFT edge is where
-    # label-text intrusion shows up (e.g. trailing colon of
-    # "RESISTANCE:" leaking in front of "0%"). Find the largest gap
-    # between adjacent spans; if it's much wider than the typical
-    # gap, discard everything LEFT of it (those are label artifacts).
-    if len(spans) >= 2:
-        gaps = [(spans[i + 1][0] - spans[i][1], i) for i in range(len(spans) - 1)]
-        largest_gap, gap_idx = max(gaps, key=lambda g: g[0])
-        if gaps:
-            sorted_gaps = sorted(g for g, _ in gaps)
-            median_gap = sorted_gaps[len(sorted_gaps) // 2]
-        else:
-            median_gap = 0
-        # Heuristic: a gap that's >2× the median or >18 px absolute
-        # marks the boundary between label text and the value cluster.
-        if largest_gap >= max(18, median_gap * 2 + 4):
-            spans = spans[gap_idx + 1:]
-
-    # Crop, pad, resize each character to 28×28
-    char_images: list[np.ndarray] = []
-    for x1, x2 in spans:
-        ys = np.where(np.any(binary[:, x1:x2] > 0, axis=1))[0]
-        if len(ys) < 3:
-            continue
-        y1, y2 = ys[0], ys[-1] + 1
-        crop = gray[y1:y2, x1:x2].astype(np.float32)
-        pad = 2
-        padded = np.full(
-            (crop.shape[0] + pad * 2, crop.shape[1] + pad * 2),
-            255.0, dtype=np.float32,
-        )
-        padded[pad:pad + crop.shape[0], pad:pad + crop.shape[1]] = crop
-        pil = Image.fromarray(padded.astype(np.uint8)).resize(
-            (28, 28), Image.BILINEAR,
-        )
-        char_images.append(np.array(pil, dtype=np.float32) / 255.0)
-
-    # Side-channel: stash the uint8 28×28 crops for the harvest
-    # trigger. Overwrites on every call — caller reads immediately
-    # after _ocr_crop returns, while still on the same thread.
-    _harvest_tls.last_crops = [
-        (c * 255.0).clip(0, 255).astype(np.uint8) for c in char_images
-    ]
-
-    if not char_images:
-        return []
-
-    # Batch inference
-    batch = np.array(char_images, dtype=np.float32).reshape(-1, 1, 28, 28)
-    inp_name = _session.get_inputs()[0].name
-    logits = _session.run(None, {inp_name: batch})[0]
-
-    # Confidence-filtered predictions. Glyphs that the CNN can't classify
-    # confidently (typically: chunks of label text accidentally captured
-    # in the value crop) are dropped rather than mislabeled.
-    _MIN_CONFIDENCE = 0.40
-    results: list[tuple[str, float]] = []
-    for i in range(len(char_images)):
-        probs = np.exp(logits[i] - np.max(logits[i]))
-        probs /= probs.sum()
-        idx = int(np.argmax(probs))
-        conf = float(probs[idx])
-        if conf < _MIN_CONFIDENCE:
-            continue
-        results.append((_char_classes[idx], conf))
-    return results
-
-
-def _ocr_crop(crop_img: Image.Image) -> str:
-    """Triple-engine OCR with auto polarity detection.
-
-    Detects whether the crop is bright-on-dark or dark-on-bright
-    (based on median grayscale — high median = light background =
-    dark text) and inverts before thresholding if needed. All
-    engines then see bright-text-on-dark-background, which is what
-    the trained model expects.
-
-    Engine A: Otsu threshold on (polarity-corrected) grayscale
-    Engine B: Fixed threshold 140 on polarity-corrected grayscale
-    Engine C: Otsu threshold on polarity-corrected max-of-channels
-        (recovers colored warning text)
-
-    Total cost: ~120ms (three ONNX batches).
-    """
-    if _session is None:
-        return ""
-
-    rgb = np.array(crop_img.convert("RGB"), dtype=np.uint8)
-    if rgb.size == 0:
-        return ""
-    gray = np.array(crop_img.convert("L"), dtype=np.uint8)
-    # Max-of-channels: pixel is as bright as its brightest channel,
-    # so saturated-red text stays at full brightness instead of
-    # being dimmed to 30% by the luminance weights.
-    max_ch = rgb.max(axis=2).astype(np.uint8)
-
-    h, w = gray.shape
-    if h < 4 or w < 4:
-        return ""
-
-    # Auto-detect polarity: if the median grayscale is >140, we're
-    # looking at dark text on a light background (common when the
-    # scene behind the translucent HUD is sunlit). Invert both gray
-    # and max-of-channels so the rest of the pipeline sees the
-    # standard bright-on-dark it was tuned for.
-    if np.median(gray) > 140:
-        gray = 255 - gray
-        max_ch = 255 - max_ch
-
-    # Engine A: Otsu threshold on grayscale (white/cyan text).
-    # Now feeds the GRAY channel to the model — matches training data.
-    thr_a = _otsu(gray)
-    binary_a = (gray > thr_a).astype(np.uint8) * 255
-    results_a = _segment_and_infer(gray, binary_a)
-
-    # Engine C: Otsu threshold on max-of-channels for red text detection,
-    # BUT feed the GRAY pixels to the model — the custom CNN was trained
-    # on luminance crops; max-of-channels has a different intensity
-    # profile that systematically biases predictions (e.g. 0->9, 1->7).
-    thr_c = _otsu(max_ch)
-    binary_c = (max_ch > thr_c).astype(np.uint8) * 255
-    results_c = _segment_and_infer(gray, binary_c)
-
-    # Engine B (fixed threshold 140 on grayscale) removed — its high
-    # per-character confidence on wrong characters was poisoning the
-    # vote on red text (e.g. "569" for "96" where it voted '5' at
-    # position 0 with 0.46 conf over Engine A's '9' at 0.36).
-
-    engines = [r for r in (results_a, results_c) if r]
-    if not engines:
-        return ""
-
-    # Engine selection: pick the engine with the highest MEAN
-    # confidence per character. Previously we picked the engine with
-    # the most characters, which let phantom leading digits (label-
-    # text intrusion bleeding into the value crop) outvote the truth
-    # — e.g. "20%" beating "0%" on length even though the leading
-    # "2" was a low-confidence garbage prediction.
-    def _mean_conf(rs: list[tuple[str, float]]) -> float:
-        return sum(c for _, c in rs) / len(rs) if rs else 0.0
-
-    # If all engines agree on length, do per-position confidence vote.
-    if len(set(len(r) for r in engines)) == 1:
-        n = len(engines[0])
-        text = ""
-        for i in range(n):
-            options = [e[i] for e in engines]
-            ch, _ = max(options, key=lambda x: x[1])
-            text += ch
-        return text
-
-    # Otherwise, pick the engine with the highest mean confidence.
-    best = max(engines, key=_mean_conf)
-    return "".join(ch for ch, _ in best)
 
 
 def _find_mineral_row(img: Image.Image) -> Optional[tuple[int, int]]:
@@ -947,18 +632,433 @@ _VALUE_COL_LEFT_FRAC = 0.52
 def _label_rows_from_anchor(
     img: Image.Image, anchor: dict,
 ) -> dict[str, tuple[int, int, int]]:
-    """Compute label rows + mineral row from the SCAN RESULTS anchor.
+    """Compute label rows from the SCAN RESULTS anchor.
 
-    Pure geometry — no projection, no peak detection, no per-frame
-    guessing. Once the anchor is correct, every row IS where it
-    structurally must be.
+    Three-tier strategy, first one to succeed wins:
+
+      A. PURE NCC (preferred) — crop the image to "below the title",
+         run NCC label-template matching against MASS / RESISTANCE /
+         INSTABILITY. Each match's pixel position IS that row's
+         position. The title acts as a y-gate that prevents NCC from
+         drifting into COMPOSITION / commodity rows below the data
+         area. Most robust against tilted text and arbitrary panel
+         scale because each row gets its own deterministic NCC anchor.
+
+      B. MEASURED BANDS (fallback) — horizontal-projection band
+         detection seeded from the title position. Works when NCC
+         label templates don't match (e.g. unusual rendering /
+         missing template) but bands are still distinguishable.
+
+      C. FIXED MULTIPLIERS (deepest fallback) — title_h × static
+         offsets from a reference panel. Only fires when bands also
+         fail. Less robust but gives SOMETHING to work with.
+
+    Tier A landed because measured bands kept finding the wrong bands
+    when the captured region extended through IMPOSSIBLE / COMPOSITION
+    / commodity rows (the projection signal under the title spans
+    those rows AND the data rows, and band detection couldn't always
+    pick the right 4). Per-row NCC is structurally immune to that —
+    each row has its own template match.
     """
     title_y = anchor["title_y"]
     title_h = anchor["title_h"]
     title_bottom = title_y + title_h
+    eff_title_h = min(int(title_h), 50)
+    search_origin = min(img.height, title_y + eff_title_h + 4)
+
+    # ── Tier A: pure NCC for each row (constrained to below title) ──
+    # Crop to below the title, run NCC label-template matching, take
+    # each match's pixel position as that row's location. Compute
+    # label_right per row via GAP-DETECTION (not "rightmost text
+    # column") because the matched template region can extend into
+    # the value column's leading digit, and a rightmost-text scan
+    # would land on the digit's edge instead of the colon.
+    #
+    # Gap detection finds the colon by looking for the first wide
+    # low-density region after the label text. The colon is the
+    # right edge of the contiguous label-text run; whatever's past
+    # the gap is the value, not the colon.
+    try:
+        from .sc_ocr import label_match as _lm_rows
+        if (img.height - search_origin) >= 60:
+            below = img.crop((0, search_origin, img.width, img.height))
+            matches = _lm_rows.find_label_positions(below)
+            if matches and "mass" in matches:
+                # Build a polarity-canonical text mask of the below-title
+                # region (used by label_right gap detection per row).
+                _below_gray = np.array(below.convert("L"), dtype=np.uint8)
+                _below_rgb = np.array(below.convert("RGB"), dtype=np.uint8)
+                _below_detect = _below_rgb.max(axis=2).astype(np.uint8)
+
+                def _label_right_via_gap(m: dict) -> int:
+                    """Find the colon's right edge by run-coalescing.
+
+                    Procedure:
+                      1. Take a Y strip at the matched row's y-range,
+                         scan the FULL image width.
+                      2. Build a per-column text-density profile.
+                      3. Find every "text run" (consecutive above-floor
+                         columns).
+                      4. Coalesce runs separated by < ``_INTRA_LABEL_GAP``
+                         px — that merges inter-letter spaces in MASS /
+                         RESISTANCE / INSTABILITY into one continuous
+                         label run, but keeps the bigger colon-to-value
+                         gap as a separator.
+                      5. The FIRST coalesced run is the label (e.g.
+                         ``MASS:``). Its right edge is the colon's right
+                         edge.
+
+                    The intra-label gap threshold matters: SC's HUD font
+                    has 1-3 px between letters, but 8-15 px after the
+                    colon before the value. ``_INTRA_LABEL_GAP=5`` sits
+                    cleanly between those.
+                    """
+                    H, W = _below_detect.shape
+                    y1 = max(0, m["y"])
+                    y2 = min(H, m["y"] + m["h"])
+                    if y2 <= y1:
+                        return m["x"] + m["w"]
+                    region = _below_detect[y1:y2, :]
+                    thr = _otsu(region)
+                    bright = int((region > thr).sum())
+                    if (region.size - bright) < bright:
+                        canon = (255 - region).astype(np.uint8)
+                    else:
+                        canon = region
+                    thr2 = _otsu(canon)
+                    col_density = (canon > thr2).sum(axis=0)
+                    # Density floor: 15% of row height (lower than 25%
+                    # so the colon's two dots count as text).
+                    floor = max(2, int((y2 - y1) * 0.15))
+                    hot = col_density >= floor
+                    # Find all hot runs.
+                    runs: list[tuple[int, int]] = []
+                    in_run = False
+                    rs = 0
+                    for x in range(W):
+                        if hot[x] and not in_run:
+                            in_run = True
+                            rs = x
+                        elif not hot[x] and in_run:
+                            in_run = False
+                            runs.append((rs, x))
+                    if in_run:
+                        runs.append((rs, W))
+                    if not runs:
+                        return m["x"] + m["w"]
+                    # Restrict to runs starting at or after the matched
+                    # bbox's left edge — the label can't be left of the
+                    # match. (Avoids picking up unrelated text far to
+                    # the left.)
+                    runs = [r for r in runs if r[0] >= max(0, m["x"] - 4)]
+                    if not runs:
+                        return m["x"] + m["w"]
+                    # Coalesce runs separated by small gaps (inter-letter
+                    # spaces). 5 px sits between SC's intra-letter gap
+                    # (~2 px) and post-colon gap (~10 px).
+                    _INTRA_LABEL_GAP = 5
+                    coalesced: list[tuple[int, int]] = [runs[0]]
+                    for cur_rs, cur_re in runs[1:]:
+                        prev_rs, prev_re = coalesced[-1]
+                        if (cur_rs - prev_re) <= _INTRA_LABEL_GAP:
+                            coalesced[-1] = (prev_rs, cur_re)
+                        else:
+                            coalesced.append((cur_rs, cur_re))
+                    # The first coalesced run is the label. Its right
+                    # edge is the colon's right edge.
+                    label_end = coalesced[0][1]
+                    return int(label_end) + 2
+
+                # ── Compute label_right by finding the VALUE COLUMN ──
+                # The HUD left-aligns all 3 values (MASS/RESIST/INSTAB)
+                # to a single column. We can find that column's left
+                # edge directly by scanning each matched row right-to-
+                # left for the rightmost text run — that's the value.
+                # The min across rows gives the value column's leftmost
+                # x; label_right sits just before it.
+                #
+                # This avoids depending on template width fitting the
+                # actual rendered text (templates can be over-wide when
+                # NCC matches at a sub-optimal scale, particularly for
+                # the longer RESISTANCE / INSTABILITY templates whose
+                # NCC scores are weaker).
+                def _value_left_for_row(m: dict) -> Optional[int]:
+                    H, W = _below_detect.shape
+                    y1 = max(0, m["y"])
+                    y2 = min(H, m["y"] + m["h"])
+                    if y2 <= y1:
+                        return None
+                    region = _below_detect[y1:y2, :]
+                    thr = _otsu(region)
+                    bright = int((region > thr).sum())
+                    if (region.size - bright) < bright:
+                        canon = (255 - region).astype(np.uint8)
+                    else:
+                        canon = region
+                    thr2 = _otsu(canon)
+                    col_density = (canon > thr2).sum(axis=0)
+                    # "Solid" letter/digit threshold — much higher than
+                    # the floor used for label-text detection. Values
+                    # render as solid digits with d ≈ 20-30 in a 32 px
+                    # row. Setting threshold to 50% of row height lets
+                    # us reliably find digit columns (and ignore the
+                    # sparse colon dots, which we DON'T want to mistake
+                    # for the value).
+                    solid = max(6, int((y2 - y1) * 0.50))
+                    is_solid = col_density >= solid
+                    # Find the rightmost solid run.
+                    runs: list[tuple[int, int]] = []
+                    in_run = False
+                    rs = 0
+                    for x in range(W):
+                        if is_solid[x] and not in_run:
+                            in_run = True
+                            rs = x
+                        elif not is_solid[x] and in_run:
+                            in_run = False
+                            runs.append((rs, x))
+                    if in_run:
+                        runs.append((rs, W))
+                    if not runs:
+                        return None
+                    # Coalesce runs separated by < 12 px. This merges
+                    # multi-digit value clusters (where digits sit ~3-8 px
+                    # apart, plus the "." in "32.17"-style values) but
+                    # not the larger label-to-value gap (≥15 px on rows
+                    # with short labels like MASS).
+                    coalesced: list[tuple[int, int]] = [runs[0]]
+                    for cur_rs, cur_re in runs[1:]:
+                        prev_rs, prev_re = coalesced[-1]
+                        if (cur_rs - prev_re) <= 12:
+                            coalesced[-1] = (prev_rs, cur_re)
+                        else:
+                            coalesced.append((cur_rs, cur_re))
+                    # The value is the RIGHTMOST coalesced run. Label
+                    # text and the value are always separated by a gap
+                    # large enough that they don't coalesce, so the
+                    # rightmost run IS the value.
+                    if not coalesced:
+                        return None
+                    return int(coalesced[-1][0])
+
+                value_lefts = [
+                    v for v in (
+                        _value_left_for_row(m) for m in matches.values()
+                    ) if v is not None
+                ]
+                # Compute the MASS-derived fallback up front so we can
+                # cross-check the value-column-find result.
+                mass = matches["mass"]
+                _MASS_FALLBACK = mass["x"] + int(mass["w"] * 0.93)
+                if value_lefts:
+                    # Take the MIN — leftmost across rows is where the
+                    # value column starts. Subtract a margin so the
+                    # value crop starts safely BEFORE the leading
+                    # digit. 14 px chosen because narrow digits like
+                    # "1" have lower-density serifs that don't cross
+                    # the "solid" detection threshold; the actual
+                    # leftmost pixel of a "1" can be 4-6 px to the
+                    # LEFT of where ``_value_left_for_row`` reports
+                    # the run starts, AND every caller in api.py adds
+                    # ``+6`` to the returned label_right when computing
+                    # ``x_min`` for ``_find_value_crop``. Net effective
+                    # headroom = 14 − 6 = 8 px, matching the original
+                    # design intent and capturing narrow "1"s
+                    # consistently. (Was 8 → effective 2 px → chopped
+                    # the leading "1" of MASS=11569 / INSTAB=10.82.)
+                    candidate = max(0, min(value_lefts) - 14)
+                    # Sanity check: a healthy candidate should sit
+                    # near the MASS colon. The leading-digit headroom
+                    # margin (14 px above) plus a typical 4 px serif
+                    # gap can put the candidate up to ~14 px LEFT of
+                    # the MASS_FALLBACK colon estimate, so allow a
+                    # generous tolerance. Only fall back when the
+                    # candidate lands implausibly early (> 16 px left
+                    # of MASS_FALLBACK), which suggests the rightmost-
+                    # run approach picked up label text instead of
+                    # value text (panel too narrow / unusual rendering
+                    # / NCC matched poorly).
+                    if candidate >= _MASS_FALLBACK - 16:
+                        label_right = candidate
+                    else:
+                        log.debug(
+                            "label_rows_from_anchor: value-column-find "
+                            "yielded suspicious label_right=%d (< MASS "
+                            "fallback %d) — using MASS fallback",
+                            candidate, _MASS_FALLBACK,
+                        )
+                        label_right = _MASS_FALLBACK
+                else:
+                    label_right = _MASS_FALLBACK
+                # Sanity floor: never let label_right exceed 75% of image
+                # width — values column always has ≥25% of the panel.
+                label_right = min(label_right, int(img.width * 0.75))
+                # Per-match diagnostic for the debug log.
+                per_match_lr = {
+                    k: _label_right_via_gap(m) for k, m in matches.items()
+                }
+
+                # Build the result dict. Use NCC matches for Y, synthesize
+                # missing rows from MASS using template-height-based pitch.
+                _PAD_Y = 4
+                mass_match = matches["mass"]
+                mass_y_full = search_origin + int(mass_match["y"])
+                mass_h = int(mass_match["h"])
+                pitch = max(20, int(round(mass_h * 1.4)))
+
+                def _row_box(m: Optional[dict], offset_pitch: int) -> tuple[int, int]:
+                    if m is not None:
+                        y1 = max(0, search_origin + int(m["y"]) - _PAD_Y)
+                        y2 = min(
+                            img.height,
+                            search_origin + int(m["y"]) + int(m["h"]) + _PAD_Y,
+                        )
+                    else:
+                        cy = mass_y_full + (mass_h // 2) + offset_pitch
+                        y1 = max(0, cy - mass_h // 2 - _PAD_Y)
+                        y2 = min(img.height, cy + mass_h // 2 + _PAD_Y)
+                    return y1, y2
+
+                result: dict[str, tuple[int, int, int]] = {}
+                y1, y2 = _row_box(mass_match, 0)
+                result["mass"] = (y1, y2, label_right)
+                y1, y2 = _row_box(matches.get("resistance"), pitch)
+                result["resistance"] = (y1, y2, label_right)
+                y1, y2 = _row_box(matches.get("instability"), 2 * pitch)
+                result["instability"] = (y1, y2, label_right)
+                y1, y2 = _row_box(None, -pitch)  # mineral synthesized
+                # Don't let mineral row land above the title bottom.
+                if y1 < search_origin - 8:
+                    y1 = max(0, search_origin)
+                    y2 = min(img.height, search_origin + mass_h)
+                result["_mineral_row"] = (y1, y2, label_right)
+
+                log.debug(
+                    "label_rows_from_anchor: NCC tier (search_origin=%d, "
+                    "matched=%s, per_match_lr=%s, shared_lr=%d)",
+                    search_origin,
+                    sorted(matches.keys()),
+                    per_match_lr, label_right,
+                )
+                return result
+    except Exception as exc:
+        log.debug(
+            "label_rows_from_anchor: NCC tier failed (%s) — falling "
+            "back to measured bands", exc,
+        )
+
+    # ── Tier B: measured bands ──
+    try:
+        gray = np.array(img.convert("L"), dtype=np.uint8)
+        search_h = min(img.height - search_origin, 400)
+        if search_h >= 80:
+            band_strip = gray[search_origin:search_origin + search_h, :]
+            text_mask = _build_text_mask(band_strip)
+            proj = text_mask.sum(axis=1).astype(np.float32)
+            if proj.size >= 9:
+                kernel = np.ones(7, dtype=np.float32) / 7.0
+                proj = np.convolve(proj, kernel, mode="same")
+            if proj.size >= 20 and float(proj.max()) > 0:
+                band_thr = max(8.0, float(proj.max()) * 0.12)
+                bands_rel: list[tuple[int, int]] = []
+                in_band = False
+                bs = 0
+                for y in range(proj.size):
+                    v = float(proj[y])
+                    if v >= band_thr and not in_band:
+                        in_band = True
+                        bs = y
+                    elif v < band_thr and in_band:
+                        in_band = False
+                        bands_rel.append((bs, y))
+                if in_band:
+                    bands_rel.append((bs, int(proj.size)))
+                # Filter to plausible single-text-row heights
+                bands_rel = [
+                    b for b in bands_rel if 4 <= (b[1] - b[0]) <= 60
+                ]
+                # Dedupe close-together bands (ascender/x-height splits)
+                bands_rel.sort()
+                deduped: list[tuple[int, int]] = []
+                for b in bands_rel:
+                    if deduped:
+                        prev = deduped[-1]
+                        if ((b[0] + b[1]) // 2 - (prev[0] + prev[1]) // 2) < 12:
+                            if (b[1] - b[0]) > (prev[1] - prev[0]):
+                                deduped[-1] = b
+                            continue
+                    deduped.append(b)
+                bands_rel = deduped
+                # Need at least 4: mineral, mass, resist, instab.
+                if len(bands_rel) >= 4:
+                    abs_bands = [
+                        (search_origin + s, search_origin + e)
+                        for s, e in bands_rel[:4]
+                    ]
+                    # Compute label_right per row by scanning the
+                    # leftmost-text run of each band, then take the max
+                    # (HUD left-aligns all values to one column).
+                    text_mask_full = _build_text_mask(gray)
+                    half_w = img.width // 2
+                    _GAP = 14
+                    per_row_lr: list[int] = []
+                    for y1, y2 in abs_bands[1:]:  # skip mineral row
+                        col_hot = (
+                            text_mask_full[y1:y2, :].sum(axis=0) >= 2
+                        )
+                        hot = np.where(col_hot[:half_w])[0]
+                        if hot.size == 0:
+                            continue
+                        x_start = int(hot[0])
+                        scanned_right = x_start
+                        gap_run = 0
+                        x = x_start
+                        while x < col_hot.shape[0]:
+                            if col_hot[x]:
+                                scanned_right = x + 1
+                                gap_run = 0
+                            else:
+                                gap_run += 1
+                                if gap_run >= _GAP:
+                                    break
+                            x += 1
+                        per_row_lr.append(min(scanned_right, half_w))
+                    if per_row_lr:
+                        label_right = max(per_row_lr)
+                    else:
+                        label_right = int(img.width * _VALUE_COL_LEFT_FRAC)
+
+                    keys = ["_mineral_row", "mass", "resistance", "instability"]
+                    _PAD = 3
+                    result: dict[str, tuple[int, int, int]] = {}
+                    for key, (y1, y2) in zip(keys, abs_bands):
+                        result[key] = (
+                            max(0, y1 - _PAD),
+                            min(img.height, y2 + _PAD),
+                            label_right,
+                        )
+                    log.debug(
+                        "label_rows_from_anchor: measured bands "
+                        "(title_y=%d, title_h=%d, search_origin=%d, "
+                        "bands=%d, label_right=%d)",
+                        title_y, title_h, search_origin,
+                        len(bands_rel), label_right,
+                    )
+                    return result
+    except Exception as exc:
+        log.debug(
+            "label_rows_from_anchor: measured-bands path failed (%s) "
+            "— falling back to fixed multipliers", exc,
+        )
+
+    # ── Fallback: fixed proportional offsets ──
+    # Used when band detection fails (e.g. capture region too small,
+    # tilt corrupts projection too badly to find 4 bands). Less robust
+    # than measurement, but at least produces SOMETHING when measurement
+    # can't.
     half_h = max(8, int(title_h * _ROW_HEIGHT_MULT * 0.5))
     label_right = int(img.width * _VALUE_COL_LEFT_FRAC)
-    result: dict[str, tuple[int, int, int]] = {}
+    result = {}
     for key, mult in _ROW_OFFSET_MULTS.items():
         center_y = title_bottom + int(title_h * (mult - 1.0))
         y1 = max(0, center_y - half_h)
@@ -1243,14 +1343,32 @@ def _find_label_rows_by_position(
     # When the line detector picks up a decorative element above the
     # SCAN RESULTS title (a known false positive on some captures),
     # top_y lands above the title. The first text band found is then
-    # the title itself, NOT the mineral name. The reliable signature
-    # of this failure mode: a HUD line sits BETWEEN bands[0] and
-    # bands[1] in absolute image coordinates (the line under SCAN
-    # RESULTS that separates title from data area).
+    # the title itself, NOT the mineral name. Each row assignment
+    # below shifts down by one slot: mass→mineral, resist→mass, etc.
     #
-    # Detection: walk the line list; if any line's y is strictly
-    # between bands[0].y_end and bands[1].y_start (in absolute
-    # coords), bands[0] is the title — drop it.
+    # We use THREE detectors layered top-to-bottom; the first one to
+    # fire drops bands[0] and the rest are skipped. Each is
+    # independent so a single failure mode (e.g. tilted underline that
+    # _find_panel_lines rejects) doesn't disable all three.
+    #
+    #   Signal A — HUD-LINE-BETWEEN: a HUD line sits strictly between
+    #     bands[0] and bands[1]. Most reliable when the underline is
+    #     extracted as a line (axis-aligned, full-width).
+    #
+    #   Signal B — OUTCOME-HEIGHT: with 5 bands, the last one should
+    #     be the outcome progress bar (EASY/MEDIUM/HARD/...) which is
+    #     ~1.4-2× taller than text rows. If bands[4] is no taller
+    #     than the median of bands[1..3], bands[4] is just another
+    #     text row — meaning we're seeing [title, mineral, mass,
+    #     resist, instab] and the outcome bar fell outside the search
+    #     window. Drop bands[0].
+    #
+    #   Signal C — PITCH-OUTLIER: data rows sit at uniform pitch.
+    #     If bands[0]→bands[1] pitch is meaningfully larger than the
+    #     median pitch of bands[1..3] consecutive pairs, bands[0] is
+    #     the title separated by underline+padding. Backup for cases
+    #     where Signals A and B both fail.
+    title_dropped = False
     if len(bands) >= 2 and lines:
         b0_end_abs = search_origin + bands[0][1]
         b1_start_abs = search_origin + bands[1][0]
@@ -1258,12 +1376,57 @@ def _find_label_rows_by_position(
             if b0_end_abs < ly < b1_start_abs:
                 log.debug(
                     "onnx_hud_reader: dropping bands[0] (SCAN RESULTS "
-                    "title) — HUD line found at y=%d between band[0] "
-                    "(ends y=%d) and band[1] (starts y=%d)",
+                    "title) — Signal A: HUD line at y=%d between "
+                    "band[0] (ends y=%d) and band[1] (starts y=%d)",
                     ly, b0_end_abs, b1_start_abs,
                 )
                 bands = bands[1:]
+                title_dropped = True
                 break
+
+    if not title_dropped and len(bands) >= 5:
+        # Signal B: outcome-bar height check.
+        band_heights = [b[1] - b[0] for b in bands]
+        # Median height of presumed text rows under the assumption
+        # that bands[0] is the title (so bands[1..3] are mineral,
+        # mass, resist — all text rows of similar height).
+        sorted_inner_h = sorted(band_heights[1:4])
+        inner_median_h = sorted_inner_h[len(sorted_inner_h) // 2]
+        outcome_h = band_heights[4]
+        if inner_median_h > 0 and outcome_h <= inner_median_h * 1.15:
+            log.debug(
+                "onnx_hud_reader: dropping bands[0] (SCAN RESULTS "
+                "title) — Signal B: bands[4] height %d <= 1.15 × "
+                "median data-row height %d (outcome bar absent — "
+                "5 text rows means [title, mineral, mass, resist, "
+                "instab])",
+                outcome_h, inner_median_h,
+            )
+            bands = bands[1:]
+            title_dropped = True
+
+    if not title_dropped and len(bands) >= 4:
+        # Signal C: pitch-outlier check.
+        # Use pitches between bands[1..3] consecutive pairs as the
+        # reference. With 4+ bands we have at least 2 inner pairs;
+        # take their median.
+        inner_pitches = [
+            bands[i + 1][0] - bands[i][0]
+            for i in range(1, min(4, len(bands) - 1))
+        ]
+        if inner_pitches:
+            sorted_inner_p = sorted(inner_pitches)
+            median_inner_p = sorted_inner_p[len(sorted_inner_p) // 2]
+            pitch_0_to_1 = bands[1][0] - bands[0][0]
+            if median_inner_p > 0 and pitch_0_to_1 > median_inner_p * 1.4:
+                log.debug(
+                    "onnx_hud_reader: dropping bands[0] (SCAN RESULTS "
+                    "title) — Signal C: bands[0]→bands[1] pitch %d "
+                    "> 1.4 × median inner pitch %d",
+                    pitch_0_to_1, median_inner_p,
+                )
+                bands = bands[1:]
+                title_dropped = True
 
     # Take the first 5 bands — Resource, Mass, Resistance, Instability,
     # Outcome (in that order). If fewer than 5, the outcome bar is
@@ -1626,8 +1789,13 @@ def _find_label_rows_by_ncc(
         idxs = np.where(hot)[0]
         first_hot = int(idxs[0])
         # Walk right from first_hot, allowing small inter-letter gaps
-        # (≤ 8 px) but breaking on the BIG gap between label and value
-        # (≥ 14 px expected, but anything > 10 should suffice).
+        # but breaking on the BIG gap between label and value.
+        # ``gap >= 5`` matches ``_INTRA_LABEL_GAP`` in the Tier A NCC
+        # path: SC's HUD has 1-3 px between letters but 8-15 px after
+        # the colon, so 5 cleanly stops at the colon. Using 12 (the
+        # historical value) BRIDGED into the leading "1" of values
+        # like 11569 / 10.82, chopping the digit off the value crop
+        # downstream. See _label_rows_from_anchor for the same pattern.
         last_hot = first_hot
         gap = 0
         i = first_hot
@@ -1637,7 +1805,7 @@ def _find_label_rows_by_ncc(
                 gap = 0
             else:
                 gap += 1
-                if gap >= 12:
+                if gap >= 5:
                     break
             i += 1
         return int(last_hot) + 2  # small margin for anti-alias halo
@@ -1707,16 +1875,22 @@ def _find_label_rows_by_ncc(
     return result
 
 
-# Module-level "current region" stash. The OCR pipeline (api.py
+# Per-thread "current region" stash. The OCR pipeline (api.py
 # scan_hud_onnx) sets this before calling _find_label_rows so we can
 # look up persistent calibration without changing _find_label_rows'
 # signature (which has dozens of callers across legacy code paths).
-_current_region: Optional[dict] = None
+# threading.local() ensures each scan-pool worker sees its own region
+# value, preventing cross-contamination when up to 64 scans run in
+# parallel.
+_thread_local = threading.local()
 
 
 def _set_current_region(region: Optional[dict]) -> None:
-    global _current_region
-    _current_region = region
+    _thread_local.current_region = region
+
+
+def _get_current_region() -> Optional[dict]:
+    return getattr(_thread_local, "current_region", None)
 
 
 # Rate-limit calibration-state logging so we don't spam the log on every
@@ -1787,23 +1961,45 @@ def _find_label_rows(img: Image.Image) -> dict[str, tuple[int, int, int]]:
     # ── ZEROTH: persistent calibration ──
     # If the user has saved calibration for the current region, use it
     # and skip ALL detection.
-    if _current_region is not None:
+    _region = _get_current_region()
+    if _region is not None:
         try:
             from .sc_ocr import calibration as _cal
             cal_result = _cal.to_label_rows(
-                _current_region, img.width, img.height, img=img,
+                _region, img.width, img.height, img=img,
             )
             # One-shot diagnostic: log whether calibration is loaded for
             # this region so the user can verify in the log file. The
             # rate-limiter guards against per-scan log spam.
             try:
-                _log_calibration_state(_current_region, cal_result)
+                _log_calibration_state(_region, cal_result)
             except Exception:
                 pass
             if cal_result:
                 # Push telemetry to debug overlay
                 try:
                     from .sc_ocr import debug_overlay as _dbg
+                    # Diagnostic-only: try to also locate the SCAN
+                    # RESULTS title via NCC so the gold box is drawn
+                    # even when calibration short-circuits the
+                    # detection cascade. Lets the user visually check
+                    # whether the saved row positions agree with the
+                    # live anchor — if the gold box is high above the
+                    # cyan rows, the calibration is stale and needs
+                    # to be re-locked.
+                    _diag_title_box: Optional[tuple[int, int, int, int]] = None
+                    try:
+                        from .sc_ocr import scan_results_match as _srm_diag
+                        _diag_anchor = _srm_diag.find_scan_results_anchor(img)
+                        if _diag_anchor is not None:
+                            _diag_title_box = (
+                                int(_diag_anchor["title_x"]),
+                                int(_diag_anchor["title_y"]),
+                                int(_diag_anchor["title_w"]),
+                                int(_diag_anchor["title_h"]),
+                            )
+                    except Exception:
+                        pass
                     _dbg.set_panel_finder(
                         top_y=None,
                         mineral_y_top=cal_result.get("_mineral_row", (0, 0, 0))[0],
@@ -1812,6 +2008,7 @@ def _find_label_rows(img: Image.Image) -> dict[str, tuple[int, int, int]]:
                         pitch=None,
                         bot_line_y=None,
                         source="calibration",
+                        title_box=_diag_title_box,
                     )
                 except Exception:
                     pass
@@ -1823,7 +2020,104 @@ def _find_label_rows(img: Image.Image) -> dict[str, tuple[int, int, int]]:
         except Exception as exc:
             log.debug("calibration lookup failed: %s", exc)
 
-    # ── PRIMARY: NCC label template matching ──
+    # ── PRIMARY: SCAN RESULTS title anchor ──
+    # The "SCAN RESULTS" title is the most stable feature of the rock-
+    # scan panel: large bold static text, always at the top, identical
+    # across every rock, every panel scale, every HUD color. Once we
+    # locate it, every other row's position is a known proportional
+    # offset from the title — no per-frame guessing, no risk of NCC
+    # false positives in the COMPOSITION rows below the panel data.
+    #
+    # This runs BEFORE label-template NCC because NCC can be fooled by
+    # COMPOSITION rows when the user's capture region extends past the
+    # SCAN RESULTS panel (e.g. tall regions that include "RAW SILICON
+    # 245" / "HEPHAESTANITE (RAW) 96" — those texts contain glyphs
+    # that NCC-correlate against MASS/RESIST/INSTAB templates and
+    # produce convincing-but-wrong row positions).
+    #
+    # Cache the anchor for 5 s per (image-size) so we only pay the
+    # Tesseract cost when the panel first appears or after a position
+    # shift. Re-detection on cache expiry handles slow drift; abrupt
+    # position changes are caught by the row-validation step
+    # downstream (a wildly mis-aligned anchor produces no readable
+    # values, which clears the lock cache and re-detects).
+    try:
+        import time as _t_anchor
+        _anchor_key = (img.width, img.height)
+        _now = _t_anchor.monotonic()
+        _cached = _scan_results_anchor_cache.get(_anchor_key)
+        anchor: Optional[dict] = None
+        if _cached is not None and (_now - _cached[0]) < 5.0:
+            anchor = _cached[1]
+        else:
+            # Try NCC anchor first (template-based, ~5 ms, tilt-tolerant).
+            # Fall through to Tesseract if the NCC template is missing
+            # or no scale crosses the confidence threshold.
+            try:
+                from .sc_ocr import scan_results_match as _srm
+                anchor = _srm.find_scan_results_anchor(img)
+            except Exception as _srm_exc:
+                log.debug(
+                    "scan_results_match unavailable, falling back to "
+                    "Tesseract anchor: %s", _srm_exc,
+                )
+                anchor = None
+            if anchor is None:
+                anchor = _find_scan_results_anchor(img)
+            if anchor is not None:
+                _scan_results_anchor_cache[_anchor_key] = (_now, anchor)
+        if anchor is not None:
+            anchor_result = _label_rows_from_anchor(img, anchor)
+            if anchor_result:
+                # Push telemetry to the debug overlay so the panel
+                # finder shows where SCAN RESULTS was located.
+                try:
+                    from .sc_ocr import debug_overlay as _dbg
+                    _mineral = anchor_result.get(
+                        "_mineral_row", (0, 0, 0)
+                    )
+                    # Measured pitch from the actual row geometry —
+                    # more accurate than title_h * 1.4 (which is wrong
+                    # whenever Tesseract's bbox on a tilted title
+                    # inflates title_h).
+                    _mass_row = anchor_result.get("mass")
+                    if _mineral and _mass_row:
+                        _measured_pitch = (
+                            (_mass_row[0] + _mass_row[1]) // 2
+                            - (_mineral[0] + _mineral[1]) // 2
+                        )
+                    else:
+                        _measured_pitch = int(anchor["title_h"] * 1.4)
+                    _dbg.set_panel_finder(
+                        top_y=anchor["title_y"],
+                        mineral_y_top=_mineral[0],
+                        mineral_y_bot=_mineral[1],
+                        mineral_center=(_mineral[0] + _mineral[1]) // 2,
+                        pitch=_measured_pitch,
+                        bot_line_y=None,
+                        source="scan_results_anchor",
+                        title_box=(
+                            int(anchor["title_x"]),
+                            int(anchor["title_y"]),
+                            int(anchor["title_w"]),
+                            int(anchor["title_h"]),
+                        ),
+                    )
+                except Exception:
+                    pass
+                log.debug(
+                    "label_rows from SCAN RESULTS anchor "
+                    "(title @ x=%d y=%d w=%d h=%d): %s",
+                    anchor["title_x"], anchor["title_y"],
+                    anchor["title_w"], anchor["title_h"],
+                    {k: v for k, v in anchor_result.items()
+                     if not k.startswith("_")},
+                )
+                return anchor_result
+    except Exception as exc:
+        log.debug("SCAN RESULTS anchor path failed: %s", exc)
+
+    # ── SECONDARY: NCC label template matching ──
     # Concrete per-row pixel positions from matching the rendered
     # MASS:/RESISTANCE:/INSTABILITY: label templates against the
     # panel image. No geometry inference, no Tesseract subprocess —
@@ -1833,17 +2127,17 @@ def _find_label_rows(img: Image.Image) -> dict[str, tuple[int, int, int]]:
     if ncc_result:
         return ncc_result
 
-    # ── SECONDARY: position-based finder (5-band scan from actual text) ──
+    # ── TERTIARY: position-based finder (5-band scan from actual text) ──
     pos_result = _find_label_rows_by_position(img)
     if pos_result:
         return pos_result
 
-    # ── TERTIARY: HUD-line-bracketed grid + fixed fractions ──
+    # ── QUATERNARY: HUD-line-bracketed grid + fixed fractions ──
     grid_result = _find_label_rows_by_hud_grid(img)
     if grid_result:
         return grid_result
 
-    # ── Tesseract fallback (deepest) ──
+    # ── Tesseract per-label fallback (deepest) ──
     if not _check_tesseract():
         return {}
     try:
@@ -2164,1008 +2458,6 @@ def _find_label_rows(img: Image.Image) -> dict[str, tuple[int, int, int]]:
     return result
 
 
-def _find_label_rows_v1_disabled(img: Image.Image) -> dict[str, tuple[int, int, int]]:
-    """[DISABLED] Find MASS / RESIST / INSTAB rows via Tesseract on labels.
-
-    Crops the left ~55% of the HUD (where all labels live) and runs
-    Tesseract in sparse-text mode with a letters+colon whitelist.
-    Returns a dict like::
-
-        {"mass": (y1, y2, label_right_x), ...}
-
-    where ``label_right_x`` is the x-coordinate of the right edge of
-    the matched label text. The value extractor crops the row to
-    everything right of this x, eliminating the label+value fusion
-    problem that plagued the old content-based walker.
-
-    Any missing label is omitted. The y-ranges come from Tesseract's
-    bounding-box output, padded by 3 px so the value row-cropper has
-    breathing room for glyph ascenders/descenders.
-
-    This replaces the content-based walker that tried to OCR every
-    row's value crop to identify which was mass/resistance/instability.
-    Labels are high-contrast white text in a predictable column and
-    Tesseract reads them reliably in one shot.
-    """
-    if not _check_tesseract():
-        return {}
-    try:
-        import pytesseract
-    except ImportError:
-        return {}
-
-    try:
-        w, h = img.size
-        # Label column lives in the left ~55% of the panel; value
-        # columns start around 45-50% width. Crop wider than needed
-        # so we don't clip "INSTABILITY" (longest label).
-        left = img.crop((0, 0, int(w * 0.55), h))
-
-        # Feed Tesseract a CLEAN BINARY from the polarity-
-        # independent text mask. Tesseract was trained on printed
-        # documents (dark text on white paper), so we render
-        # text pixels as BLACK and the background as WHITE — NOT
-        # the other way around. Works identically on both dark-
-        # and light-background HUDs because the text mask is
-        # polarity-independent.
-        left_gray = np.array(left.convert("L"), dtype=np.uint8)
-        text_mask = _build_text_mask(left_gray, deviation=30)
-        # Black text (0) where mask is True, white bg (255) elsewhere
-        binary_label = np.where(text_mask, 0, 255).astype(np.uint8)
-        left_pil = Image.fromarray(binary_label)
-
-        # PSM 11 = sparse text, finds scattered label glyphs without
-        # assuming line structure. Letters + colon whitelist keeps
-        # Tesseract from hallucinating numbers into the labels.
-        data = pytesseract.image_to_data(
-            left_pil,
-            config=(
-                "--psm 11 -c tessedit_char_whitelist="
-                "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz:"
-            ),
-            output_type=pytesseract.Output.DICT,
-        )
-    except Exception as exc:
-        log.debug("onnx_hud_reader: label OCR failed: %s", exc)
-        return {}
-
-    # Label keywords — match on FULL substring, not just 3-char
-    # prefix. "RESUL" from "SCAN RESULTS" previously stole the
-    # "resistance" slot because both start with "res". Require at
-    # least 5 characters of the full word to be present.
-    targets = {
-        "mass":        ("mass",),
-        "resistance":  ("resist",),  # "resistance" → "resist" prefix
-        "instability": ("instab",),  # "instability" → "instab" prefix
-    }
-
-    # found[key] = (y1, y2, label_left_x, score)
-    # We use the label's LEFT edge + a per-row column-density scan
-    # below to locate where the label ends, because Tesseract's
-    # word bbox often absorbs the value text into the label bbox
-    # when they're close together.
-    found: dict[str, tuple[int, int, int, int]] = {}
-    n = len(data.get("text", []))
-    for i in range(n):
-        text = (data["text"][i] or "").strip().lower()
-        if len(text) < 4:
-            continue
-        # Tesseract reports conf=0 on red text, so don't filter by
-        # conf — we rely on the substring match plus a word-length
-        # tiebreaker to pick the best candidate per label.
-        x = int(data["left"][i])
-        y = int(data["top"][i])
-        h_ = int(data["height"][i])
-        for key, needles in targets.items():
-            if any(needle in text for needle in needles):
-                # Score by text length — longer matches are more
-                # reliable ("resistance" beats "res" substring hit).
-                score = len(text)
-                prev = found.get(key)
-                if prev is None or score > prev[3]:
-                    found[key] = (y, y + h_, x, score)
-                break
-
-    if not found:
-        return {}
-
-    # Compute the actual right edge of each label via column-density
-    # scanning. Tesseract's word bbox frequently stretches to absorb
-    # the value text (e.g. RESISTANCE bbox reaches into "25%"), so we
-    # can't use it directly. Instead, starting at the label's left
-    # edge, walk rightward on the row's brightness profile and find
-    # the first sustained gap of low-density columns — that's where
-    # the label text ends and the value text begins.
-    #
-    # Works because all HUD labels are uppercase letters with narrow
-    # inter-letter gaps (≤ 2 px), while the gap between ":" and the
-    # value is ≥ 6 px.
-    full_gray = np.array(img.convert("L"), dtype=np.uint8)
-    # Polarity-independent text mask — works on both light and dark
-    # backgrounds (pixels that deviate from row median are text).
-    full_text_mask = _build_text_mask(full_gray, deviation=35)
-
-    result: dict[str, tuple[int, int, int]] = {}
-    _PAD = 3
-    _GAP_THRESHOLD = 5  # consecutive low-density columns that mark end of label
-    for key, (y1, y2, lbl_left, _score) in found.items():
-        # Restrict the column-density scan to the label's y-band
-        col_hot = full_text_mask[y1:y2, :].sum(axis=0) >= 2
-
-        # Scan right from the label's left edge. First, skip over any
-        # initial bright columns (the label glyphs themselves), then
-        # count consecutive cold columns until we hit _GAP_THRESHOLD.
-        lbl_right = lbl_left
-        x = lbl_left
-        # Walk through label glyphs
-        in_label = True
-        gap_run = 0
-        while x < full_text_mask.shape[1]:
-            if in_label:
-                if col_hot[x]:
-                    lbl_right = x + 1
-                    gap_run = 0
-                else:
-                    gap_run += 1
-                    if gap_run >= _GAP_THRESHOLD:
-                        # End of label
-                        break
-            x += 1
-
-        result[key] = (
-            max(0, y1 - _PAD),
-            min(img.height, y2 + _PAD),
-            lbl_right,
-        )
-    return result
-
-
-def _ocr_crop_fast(crop_img: Image.Image) -> str:
-    """Fast single-engine OCR for exploration.
-
-    Used to classify rows during the MASS/RESIST/INSTAB discovery
-    walk. The result only needs to be "good enough to parse as some
-    number" — we don't trust this output for the final display, we
-    just use it to pick which rows to re-OCR with the full
-    cross-validation pipeline.
-
-    Runs ONE ONNX engine on max-of-channels (which handles both
-    white and red HUD text) instead of the three-engine vote used
-    by ``_ocr_crop``. Typical cost: ~30-40ms vs ~120ms.
-
-    Auto-detects polarity and inverts dark-on-light crops so the
-    trained model always sees bright-text-on-dark.
-    """
-    if _session is None:
-        return ""
-
-    rgb = np.array(crop_img.convert("RGB"), dtype=np.uint8)
-    if rgb.size == 0:
-        return ""
-    # Max-of-channels preserves saturated red text
-    max_ch = rgb.max(axis=2).astype(np.uint8)
-    h, w = max_ch.shape
-    if h < 4 or w < 4:
-        return ""
-
-    # Auto-invert when the background is brighter than the text
-    if np.median(max_ch) > 140:
-        max_ch = 255 - max_ch
-
-    thr = _otsu(max_ch)
-    binary = (max_ch > thr).astype(np.uint8) * 255
-    results = _segment_and_infer(max_ch, binary)
-    if not results:
-        return ""
-    return "".join(ch for ch, _ in results)
-
-
-def _tesseract_crop(crop_img: Image.Image, whitelist: str = "0123456789.") -> str:
-    """Independent OCR using Tesseract — a second set of eyes.
-
-    Runs in parallel with the ONNX model to cross-validate difficult
-    reads (e.g. red-text resistance where ONNX's tiny char classifier
-    collapses the top loop of '9' into '8'). Preprocesses the crop
-    with max-of-channels + 4x upscale + Otsu so Tesseract sees the
-    same bright binary digits regardless of the original text color.
-
-    Returns the raw recognized text, or "" if Tesseract isn't
-    available or the call fails.
-    """
-    if not _check_tesseract():
-        return ""
-    try:
-        import pytesseract
-    except ImportError:
-        return ""
-
-    try:
-        rgb = np.array(crop_img.convert("RGB"), dtype=np.uint8)
-        if rgb.size == 0:
-            return ""
-        # Max-of-channels preserves saturated colors
-        max_ch = rgb.max(axis=2).astype(np.uint8)
-
-        h, w = max_ch.shape
-        if h < 4 or w < 4:
-            return ""
-
-        # Auto-invert dark-on-light crops so Tesseract sees bright
-        # text on a dark background (which it's more accurate on).
-        if np.median(max_ch) > 140:
-            max_ch = 255 - max_ch
-
-        # 4x upscale with LANCZOS before thresholding — Tesseract
-        # prefers larger, smoother glyphs
-        scaled = Image.fromarray(max_ch).resize(
-            (w * 4, h * 4), Image.LANCZOS,
-        )
-        arr = np.array(scaled, dtype=np.uint8)
-        thr = _otsu(arr)
-        binary = (arr > thr).astype(np.uint8) * 255
-        # CRITICAL: flip polarity so Tesseract sees BLACK text on a
-        # WHITE background — the shape it was trained on. Without
-        # this flip, PSM 6/7/8 modes return empty because their
-        # document-type classifier rejects white-on-black input;
-        # only PSM 13 (raw line) accepts it and we don't want to
-        # depend on one PSM working. Empirically verified on the
-        # "382.36" instability crop: pre-flip returns '' on PSM 6/7,
-        # post-flip returns '382.36' on every PSM mode.
-        binary = 255 - binary
-        binary_pil = Image.fromarray(binary)
-
-        # Single PSM 7 (single line) — previously we tried PSM 7/8/6/13
-        # and kept the longest, but that's 4 subprocess spawns per
-        # field × 3 fields = 12 spawns per scan, each ~50-100 ms on
-        # Windows. With 1 Hz scanning that burned an entire CPU core
-        # and caused game stuttering on users' machines. PSM 7 alone
-        # works on 95%+ of crops; the edge cases fall back to ONNX or
-        # Paddle in the 3-way reconciler.
-        cfg = f"--psm 7 -c tessedit_char_whitelist={whitelist}"
-        try:
-            return pytesseract.image_to_string(
-                binary_pil, config=cfg,
-            ).strip()
-        except Exception:
-            return ""
-    except Exception as exc:
-        log.debug("onnx_hud_reader: Tesseract read failed: %s", exc)
-        return ""
-
-
-def _majority_match(
-    vals: list[tuple[str, Optional[float]]],
-    rel_tol: float,
-    abs_tol: float = 1.0,
-) -> Optional[tuple[float, list[str]]]:
-    """Find a majority (>=2) of engines agreeing on a value.
-
-    ``vals`` is a list of ``(engine_name, value)`` pairs. Returns
-    ``(avg_of_agreeing, [engine_names])`` when two or more engines
-    produced values within ``rel_tol`` of each other (also using
-    ``abs_tol`` as a floor for small-number comparisons). Returns
-    ``None`` if no majority exists.
-    """
-    present = [(n, v) for n, v in vals if v is not None]
-    if len(present) < 2:
-        return None
-    # Try every pair; if three engines agree we'll pick them all up
-    # on the first matching pair and then extend with the third.
-    best: Optional[tuple[float, list[str]]] = None
-    for i in range(len(present)):
-        n_i, v_i = present[i]
-        cluster_vals = [v_i]
-        cluster_names = [n_i]
-        for j in range(len(present)):
-            if j == i:
-                continue
-            n_j, v_j = present[j]
-            if abs(v_i - v_j) <= max(abs_tol, max(abs(v_i), abs(v_j)) * rel_tol):
-                cluster_vals.append(v_j)
-                cluster_names.append(n_j)
-        if len(cluster_vals) >= 2:
-            avg = sum(cluster_vals) / len(cluster_vals)
-            if best is None or len(cluster_vals) > len(best[1]):
-                best = (avg, cluster_names)
-    return best
-
-
-def _reconcile_mass(
-    onnx_val: Optional[float],
-    tess_val: Optional[float],
-    onnx_raw: str,
-    tess_raw: str,
-    paddle_val: Optional[float] = None,
-    paddle_raw: str = "",
-) -> Optional[float]:
-    """Combine ONNX, Tesseract and Paddle mass reads.
-
-    Mass is an integer in the low-thousands to low-millions range.
-    Tesseract is generally more reliable than the tiny ONNX CNN on
-    5-6 digit sequences because its LSTM has wider context. ONNX
-    has been observed dropping middle digits (e.g. 12748 → 1298)
-    which is catastrophic for mass — it turns a 12,748 kg rock into
-    a 1,298 kg rock, off by an order of magnitude. Paddle acts as
-    a tie-breaking third voter: with three engines any single-
-    engine failure is outvoted.
-
-    Voting policy (in order):
-      1. All None → None.
-      2. Only one parsed → use it.
-      3. Two or three engines agree within 1% → average of agreeing.
-      4. Fall back to two-engine ONNX/Tesseract digit-length rule.
-    """
-    # Collect all available reads
-    reads = [("onnx", onnx_val), ("tess", tess_val), ("paddle", paddle_val)]
-    present = [(n, v) for n, v in reads if v is not None]
-    if not present:
-        return None
-    if len(present) == 1:
-        name, val = present[0]
-        log.debug("mass: only %s parsed → %s", name, val)
-        return val
-
-    # Three-way majority check
-    majority = _majority_match(reads, rel_tol=0.01)
-    if majority is not None:
-        avg, names = majority
-        if len(names) >= 2 and len([v for _, v in present]) >= 2:
-            log.debug(
-                "mass: majority %s → %.2f (onnx=%r tess=%r paddle=%r)",
-                "+".join(names), avg, onnx_raw, tess_raw, paddle_raw,
-            )
-            return avg
-
-    # No majority — fall back to the legacy two-engine digit-length
-    # rule between ONNX and Tesseract. Paddle is reported in the log
-    # but doesn't participate in the tiebreak since it was the
-    # outlier (no engine agreed with it).
-    if onnx_val is not None and tess_val is not None:
-        onnx_digits = len(str(int(onnx_val)))
-        tess_digits = len(str(int(tess_val)))
-        if tess_digits > onnx_digits:
-            log.info(
-                "mass: 3-way split — ONNX=%s (%r, %d) Tesseract=%s (%r, %d) Paddle=%s (%r), picking Tesseract (longer)",
-                onnx_val, onnx_raw, onnx_digits, tess_val, tess_raw, tess_digits, paddle_val, paddle_raw,
-            )
-            return tess_val
-        if onnx_digits > tess_digits:
-            log.info(
-                "mass: 3-way split — ONNX=%s (%r, %d) Tesseract=%s (%r, %d) Paddle=%s (%r), picking ONNX (longer)",
-                onnx_val, onnx_raw, onnx_digits, tess_val, tess_raw, tess_digits, paddle_val, paddle_raw,
-            )
-            return onnx_val
-        # Same length — prefer ONNX (known-good on dark high-contrast)
-        log.info(
-            "mass: 3-way split — ONNX=%s (%r) Tesseract=%s (%r) Paddle=%s (%r), same length, picking ONNX",
-            onnx_val, onnx_raw, tess_val, tess_raw, paddle_val, paddle_raw,
-        )
-        return onnx_val
-
-    # Only ONNX+Paddle or Tesseract+Paddle exist and they disagree.
-    # Pick the LONGER read — same dropped-digit reasoning.
-    a_name, a_val = present[0]
-    b_name, b_val = present[1]
-    a_digits = len(str(int(a_val)))
-    b_digits = len(str(int(b_val)))
-    if a_digits >= b_digits:
-        log.info(
-            "mass: disagree %s=%s (%d) vs %s=%s (%d), picking %s",
-            a_name, a_val, a_digits, b_name, b_val, b_digits, a_name,
-        )
-        return a_val
-    log.info(
-        "mass: disagree %s=%s (%d) vs %s=%s (%d), picking %s",
-        a_name, a_val, a_digits, b_name, b_val, b_digits, b_name,
-    )
-    return b_val
-
-
-def _reconcile_resistance(
-    onnx_val: Optional[float],
-    tess_val: Optional[float],
-    onnx_raw: str,
-    tess_raw: str,
-    paddle_val: Optional[float] = None,
-    paddle_raw: str = "",
-) -> Optional[float]:
-    """Combine ONNX, Tesseract and Paddle resistance reads.
-
-    Voting policy:
-      1. All None → None.
-      2. Only one engine parsed → use it.
-      3. Two or three engines agree within 1% → average of agreeing.
-      4. No majority → prefer Tesseract (known-good on colored digits),
-         Paddle second, ONNX last (red-text 9→8 misread is its known
-         failure mode).
-    """
-    reads = [("onnx", onnx_val), ("tess", tess_val), ("paddle", paddle_val)]
-    present = [(n, v) for n, v in reads if v is not None]
-    if not present:
-        return None
-    if len(present) == 1:
-        return present[0][1]
-
-    majority = _majority_match(reads, rel_tol=0.01)
-    if majority is not None:
-        avg, names = majority
-        log.debug(
-            "resistance: majority %s → %.2f (onnx=%r tess=%r paddle=%r)",
-            "+".join(names), avg, onnx_raw, tess_raw, paddle_raw,
-        )
-        return avg
-
-    # No majority — prefer in order: Tesseract → Paddle → ONNX
-    log.info(
-        "resistance: 3-way split — ONNX=%s (%r) Tesseract=%s (%r) Paddle=%s (%r)",
-        onnx_val, onnx_raw, tess_val, tess_raw, paddle_val, paddle_raw,
-    )
-    if tess_val is not None:
-        return tess_val
-    if paddle_val is not None:
-        return paddle_val
-    return onnx_val
-
-
-def _reconcile_instability(
-    onnx_val: Optional[float],
-    tess_val: Optional[float],
-    onnx_raw: str,
-    tess_raw: str,
-    paddle_val: Optional[float] = None,
-    paddle_raw: str = "",
-) -> Optional[float]:
-    """Combine ONNX, Tesseract and Paddle instability reads.
-
-    Tesseract and Paddle are the reliable engines for instability
-    because the value almost always contains a decimal (e.g. 731.84)
-    and ONNX's tiny CNN frequently drops or misclassifies the '.',
-    producing garbage integers like 73104 for 731.84.
-
-    Voting policy:
-      1. All None → None.
-      2. Only one parsed → use it.
-      3. Two or three engines agree within 5% → average of agreeing.
-      4. No majority → prefer reads WITH a decimal dot, then Tesseract
-         (known-good decimal handling), then Paddle, then ONNX.
-    """
-    reads = [("onnx", onnx_val), ("tess", tess_val), ("paddle", paddle_val)]
-    present = [(n, v) for n, v in reads if v is not None]
-    if not present:
-        return None
-    if len(present) == 1:
-        return present[0][1]
-
-    # Three-way majority (generous 5% tolerance)
-    majority = _majority_match(reads, rel_tol=0.05)
-    if majority is not None:
-        avg, names = majority
-        log.debug(
-            "instability: majority %s → %.2f (onnx=%r tess=%r paddle=%r)",
-            "+".join(names), avg, onnx_raw, tess_raw, paddle_raw,
-        )
-        return avg
-
-    # Decimal-shape heuristic: reads that contain '.' are much more
-    # likely correct on this field. Filter to dot-bearing reads first.
-    dot_reads = [
-        (n, v, r) for (n, v), r in zip(
-            reads, (onnx_raw, tess_raw, paddle_raw),
-        ) if v is not None and "." in r
-    ]
-    if dot_reads:
-        # Prefer tess > paddle > onnx among dot-bearing reads
-        order = {"tess": 0, "paddle": 1, "onnx": 2}
-        dot_reads.sort(key=lambda x: order[x[0]])
-        log.info(
-            "instability: 3-way split, picking dot-bearing %s=%s — onnx=%r tess=%r paddle=%r",
-            dot_reads[0][0], dot_reads[0][1], onnx_raw, tess_raw, paddle_raw,
-        )
-        return dot_reads[0][1]
-
-    # No dots anywhere. Filter out suspiciously tiny values if we have
-    # larger normal-range alternatives.
-    normals = [(n, v) for n, v in present if v >= 1.0]
-    pool = normals if normals else present
-    order = {"tess": 0, "paddle": 1, "onnx": 2}
-    pool.sort(key=lambda x: order[x[0]])
-    log.info(
-        "instability: 3-way split, picking %s=%s — onnx=%r tess=%r paddle=%r",
-        pool[0][0], pool[0][1], onnx_raw, tess_raw, paddle_raw,
-    )
-    return pool[0][1]
-
-
-# Mass cap. Large asteroids can exceed a million kg — the previous
-# 100,000 cap was silently rejecting legit high-mass rocks and letting
-# the last-known-good value persist stale in the break bubble.
-MAX_MASS_VALUE = 10_000_000.0
-
-
-def _parse_mass(raw: str) -> Optional[float]:
-    """Extract mass value from raw OCR text (e.g. '5927' → 5927.0)."""
-    nums = re.findall(r"[\d.]+", raw)
-    if not nums:
-        return None
-    best = max(nums, key=len)
-    try:
-        val = float(best)
-        return val if 0.1 <= val <= MAX_MASS_VALUE else None
-    except ValueError:
-        return None
-
-
-def _parse_instability(raw: str) -> Optional[float]:
-    """Extract instability value from raw OCR text.
-
-    Instability can include a decimal (e.g. '731.84'). Bounds are
-    generous since the scale varies per rock type.
-    """
-    # Keep digits and dots only
-    cleaned = re.sub(r"[^\d.]", "", raw)
-    if not cleaned:
-        return None
-    # Collapse accidental double-dots
-    cleaned = re.sub(r"\.+", ".", cleaned).strip(".")
-    if not cleaned:
-        return None
-    try:
-        val = float(cleaned)
-        return val if 0 <= val <= 100000 else None
-    except ValueError:
-        return None
-
-
-def _parse_resistance(raw: str) -> Optional[float]:
-    """Extract resistance % from raw OCR text.
-
-    Handles the common case where the '%' symbol is misread as a digit
-    (e.g. '586' where the '6' is actually '%', so the real value is 58).
-    Tries the full string first, then progressively shorter prefixes,
-    since resistance is always 0-100.
-    """
-    # Strip recognized % and - characters
-    cleaned = re.sub(r"[%\-]", "", raw)
-    digits = re.sub(r"[^\d.]", "", cleaned)
-    if not digits:
-        return None
-
-    # Try full string, then drop one char from the right, etc.
-    for end in range(len(digits), 0, -1):
-        substr = digits[:end]
-        try:
-            val = float(substr)
-            if 0 <= val <= 100:
-                return val
-        except ValueError:
-            continue
-    return None
-
-
-# ─────────────────────────────────────────────────────────────
-# Public API
-# ─────────────────────────────────────────────────────────────
-
-# ─────────────────────────────────────────────────────────────
-# Light-background pipeline (PaddleOCR via sidecar)
-# ─────────────────────────────────────────────────────────────
-
-# Module-level executor used by _scan_light to time-box Paddle calls.
-# See the same pattern in screen_reader._get_extract_pool for the
-# rationale — a `with ThreadPoolExecutor() as` block would hang the
-# caller on shutdown(wait=True) even if we already got the result or
-# hit a timeout.
-_light_pool = None
-
-
-def _get_light_pool():
-    global _light_pool
-    if _light_pool is None:
-        from concurrent.futures import ThreadPoolExecutor
-        # 3 workers: one for the synchronous light-path call, one
-        # for the fire-and-forget dark-path background Paddle pass,
-        # plus a spare so a queued bg call can't starve a light
-        # scan that comes in while the bg worker is still in flight.
-        _light_pool = ThreadPoolExecutor(
-            max_workers=3, thread_name_prefix="scan_light"
-        )
-    return _light_pool
-
-# Fixed y-bands per field, measured from known panel geometry.
-# The scan panel is always 397×541 at 1080p; text rows never move.
-# Bands are widened by ~5 px on each side compared to the raw text
-# extents because PaddleOCR reports the y-midpoint of the bbox and
-# the bbox center can drift slightly from the visual center based on
-# glyph ascenders/descenders. Wider bands cost nothing (adjacent
-# rows are ~40 px apart so there's no overlap) and catch every
-# observed value position across our sample set.
-_LIGHT_ROW_BANDS = {
-    "mass":        (115, 160),
-    "resistance":  (155, 195),
-    "instability": (195, 235),
-}
-
-
-def _scan_light(img: Image.Image) -> Optional[dict[str, Optional[float]]]:
-    """Light-background scan via PaddleOCR sidecar.
-
-    Returns the same dict shape as ``scan_hud_onnx`` on success, or
-    None if the sidecar is unavailable or produced no parseable
-    result (caller should fall through to the dark pipeline or
-    return empty).
-
-    Uses fixed row y-bands since panel geometry is constant across
-    captures. Per sample, PaddleOCR finds 15-22 text regions; we
-    filter to the three we care about by y-band membership.
-    """
-    try:
-        from . import paddle_client
-    except Exception as exc:
-        log.debug("paddle_client import failed: %s", exc)
-        return None
-
-    if not paddle_client.is_available():
-        return None
-
-    # Bound the wait on Paddle — the first call per session takes
-    # ~15-20 s for daemon spawn + model load. The main scan loop in
-    # app.py puts a 5 s timeout on the HUD future, so if we block
-    # longer than that here, the whole scan thread crashes with
-    # TimeoutError and the break bubble ends up showing stale
-    # values. Short inner timeout → return None → caller falls
-    # through to the dark pipeline (which returns panel_visible=
-    # False for light panels, hiding the bubble — graceful).
-    import concurrent.futures as _cf
-    pool = _get_light_pool()
-    fut = pool.submit(paddle_client.recognize, img)
-    try:
-        # Paddle warm inference on CPU is ~9 s per call. The old 4 s
-        # timeout here caused _scan_light to ALWAYS time out, silently
-        # disabling the light pipeline. 12 s covers a warm call with
-        # headroom, and the app.py hud_future timeout is raised to
-        # match.  Cold start (~25 s) still times out here — that's
-        # acceptable because the daemon persists and subsequent scans
-        # will be warm.
-        regions = fut.result(timeout=12.0)
-    except _cf.TimeoutError:
-        log.debug("_scan_light: Paddle cold-start in progress, skipping this scan")
-        return None
-    except Exception as exc:
-        log.debug("_scan_light: Paddle call failed: %s", exc)
-        return None
-
-    if regions is None:
-        return None
-
-    result: dict[str, Optional[float]] = {
-        "mass": None,
-        "resistance": None,
-        "instability": None,
-        "panel_visible": False,
-    }
-
-    # Check panel_visible: PaddleOCR finds "SCAN RESULTS" at the top
-    # of the panel when it's on screen. On some samples paddle splits
-    # that into two separate regions ("SCAN" and "RESULTS"), so we
-    # accept either form — look for the two words anywhere in the
-    # region list.
-    found_scan = False
-    found_results = False
-    for r in regions:
-        t = r["text"].lower()
-        if "scan" in t:
-            found_scan = True
-        if "result" in t:
-            found_results = True
-    panel_visible = found_scan and found_results
-    result["panel_visible"] = panel_visible
-
-    if not panel_visible:
-        return result
-
-    def _pick_value(y1: int, y2: int) -> Optional[str]:
-        """Pick the value text in a y-band, skipping label text."""
-        best: Optional[tuple[float, str]] = None
-        for r in regions:
-            y = r.get("y_mid", -1)
-            if not (y1 <= y <= y2):
-                continue
-            text = r["text"].strip()
-            # Reject label-only reads ("MASS:", "RESISTANCE:", "INSTABILITY:")
-            # by requiring at least one digit.
-            if not any(ch.isdigit() for ch in text):
-                continue
-            conf = float(r.get("conf", 0))
-            if best is None or conf > best[0]:
-                best = (conf, text)
-        return best[1] if best else None
-
-    mass_text = _pick_value(*_LIGHT_ROW_BANDS["mass"])
-    res_text = _pick_value(*_LIGHT_ROW_BANDS["resistance"])
-    inst_text = _pick_value(*_LIGHT_ROW_BANDS["instability"])
-
-    if mass_text:
-        result["mass"] = _parse_mass(mass_text)
-    if res_text:
-        result["resistance"] = _parse_resistance(res_text)
-    if inst_text:
-        result["instability"] = _parse_instability(inst_text)
-
-    return result
-
-
-# ─────────────────────────────────────────────────────────────
-# Dark-path Paddle: ASYNC third voter
-# ─────────────────────────────────────────────────────────────
-# Paddle on CPU takes ~9 seconds per warm inference — far longer
-# than the 5 second scan budget set in app.py (hud_future.result
-# timeout=5). We can't wait for Paddle synchronously without
-# crashing the scan thread.
-#
-# Instead we run it fire-and-forget in a background executor and
-# cache the most recent successful result. The next scan reads the
-# cache and uses whatever Paddle produced on the previous frame as
-# a third voter. This works because the break bubble stays up for
-# many seconds on the same rock — as long as the player is hovering
-# on the rock, the cached Paddle text matches the current HUD text,
-# and the 3-way reconciler catches ONNX digit-drops that the 2-way
-# rule might miss.
-#
-# Cache is invalidated automatically when the panel disappears
-# (scan_hud_onnx clears it on panel_visible=False).
-
-import threading as _thr_mod
-
-# Mutex-protected cache state
-_paddle_cache_lock = _thr_mod.Lock()
-_paddle_cache: dict[str, tuple[Optional[float], str]] = {
-    "mass": (None, ""),
-    "resistance": (None, ""),
-    "instability": (None, ""),
-}
-_paddle_cache_t: float = 0.0   # monotonic timestamp of last successful result
-_paddle_bg_fut = None           # currently-running future, or None
-_PADDLE_CACHE_MAX_AGE = 30.0    # drop cache older than this many seconds
-_PADDLE_MIN_INTERVAL_SEC = 15.0  # minimum gap between successful Paddle dispatches
-
-
-def _paddle_cache_get() -> dict[str, tuple[Optional[float], str]]:
-    """Return the cached Paddle result if it is fresh, else empty."""
-    empty = {
-        "mass": (None, ""),
-        "resistance": (None, ""),
-        "instability": (None, ""),
-    }
-    with _paddle_cache_lock:
-        age = time.monotonic() - _paddle_cache_t
-        if _paddle_cache_t == 0.0 or age > _PADDLE_CACHE_MAX_AGE:
-            return empty
-        # Return a copy so callers can't mutate the cache
-        return dict(_paddle_cache)
-
-
-def _paddle_cache_clear() -> None:
-    """Called when the HUD panel disappears — drop stale values."""
-    global _paddle_cache_t, _paddle_cache
-    with _paddle_cache_lock:
-        _paddle_cache_t = 0.0
-        _paddle_cache = {
-            "mass": (None, ""),
-            "resistance": (None, ""),
-            "instability": (None, ""),
-        }
-
-
-def _paddle_dispatch_bg(
-    img: Image.Image,
-    mass_row: Optional[tuple[int, int]],
-    res_row: Optional[tuple[int, int]],
-    inst_row: Optional[tuple[int, int]],
-) -> None:
-    """Kick off a background Paddle call if one is not already running.
-
-    Does not block. The worker writes results into ``_paddle_cache``
-    when the call completes. Only one call is ever in flight at a
-    time — if the previous call is still running, this call is a
-    no-op (saves CPU and avoids starving the scan thread).
-    """
-    global _paddle_bg_fut
-
-    try:
-        from . import paddle_client
-    except Exception:
-        return
-    if not paddle_client.is_available():
-        return
-
-    # Rate-limit dispatch. Paddle takes ~9 s per warm inference and
-    # uses multi-threaded OpenBLAS/MKL — running back-to-back at the
-    # 1 Hz scan rate was pegging user CPUs at 90%+ across all cores.
-    # We only need Paddle as a tie-breaking third voter when the
-    # cache is empty or very stale. Limit to one call per
-    # _PADDLE_MIN_INTERVAL_SEC seconds and skip when the cache is
-    # still fresh.
-    with _paddle_cache_lock:
-        if _paddle_bg_fut is not None and not _paddle_bg_fut.done():
-            return
-        # Skip if the last successful result is still fresh enough
-        # to serve as a third voter — no need to redo work.
-        if (_paddle_cache_t > 0.0
-                and (time.monotonic() - _paddle_cache_t) < _PADDLE_MIN_INTERVAL_SEC):
-            return
-
-    # Snapshot the row coordinates so the worker doesn't race with
-    # the main thread's closure variables.
-    snap_img = img.copy()
-    snap_mass = mass_row
-    snap_res = res_row
-    snap_inst = inst_row
-
-    def _worker():
-        global _paddle_cache_t, _paddle_cache
-        try:
-            regions = paddle_client.recognize(snap_img)
-        except Exception as exc:
-            log.debug("paddle bg: recognize failed: %s", exc)
-            return
-        if not regions:
-            return
-
-        def _pick(band):
-            if band is None:
-                return ""
-            y1, y2 = band
-            best = None
-            for r in regions:
-                y = r.get("y_mid", -1)
-                if not (y1 <= y <= y2):
-                    continue
-                text = r["text"].strip()
-                if not any(ch.isdigit() for ch in text):
-                    continue
-                conf = float(r.get("conf", 0))
-                if best is None or conf > best[0]:
-                    best = (conf, text)
-            return best[1] if best else ""
-
-        mass_raw = _pick(snap_mass)
-        res_raw = _pick(snap_res)
-        inst_raw = _pick(snap_inst)
-
-        new_cache = {
-            "mass": (_parse_mass(mass_raw) if mass_raw else None, mass_raw),
-            "resistance": (_parse_resistance(res_raw) if res_raw else None, res_raw),
-            "instability": (_parse_instability(inst_raw) if inst_raw else None, inst_raw),
-        }
-        with _paddle_cache_lock:
-            _paddle_cache = new_cache
-            _paddle_cache_t = time.monotonic()
-        log.info(
-            "paddle bg: cached mass=%r res=%r inst=%r",
-            mass_raw, res_raw, inst_raw,
-        )
-
-    try:
-        pool = _get_light_pool()
-        with _paddle_cache_lock:
-            _paddle_bg_fut = pool.submit(_worker)
-    except Exception as exc:
-        log.debug("paddle bg: submit failed: %s", exc)
-
-
-# ─────────────────────────────────────────────────────────────
-# Auto-harvest + online learning
-# ─────────────────────────────────────────────────────────────
-
-_reservoir = None
-_learner = None
-
-
-def _get_reservoir():
-    global _reservoir
-    if _reservoir is None:
-        try:
-            from .digit_reservoir import DigitReservoir
-            _reservoir = DigitReservoir()
-        except Exception as exc:
-            log.debug("digit_reservoir init failed: %s", exc)
-    return _reservoir
-
-
-def _get_learner():
-    global _learner
-    if _learner is None:
-        try:
-            from .online_learner import OnlineLearner
-            from pathlib import Path
-            _learner = OnlineLearner(Path(_MODULE_DIR) / "models")
-        except Exception as exc:
-            log.debug("online_learner init failed: %s", exc)
-    return _learner
-
-
-def _vals_agree(*vals: Optional[float], rel_tol: float = 0.005) -> bool:
-    """True if all non-None vals agree within rel_tol (0.5%)."""
-    present = [v for v in vals if v is not None]
-    if len(present) < 2:
-        return False
-    ref = present[0]
-    for v in present[1:]:
-        if abs(v - ref) > max(1.0, abs(ref) * rel_tol):
-            return False
-    return True
-
-
-def _try_harvest_field(
-    raw_string: str,
-    crop_img: Optional[Image.Image],
-) -> None:
-    """Extract and store individual digit crops from a unanimous field.
-
-    Re-segments the crop image using the same Otsu pipeline as the
-    inference path, maps each glyph to its character from the agreed
-    raw string, and pushes digit crops to the reservoir and learner.
-    """
-    if crop_img is None or not raw_string:
-        return
-    reservoir = _get_reservoir()
-    learner = _get_learner()
-    if reservoir is None and learner is None:
-        return
-
-    # Re-segment to get the 28×28 uint8 crops
-    gray = np.array(crop_img.convert("L"), dtype=np.uint8)
-    thr = _otsu(gray)
-    binary = (gray > thr).astype(np.uint8) * 255
-
-    # Build crops manually (mirrors _segment_and_infer preprocessing)
-    h, w = gray.shape
-    proj = np.sum(binary > 0, axis=0)
-    spans = []
-    in_char = False
-    start = 0
-    for x in range(w + 1):
-        val = proj[x] if x < w else 0
-        if val > 0 and not in_char:
-            in_char = True
-            start = x
-        elif val == 0 and in_char:
-            in_char = False
-            if x - start >= 3:
-                spans.append((start, x))
-
-    crops_28 = []
-    for x1, x2 in spans:
-        ys = np.where(np.any(binary[:, x1:x2] > 0, axis=1))[0]
-        if len(ys) < 3:
-            continue
-        y1, y2 = ys[0], ys[-1] + 1
-        crop = gray[y1:y2, x1:x2].astype(np.float32)
-        pad = 2
-        padded = np.full(
-            (crop.shape[0] + pad * 2, crop.shape[1] + pad * 2),
-            255.0, dtype=np.float32,
-        )
-        padded[pad:pad + crop.shape[0], pad:pad + crop.shape[1]] = crop
-        pil = Image.fromarray(padded.astype(np.uint8)).resize(
-            (28, 28), Image.BILINEAR,
-        )
-        crops_28.append(np.array(pil, dtype=np.uint8))
-
-    # Map crops to characters from the raw string.
-    # Strip non-digit characters from the raw string to get labels,
-    # then match by position. If counts don't match, skip.
-    digit_chars = [ch for ch in raw_string if ch in "0123456789"]
-    if len(digit_chars) != len(crops_28):
-        return
-
-    for ch, crop in zip(digit_chars, crops_28):
-        if reservoir is not None:
-            reservoir.add(ch, crop)
-        if learner is not None:
-            learner.submit(ch, crop)
-
-
 def scan_hud_onnx(region: dict) -> dict[str, Optional[float]]:
     """Capture HUD region and extract mass + resistance + instability.
 
@@ -3221,258 +2513,3 @@ def scan_hud_onnx(region: dict) -> dict[str, Optional[float]]:
         # ``KeyError: 'instability'`` failures with no line info.
         log.error("sc_ocr failed: %s", exc, exc_info=True)
         return result
-
-    # ── LEGACY PIPELINE (disabled — kept for reference) ──
-    # To re-enable: remove the 'return' above and uncomment below.
-    if False:
-     img = capture_region_averaged(region)
-     if img is None:
-        img = capture_region(region)
-     if img is None:
-        return result
-
-    # Debug: save the raw unmodified HUD capture so we can dry-run
-    # the pipeline against the exact bytes the scanner sees.
-    # Throttled to avoid disk-write overhead on the hot path.
-    if _should_save_debug():
-        _debug_save_raw(img, "debug_live_hud_raw.png")
-
-    gray = np.array(img.convert("L"), dtype=np.uint8)
-
-    # ── POLARITY DISPATCH ──
-    # Light-background panels (sunlit asteroid / atmospheric scene
-    # bleeding through the translucent HUD) have a median grayscale
-    # well above the dark-background case (~55). When median > 130
-    # the dark pipeline's fixed-threshold heuristics break down, so
-    # we route the image through the PaddleOCR sidecar instead.
-    #
-    # Dark captures follow the tuned ONNX+Tesseract path below.
-    if float(np.median(gray)) > 130:
-        light_result = _scan_light(img)
-        if light_result is not None:
-            elapsed = (time.time() - t0) * 1000
-            log.debug(
-                "onnx_hud_reader[light]: mass=%s resistance=%s instability=%s in %.0fms",
-                light_result["mass"], light_result["resistance"],
-                light_result["instability"], elapsed,
-            )
-            return light_result
-        # Sidecar unavailable — fall through to dark pipeline
-        # as a best-effort; it won't work on light panels but at
-        # least returns panel_visible=False so the bubble hides
-        # instead of showing stale data.
-        log.debug("paddle sidecar unavailable, falling back to dark pipeline")
-
-    # Identify the MASS / RESISTANCE / INSTABILITY rows via Tesseract
-    # label OCR with fallback to fixed pixel offsets.
-    #
-    # Label positions don't move within a rock — the HUD panel is
-    # screen-locked and the labels are at fixed pixel offsets. Cache
-    # the detected rows and reuse them across scans to skip the
-    # expensive Tesseract label OCR (3+ subprocess spawns per call,
-    # ~500 ms of pure subprocess overhead). Cache is keyed by region
-    # geometry and invalidated when the panel disappears (handled by
-    # the `panel_visible=False` path below which clears _label_cache).
-    global _label_cache
-    cache_key = (region["x"], region["y"], region["w"], region["h"])
-    cached = _label_cache.get(cache_key)
-    if cached is not None and (time.monotonic() - cached[0]) < _LABEL_CACHE_TTL_SEC:
-        label_rows = cached[1]
-    else:
-        label_rows = _find_label_rows(img)
-        if label_rows:
-            _label_cache[cache_key] = (time.monotonic(), label_rows)
-    mass_entry = label_rows.get("mass")
-    res_entry = label_rows.get("resistance")
-    inst_entry = label_rows.get("instability")
-
-    # Fallback: use mineral-row anchor if any label is missing
-    if mass_entry is None or res_entry is None or inst_entry is None:
-        mineral_row = _find_mineral_row(img)
-        if mineral_row is not None:
-            mr_center = (mineral_row[0] + mineral_row[1]) // 2
-            _ROW_HEIGHT_HALF = 15
-            _OFFSETS = {"mass": 43, "resistance": 82, "instability": 120}
-            _LABEL_RIGHTS = {"mass": 110, "resistance": 200, "instability": 205}
-
-            def _fallback_row(field: str) -> tuple[int, int, int]:
-                center = mr_center + _OFFSETS[field]
-                y1 = max(0, center - _ROW_HEIGHT_HALF)
-                y2 = min(img.height, center + _ROW_HEIGHT_HALF)
-                return (y1, y2, _LABEL_RIGHTS[field])
-
-            if mass_entry is None:
-                mass_entry = _fallback_row("mass")
-            if res_entry is None:
-                res_entry = _fallback_row("resistance")
-            if inst_entry is None:
-                inst_entry = _fallback_row("instability")
-
-    mass_row = mass_entry[:2] if mass_entry else None
-    res_row = res_entry[:2] if res_entry else None
-    inst_row = inst_entry[:2] if inst_entry else None
-
-    # Debug: dump the full HUD capture with the detected label rows
-    # boxed so we can verify offline.
-    if _should_save_debug():
-        overlay_rows = [r for r in (mass_row, res_row, inst_row) if r is not None]
-        _debug_save_hud_rows(img, overlay_rows)
-
-    # Panel is considered visible if we found at least a mass row —
-    # that's the strongest indicator the scan panel is on screen and
-    # showing real data. "Panel visible but mass unreadable" is
-    # handled upstream by the stale-clear logic in app.py.
-    if mass_row is not None:
-        result["panel_visible"] = True
-
-    if mass_row is None and res_row is None and inst_row is None:
-        log.debug("onnx_hud_reader: no MASS/RESISTANCE labels found")
-        # Panel not visible — clear caches so the next rock/panel
-        # re-detects labels fresh and doesn't see stale values.
-        _paddle_cache_clear()
-        _label_cache.clear()
-        return result
-
-    mass_raw = res_raw = inst_raw = ""
-    res_tess_raw = ""
-    inst_tess_raw = ""
-
-    # Use label_right as the x_min hint so the value crop ignores
-    # anything left of the label, eliminating label+value fusion
-    # without corrupting the text-mask local-background estimate.
-    # Bumped 6 -> 14 so the trailing colon and any anti-alias halo of
-    # "RESISTANCE:"/"INSTABILITY:" don't leak into the value crop and
-    # produce phantom leading digits in front of "0%" etc.
-    _LABEL_GAP = 14
-
-    def _value_crop_for(entry: tuple[int, int, int] | None) -> Optional[Image.Image]:
-        if entry is None:
-            return None
-        y1, y2, lbl_right = entry
-        x_min = max(0, lbl_right + _LABEL_GAP)
-        if x_min >= img.width - 4:
-            return None
-        return _find_value_crop(img, gray, y1, y2, x_min=x_min)
-
-    mass_crop = _value_crop_for(mass_entry)
-    res_crop = _value_crop_for(res_entry)
-    inst_crop = _value_crop_for(inst_entry)
-
-    # Throttled debug saves (out of the parallel hot path).
-    # The raw HUD and rows overlay were already gated above with
-    # the same _should_save_debug() check — match that decision here
-    # and mark the save timestamp so the NEXT scan skips disk-write.
-    if _should_save_debug():
-        if mass_crop is not None:
-            _debug_save_crop(mass_crop, "debug_live_mass_crop.png")
-        if res_crop is not None:
-            _debug_save_crop(res_crop, "debug_live_res_crop.png")
-        if inst_crop is not None:
-            _debug_save_crop(inst_crop, "debug_live_inst_crop.png")
-        _mark_debug_saved()
-
-    from concurrent.futures import ThreadPoolExecutor
-
-    # Per-crop ONNX+Tesseract readers. These return the raw strings
-    # from each engine along with the parsed value; final 3-way
-    # reconciliation happens after the Paddle future also resolves.
-    def _do_mass_ot() -> tuple[Optional[float], Optional[float], str, str]:
-        if mass_crop is None:
-            return None, None, "", ""
-        onnx_raw = _ocr_crop(mass_crop)
-        onnx_val = _parse_mass(onnx_raw)
-        tess_raw_local = _tesseract_crop(mass_crop, whitelist="0123456789")
-        tess_val = _parse_mass(tess_raw_local) if tess_raw_local else None
-        return onnx_val, tess_val, onnx_raw, tess_raw_local
-
-    def _do_res_ot() -> tuple[Optional[float], Optional[float], str, str]:
-        if res_crop is None:
-            return None, None, "", ""
-        onnx_raw = _ocr_crop(res_crop)
-        onnx_val = _parse_resistance(onnx_raw)
-        tess_raw_local = _tesseract_crop(res_crop, whitelist="0123456789.%")
-        tess_val = _parse_resistance(tess_raw_local) if tess_raw_local else None
-        return onnx_val, tess_val, onnx_raw, tess_raw_local
-
-    def _do_inst_ot() -> tuple[Optional[float], Optional[float], str, str]:
-        if inst_crop is None:
-            return None, None, "", ""
-        onnx_raw = _ocr_crop(inst_crop)
-        onnx_val = _parse_instability(onnx_raw)
-        tess_raw_local = _tesseract_crop(inst_crop, whitelist="0123456789.")
-        tess_val = _parse_instability(tess_raw_local) if tess_raw_local else None
-        return onnx_val, tess_val, onnx_raw, tess_raw_local
-
-    # Kick off an async Paddle pass on this HUD capture. Fire-and-
-    # forget — we will not wait for it. The result will land in the
-    # module-level cache and be available to the NEXT scan as a third
-    # voter. Since the break bubble stays up for many seconds on the
-    # same rock, the cached result is still valid for the text we
-    # are reading right now.
-    _paddle_dispatch_bg(img, mass_row, res_row, inst_row)
-
-    # Run the three per-crop ONNX+Tesseract readers concurrently.
-    with ThreadPoolExecutor(max_workers=3) as pool:
-        fut_mass_ot = pool.submit(_do_mass_ot)
-        fut_res_ot = pool.submit(_do_res_ot)
-        fut_inst_ot = pool.submit(_do_inst_ot)
-
-        onnx_mass, tess_mass, mass_raw, mass_tess_raw = fut_mass_ot.result()
-        onnx_res, tess_res, res_raw, res_tess_raw = fut_res_ot.result()
-        onnx_inst, tess_inst, inst_raw, inst_tess_raw = fut_inst_ot.result()
-
-    # Read Paddle's most recent successful result from the cache.
-    # Empty on the first scan of a new rock (typically one lag frame),
-    # populated thereafter until the panel disappears.
-    paddle_vals = _paddle_cache_get()
-    pmass_val, pmass_raw = paddle_vals["mass"]
-    pres_val, pres_raw = paddle_vals["resistance"]
-    pinst_val, pinst_raw = paddle_vals["instability"]
-
-    mass_val = _reconcile_mass(
-        onnx_mass, tess_mass, mass_raw, mass_tess_raw,
-        paddle_val=pmass_val, paddle_raw=pmass_raw,
-    )
-    res_val = _reconcile_resistance(
-        onnx_res, tess_res, res_raw, res_tess_raw,
-        paddle_val=pres_val, paddle_raw=pres_raw,
-    )
-    inst_val = _reconcile_instability(
-        onnx_inst, tess_inst, inst_raw, inst_tess_raw,
-        paddle_val=pinst_val, paddle_raw=pinst_raw,
-    )
-
-    result["mass"] = mass_val
-    result["resistance"] = res_val
-    result["instability"] = inst_val
-
-    # ── AUTO-HARVEST ──
-    # When all 3 engines agree on a field, the OCR label is
-    # near-certainly correct. Harvest individual digit crops for
-    # the reservoir and online learner. Cheap (~5ms per field)
-    # and only fires on unanimous consensus, so it won't slow
-    # down normal scanning.
-    try:
-        if _vals_agree(onnx_mass, tess_mass, pmass_val):
-            _try_harvest_field(mass_raw, mass_crop)
-        if _vals_agree(onnx_res, tess_res, pres_val):
-            _try_harvest_field(res_raw, res_crop)
-        if _vals_agree(onnx_inst, tess_inst, pinst_val):
-            _try_harvest_field(inst_raw, inst_crop)
-    except Exception as exc:
-        log.debug("auto-harvest failed: %s", exc)
-
-    elapsed = (time.time() - t0) * 1000
-    # INFO level (not DEBUG) so the per-scan raw engine reads land in
-    # mining_signals.log for live diagnosis. One line per scan at 1 Hz
-    # is cheap and the rotating file handler caps total size.
-    log.info(
-        "onnx_hud_reader: mass=%s (onnx=%r tess=%r paddle=%r) "
-        "resistance=%s (onnx=%r tess=%r paddle=%r) "
-        "instability=%s (onnx=%r tess=%r paddle=%r) in %.0fms",
-        result["mass"], mass_raw, mass_tess_raw, pmass_raw,
-        result["resistance"], res_raw, res_tess_raw, pres_raw,
-        result["instability"], inst_raw, inst_tess_raw, pinst_raw,
-        elapsed,
-    )
-    return result

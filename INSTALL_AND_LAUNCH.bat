@@ -154,6 +154,14 @@ exit /b
 :find_python
 :: Search common Python install locations on Windows
 
+:: Explicit Python 3.14 (winget pythoncore install) — preferred for SC_Toolbox.
+:: Python 3.13 may be installed separately for the OCR trainer (torch);
+:: it lacks SC_Toolbox runtime deps. Force 3.14 first.
+if exist "%LOCALAPPDATA%\Python\pythoncore-3.14-64\python.exe" (
+    set "PYTHON_EXE=%LOCALAPPDATA%\Python\pythoncore-3.14-64\python.exe"
+    exit /b
+)
+
 :: Standard Python.org user installs
 for %%V in (314 313 312 311 310 39 38) do (
     if exist "%LOCALAPPDATA%\Programs\Python\Python%%V\python.exe" (

@@ -50,7 +50,9 @@ from trade_hub_data import (
     load_config, save_config,
     calc_profit, set_calc_mode, get_calc_mode,
     set_market_mode, find_max_profit_routes,
+    _dist_cache,
 )
+from basket_view import BasketView
 
 # Platform-guarded Win32 imports
 if sys.platform == 'win32':
@@ -240,6 +242,8 @@ class RouteDetailDialog(QDialog):
             self._build_multi_route(d)
         elif route_type == "mixed":
             self._build_mixed_route(d)
+        elif route_type == "basket":
+            self._build_basket_route(d)
 
     def _add_header(self, text: str, color: str = ""):
         lbl = QLabel(text)
@@ -493,6 +497,75 @@ class RouteDetailDialog(QDialog):
             self._add_colored_row("ROI:", f"{roi:.1f}%", roi_color, roi_color)
         self._add_colored_row("Bay Efficiency:", f"{fill_eff:.1f}% avg", P.yellow, P.yellow)
 
+    def _build_basket_route(self, d: dict):
+        mode = d.get("mode", "buy")  # "buy" | "sell"
+        sell = mode == "sell"
+        default_title = "BASKET SALE" if sell else "BASKET ROUTE"
+        label = d.get("label", "") or default_title
+        start_name = d.get("start", "?")
+        stops = d.get("stops", [])
+        total_dist = d.get("total_distance", 0) or 0
+        unresolved = d.get("unresolved", []) or []
+        num_stops = len(stops)
+
+        self._add_header(f"{default_title}  \u2022  {num_stops} stop(s)  \u2022  {label}", P.tool_trade)
+        self._add_separator()
+        self._add_colored_row("Start:", start_name, P.tool_trade, P.fg_bright)
+        if total_dist > 0:
+            self._add_colored_row("Total Distance:", fmt_distance(total_dist), P.energy_cyan, P.energy_cyan)
+            self._add_colored_row("Travel Time:", fmt_eta(total_dist), P.energy_cyan, P.energy_cyan)
+        if unresolved:
+            self._add_colored_row("Unresolved:", ", ".join(unresolved), P.red, P.red)
+
+        qty_label = "DEMAND" if sell else "STOCK"
+        price_label = "Sell:" if sell else "Buy:"
+        price_color = P.green if sell else P.red
+        totals_label = "Est. Revenue (demand):" if sell else "Est. Spend (stocked):"
+        totals_color = P.green if sell else P.red
+
+        money = 0.0
+        for i, stop in enumerate(stops, 1):
+            stop_header = f"STOP {i}:  {stop.get('terminal', '?')}"
+            self._add_header(stop_header, P.accent)
+            self._add_separator()
+            loc = stop.get("location", "")
+            sys_ = stop.get("system", "")
+            if loc:
+                self._add_colored_row("Location:", loc, P.accent, P.fg)
+            if sys_:
+                self._add_colored_row("System:", sys_, P.energy_cyan, P.energy_cyan)
+            leg_dist = stop.get("distance_from_prev", 0) or 0
+            if leg_dist > 0:
+                self._add_colored_row(
+                    "Travel:",
+                    f"{fmt_distance(leg_dist)} \u2022 {fmt_eta(leg_dist)}",
+                    P.energy_cyan, P.energy_cyan,
+                )
+            for pick in stop.get("picks", []):
+                cm = pick.get("commodity", "?")
+                scu = pick.get("scu", 0) or 0
+                price = pick.get("price", 0) or 0
+                self._add_colored_row(
+                    f"  \u2605 {cm}",
+                    f"{scu:,} SCU {qty_label}",
+                    P.yellow, P.yellow,
+                )
+                self._add_colored_row(
+                    f"    {price_label}",
+                    f"{price:,.2f} aUEC/SCU",
+                    price_color, price_color,
+                )
+                money += scu * price
+
+        self._add_header("TOTALS", P.green)
+        self._add_separator()
+        self._add_colored_row("Stops:", f"{num_stops}", P.tool_trade, P.fg_bright)
+        if total_dist > 0:
+            self._add_colored_row("Total Distance:", fmt_distance(total_dist), P.energy_cyan, P.energy_cyan)
+            self._add_colored_row("Travel Time:", fmt_eta(total_dist), P.energy_cyan, P.energy_cyan)
+        if money > 0:
+            self._add_colored_row(totals_label, f"{money:,.0f} aUEC", totals_color, totals_color)
+
     def _toggle_pin(self):
         if self._pinned:
             self._pinned = False
@@ -707,6 +780,10 @@ class TradeHubWindow(SCWindow):
         self._btn_loops.setCursor(Qt.PointingHandCursor)
         self._btn_loops.clicked.connect(lambda: self._set_view_mode("LOOPS"))
         vm_row.addWidget(self._btn_loops)
+        self._btn_basket = QPushButton(_("BASKET"))
+        self._btn_basket.setCursor(Qt.PointingHandCursor)
+        self._btn_basket.clicked.connect(lambda: self._set_view_mode("BASKET"))
+        vm_row.addWidget(self._btn_basket)
         vmw = QWidget()
         vmw.setStyleSheet("background: transparent;")
         vmw.setLayout(vm_row)
@@ -935,6 +1012,15 @@ class TradeHubWindow(SCWindow):
         right_lay.addWidget(self._loop_table, 1)
         right_lay.addWidget(self._mixed_table, 1)
 
+        # Basket view — multi-commodity pickup planner
+        self._basket_view = BasketView(
+            routes_getter=lambda: self._all_routes,
+            dist_cache=_dist_cache,
+        )
+        self._basket_view.plan_clicked.connect(self._on_basket_plan_select)
+        self._basket_view.hide()
+        right_lay.addWidget(self._basket_view, 1)
+
         body.addWidget(right)
         body.setStretchFactor(1, 1)
         layout.addWidget(body, 1)
@@ -959,12 +1045,10 @@ class TradeHubWindow(SCWindow):
     def _update_view_mode_btns(self):
         active_ss = f"QPushButton {{ background: {P.accent}; color: #ffffff; border: none; font-family: Consolas; font-size: 9pt; font-weight: bold; padding: 3px; }}"
         inactive_ss = f"QPushButton {{ background: {P.bg_card}; color: {P.fg_dim}; border: none; font-family: Consolas; font-size: 9pt; font-weight: bold; padding: 3px; }} QPushButton:hover {{ color: {P.fg}; }}"
-        if self._view_mode == "ROUTES":
-            self._btn_routes.setStyleSheet(active_ss)
-            self._btn_loops.setStyleSheet(inactive_ss)
-        else:
-            self._btn_routes.setStyleSheet(inactive_ss)
-            self._btn_loops.setStyleSheet(active_ss)
+        self._btn_routes.setStyleSheet(active_ss if self._view_mode == "ROUTES" else inactive_ss)
+        self._btn_loops.setStyleSheet(active_ss if self._view_mode == "LOOPS" else inactive_ss)
+        if hasattr(self, "_btn_basket"):
+            self._btn_basket.setStyleSheet(active_ss if self._view_mode == "BASKET" else inactive_ss)
 
     def _update_oss_btns(self):
         active_ss = f"QPushButton {{ background: {P.accent}; color: #ffffff; border: none; font-family: Consolas; font-size: 9pt; font-weight: bold; padding: 3px; }}"
@@ -1008,7 +1092,11 @@ class TradeHubWindow(SCWindow):
         self._route_table.hide()
         self._loop_table.hide()
         self._mixed_table.hide()
-        if self._freight_mode == "MIXED":
+        if hasattr(self, "_basket_view"):
+            self._basket_view.hide()
+        if self._view_mode == "BASKET" and hasattr(self, "_basket_view"):
+            self._basket_view.show()
+        elif self._freight_mode == "MIXED":
             self._mixed_table.show()
         elif self._view_mode == "LOOPS":
             self._loop_table.show()
@@ -1076,6 +1164,8 @@ class TradeHubWindow(SCWindow):
         self._all_routes = routes
         scu = self._ship_scu
         self._all_loops = find_multi_routes(routes, scu) if routes else []
+        if hasattr(self, "_basket_view"):
+            self._basket_view.refresh_data()
         self._refresh_display()
         self._status_label.setText(f"  {len(self._all_routes):,} routes | distances loaded")
 
@@ -1092,6 +1182,8 @@ class TradeHubWindow(SCWindow):
         self._last_refresh = time.time()
         self._data_source = source
         self._update_dropdown_values()
+        if hasattr(self, "_basket_view"):
+            self._basket_view.refresh_data()
         self._refresh_display()
         self._refresh_btn.setEnabled(True)
 
@@ -1512,6 +1604,42 @@ class TradeHubWindow(SCWindow):
                 dlg = RouteDetailDialog(self, "MIXED FREIGHT", data)
                 dlg.show()
                 return
+
+    def _on_basket_plan_select(self, plan):
+        """Open a RouteDetailDialog showing the full basket plan."""
+        stops_data = []
+        start_name = ""
+        for i, stop in enumerate(plan.stops):
+            if i == 0 and (stop.distance_from_prev_gm or 0) <= 0:
+                start_name = stop.terminal.terminal_name or ""
+            stops_data.append({
+                "terminal": stop.terminal.terminal_name,
+                "location": stop.terminal.location,
+                "system": stop.terminal.system,
+                "distance_from_prev": stop.distance_from_prev_gm or 0,
+                "picks": [
+                    {
+                        "commodity": o.commodity,
+                        "scu": o.scu_available,
+                        "price": o.price_buy,
+                    }
+                    for o in stop.picks
+                ],
+            })
+        if not start_name and plan.stops:
+            start_name = plan.stops[0].terminal.terminal_name or "?"
+        data = {
+            "type": "basket",
+            "mode": getattr(plan, "mode", "buy"),
+            "label": plan.label,
+            "start": start_name or "?",
+            "stops": stops_data,
+            "total_distance": plan.total_distance_gm,
+            "unresolved": plan.unresolved,
+        }
+        title = "BASKET SALE" if data["mode"] == "sell" else "BASKET ROUTE"
+        dlg = RouteDetailDialog(self, title, data)
+        dlg.show()
 
     # ── Tutorial ──
 

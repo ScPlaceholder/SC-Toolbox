@@ -66,6 +66,26 @@ class ScanBubble(QWidget):
 
     def show_scanning(self, anchor_x: int, anchor_y: int) -> None:
         """Display a 'Scanning — Please Wait' placeholder bubble."""
+        # No-op when already showing the scanning placeholder at the
+        # same anchor. ``_maybe_show_scanning`` re-fires this method
+        # every tick (~500 ms) while the gate is in armed/scanning
+        # state, and each call destroys + recreates the placeholder
+        # QLabels. That's a visible 2 Hz flicker on the bubble for
+        # the same static "Scanning Please Wait" content. Same trick
+        # as show_matches's fingerprint dedupe.
+        _new_scan_fp = ("scanning", anchor_x, anchor_y)
+        if (
+            getattr(self, "_last_scan_fp", None) == _new_scan_fp
+            and self.isVisible()
+            and not self._matches
+        ):
+            return
+        self._last_scan_fp = _new_scan_fp
+
+        # Invalidate the matches fingerprint so the next show_matches
+        # call rebuilds the labels (we just replaced them with the
+        # scanning placeholder; the previous match data is gone).
+        self._last_match_fp = None
         self._matches = []
         self._accent = QColor(P.green)
 
@@ -134,6 +154,25 @@ class ScanBubble(QWidget):
         """
         if not matches:
             return
+
+        # No-op when called repeatedly with identical content. Without
+        # this guard, ``_on_scan_result`` re-fires this method every
+        # scan tick (~500 ms) with the same value, and each call
+        # destroys + recreates every QLabel in the bubble. The window
+        # flickers visibly at 2 Hz while showing the same data.
+        # Compare a content fingerprint: matches' (name, rarity, rock
+        # count) tuples + scanned_value + position. If unchanged,
+        # bail before touching the layout.
+        _new_fp = (
+            tuple((m.name, m.rarity, m.rock_count) for m in matches),
+            scanned_value, anchor_x, anchor_y,
+        )
+        if getattr(self, "_last_match_fp", None) == _new_fp and self.isVisible():
+            return
+        self._last_match_fp = _new_fp
+        # Switching FROM matches mode invalidates the scanning fp so
+        # a future show_scanning call rebuilds.
+        self._last_scan_fp = None
 
         self._matches = matches
         self._accent = QColor(RARITY_COLORS.get(matches[0].rarity, P.fg))
@@ -250,7 +289,93 @@ class ScanBubble(QWidget):
         """Display a single match result."""
         self.show_matches([match], anchor_x, anchor_y)
 
+    def show_hud_readings(
+        self,
+        mineral: "str | None",
+        mass: "float | None",
+        resistance: "float | None",
+        instability: "float | None",
+        anchor_x: int,
+        anchor_y: int,
+    ) -> None:
+        """Display live HUD scanner readings (Mass / Resistance /
+        Instability) in the bubble.
+
+        Used when the HUD scanner is active but the signal scanner
+        isn't — the bubble would otherwise show "Scanning Please Wait"
+        indefinitely while the HUD pipeline is silently producing
+        valid data.
+        """
+        # Same fingerprint reset reasoning as show_scanning.
+        self._last_match_fp = None
+        self._last_scan_fp = None
+        # Mark non-empty so _dismiss_scanning doesn't hide us.
+        # _matches is the "has content" sentinel; we co-opt it here
+        # by stashing a non-empty placeholder list. Downstream
+        # ``_on_scan_result`` / ``show_matches`` will replace it cleanly
+        # if a real signature match arrives.
+        self._matches = [object()]
+        self._accent = QColor(P.green)
+
+        for lbl in self._labels:
+            self._layout.removeWidget(lbl)
+            lbl.deleteLater()
+        self._labels.clear()
+
+        header = QLabel(mineral or "SCAN RESULTS", self)
+        header.setStyleSheet(f"""
+            font-family: Electrolize, Consolas, monospace;
+            font-size: 14pt; font-weight: bold;
+            color: {P.green}; background: transparent;
+        """)
+        self._layout.addWidget(header)
+        self._labels.append(header)
+
+        parts: list[str] = []
+        if mass is not None:
+            parts.append(f"M  {mass:.0f}")
+        if resistance is not None:
+            parts.append(f"R  {resistance:.0f}%")
+        if instability is not None:
+            parts.append(f"I  {instability:.2f}")
+        body = QLabel("    ".join(parts) if parts else "reading…", self)
+        body.setStyleSheet(f"""
+            font-family: Consolas, monospace;
+            font-size: 10pt; color: {P.fg}; background: transparent;
+        """)
+        self._layout.addWidget(body)
+        self._labels.append(body)
+
+        self.setFixedSize(_WIDTH, _PADDING + 48)
+        anim = getattr(self, "_anim", None)
+        if anim is not None:
+            try:
+                anim.stop()
+            except Exception:
+                pass
+        self.move(anchor_x, anchor_y)
+        self.setWindowOpacity(1.0)
+        if not self.isVisible():
+            self.show()
+        self.raise_()
+        try:
+            import ctypes
+            hwnd = int(self.winId())
+            ctypes.windll.user32.SetWindowPos(
+                hwnd, -1, 0, 0, 0, 0,
+                0x0002 | 0x0001 | 0x0040 | 0x0010,
+            )
+        except Exception:
+            pass
+        self._fade_timer.stop()
+        self.update()
+
     def _start_fade_out(self) -> None:
+        if getattr(self, "_anim", None) is not None:
+            try:
+                self._anim.stop()
+            except Exception:
+                pass
         self._anim = QPropertyAnimation(self, b"windowOpacity")
         self._anim.setDuration(_ANIMATION_MS)
         self._anim.setStartValue(1.0)

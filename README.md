@@ -35,8 +35,17 @@
 **[Download the latest installer](https://github.com/ScPlaceholder/SC-Toolbox-Beta-V2/releases/latest)** — no Python required, everything is bundled.
 
 1. Download `SC_Toolbox_Setup_X.Y.Z.exe`
-2. Run the installer
+2. Run the installer (no admin rights needed — installs per-user)
 3. Launch from the desktop shortcut or Start Menu
+4. First launch: press **Shift + `** to open the launcher, then click any tile or use its hotkey
+
+---
+
+## What's New in v2.2.6
+
+- **SC_OCR engine** — purpose-built OCR pipeline for Star Citizen's HUD that powers Mining Signals. CNN-based digit recognition with adaptive thresholding, multi-frame averaging, position-locked row tracking, and self-correcting glyph extraction. Reads mass / resistance / instability from the SCAN RESULTS panel and signal scan percentages with much higher accuracy than the previous Tesseract-only pipeline.
+- **Privacy hardening** — file logs and crash dumps are scrubbed of home-directory paths, usernames, hostnames, IPs, and auth tokens at write time. Nothing personally identifying leaves your machine in a debug or crash report.
+- **Cleaner installer** — ~150 MB smaller. Build pipeline now strips PyTorch ONNX stack-trace metadata and pip-generated wrapper shebangs that previously carried the build-machine username.
 
 ---
 
@@ -52,9 +61,21 @@
 | Shift+6 | **Trade Hub** | Trade route calculator for single-hop & multi-leg routes | uexcorp.space |
 | Shift+7 | **Craft Database** | Crafting recipe browser with material requirements | scmdb.net |
 | Shift+8 | **Battle Buddy** | Real-time HUD overlay — tracks kills, deaths, and inventory from game logs | Star Citizen game log |
-| — | **Mining Signals** | OCR-powered scanner that reads mining signal percentages from the screen | Screen capture (Tesseract OCR) |
+| — | **Mining Signals** | Live screen overlay reading signal scan %, mass, resistance, and instability from the SCAN RESULTS panel — powered by the new **SC_OCR** engine | Screen capture (SC_OCR + Tesseract) |
 
 Press **Shift + `** to toggle the launcher window.
+
+### SC_OCR — purpose-built for Star Citizen
+
+Mining Signals previously relied on stock Tesseract, which struggled with the SC HUD's sparse digits, anti-aliased glyphs, and varying background luminance. v2.2.6 introduces **SC_OCR**: a CNN-based reader trained on actual in-game captures. Highlights:
+
+- **Adaptive (locally-windowed) thresholding** — handles bright vs dark backgrounds without hand-tuning
+- **Position-based row finder with lock cache** — once a row is found, subsequent frames lock onto it for stability and speed
+- **Multi-frame averaging** — smooths out transient OCR noise from animated panels
+- **Glyph-level confidence** — per-digit classification scores, with an optional live "Glyph Reader" debug view
+- **Self-curating training pipeline** — captures, auto-labels (with consensus voting), quarantines contaminated samples, and stages new data for review
+
+You don't need to do anything to use SC_OCR — it ships pre-trained inside Mining Signals.
 
 ---
 

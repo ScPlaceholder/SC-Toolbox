@@ -113,6 +113,14 @@ class Viewer(QWidget):
     def _tick(self):
         if self._time.monotonic() < self._move_pause_until:
             return
+        # Heartbeat so the OCR pipeline keeps writing
+        # debug_panel_overlay.png — gated on this signal in
+        # debug_overlay.write().
+        try:
+            from ocr.sc_ocr import debug_overlay as _dbg
+            _dbg.viewer_heartbeat()
+        except Exception:
+            pass
         if not OVERLAY_PATH.is_file():
             self._meta.setText(f"(file not found: {OVERLAY_PATH.name})")
             self._img.setText("Waiting for the OCR pipeline to write the overlay…")

@@ -122,6 +122,7 @@ class LaserConfig:
     team_name: str = ""                     # owning team name
     cluster: str = ""                       # owning cluster letter/name
     player_names: list[str] = field(default_factory=list)  # crew assigned to the ship
+    laser_crew: list[str] = field(default_factory=list)    # crew assigned to THIS turret
     # Consumable tracking (managed by UI, not UEX)
     active_uses_remaining: int = 0          # remaining module activations (decremented per rock)
     active_module_names: str = ""           # comma-separated active module names for display
@@ -204,6 +205,100 @@ def combine_power(*power_factors_pct: float) -> float:
 
 
 # ─────────────────────────────────────────────────────────────
+# Crew-availability filter
+# ─────────────────────────────────────────────────────────────
+
+@dataclass
+class Reallocation:
+    """Records that a player was pulled to fill an empty MOLE turret."""
+    player_name: str
+    source_ship_id: str       # ship the player normally crews
+    source_ship_display: str  # human-readable source ship name
+    is_mining_donor: bool     # True if source is a mining ship that gets excluded
+    target_ship_id: str       # MOLE that received the player
+    target_ship_display: str
+    target_turret_index: int
+
+
+def _reallocate_crew(
+    lasers: list[LaserConfig],
+    reassignable_pool: list[tuple[str, str, str, bool]],
+) -> tuple[list[LaserConfig], set[str], list[Reallocation]]:
+    """Fill empty MOLE turrets from the reassignable pool.
+
+    Each pool entry is (player_name, source_ship_id, source_display, is_mining_donor).
+
+    Returns:
+        - new lasers list with ``laser_crew`` populated for filled turrets
+        - set of donor ship_ids to exclude from this rock's calculation
+          (mining-ship donors only — support ships still operate)
+        - list of Reallocation records for substitute popup display
+
+    Priority: strongest empty MOLE turret first. Each pool entry can
+    only be used once per rock.
+    """
+    pool = list(reassignable_pool)  # copy so we can pop
+    if not pool:
+        return list(lasers), set(), []
+
+    # Find empty MOLE turrets (no crew currently assigned), strongest first
+    empty_indices = [
+        i for i, c in enumerate(lasers)
+        if c.ship_type.upper() == "MOLE" and not c.laser_crew
+    ]
+    empty_indices.sort(key=lambda i: -lasers[i].max_power)
+
+    if not empty_indices:
+        return list(lasers), set(), []
+
+    new_lasers = list(lasers)
+    excluded_ships: set[str] = set()
+    reallocations: list[Reallocation] = []
+
+    for laser_idx in empty_indices:
+        if not pool:
+            break
+        player, src_id, src_display, is_mining = pool.pop(0)
+        # Make a copy of the laser config with the crew filled in
+        c = new_lasers[laser_idx]
+        new_lasers[laser_idx] = LaserConfig(
+            **{**c.__dict__, "laser_crew": [player]}
+        )
+        if is_mining:
+            excluded_ships.add(src_id)
+        reallocations.append(Reallocation(
+            player_name=player,
+            source_ship_id=src_id,
+            source_ship_display=src_display,
+            is_mining_donor=is_mining,
+            target_ship_id=c.ship_id,
+            target_ship_display=c.ship_display,
+            target_turret_index=c.turret_index,
+        ))
+
+    return new_lasers, excluded_ships, reallocations
+
+
+def _laser_is_crewed(c: LaserConfig) -> bool:
+    """A laser fires only if it has crew available.
+
+    For solo-pilot ships (Prospector / Golem / Caterpillar / non-MOLE
+    types), the pilot is always assumed to be on the laser.
+
+    For MOLEs, each turret needs an explicit crew member assigned. If
+    no crew is assigned to a particular turret, that turret can't fire.
+    """
+    if c.ship_type.upper() != "MOLE":
+        return True
+    return len(c.laser_crew) > 0
+
+
+def _filter_crewed(lasers: list[LaserConfig]) -> list[LaserConfig]:
+    """Return only lasers that have crew available."""
+    return [c for c in lasers if _laser_is_crewed(c)]
+
+
+# ─────────────────────────────────────────────────────────────
 # Multi-laser breakability (subset search)
 # ─────────────────────────────────────────────────────────────
 
@@ -215,10 +310,14 @@ def _greedy_power_percentage(
     """Greedy heuristic for large fleets (n>12 turrets).
 
     Adds turrets one at a time, sorted by max_power descending,
-    until the combined setup can break the rock. Not optimal (might
-    miss a better resistance-modifier combo) but runs in O(n²) instead
+    until the combined setup can break the rock. Filters un-crewed
+    MOLE turrets first. Not optimal but runs in O(n²) instead
     of O(2^n).
     """
+    # Filter out un-crewed MOLE turrets first
+    lasers = _filter_crewed(lasers)
+    if not lasers:
+        return BreakResult(percentage=0.0, used_lasers=[], insufficient=True)
     # Sort by power (strongest first)
     indices = sorted(range(len(lasers)), key=lambda i: -lasers[i].max_power)
     used: list[int] = []
@@ -269,7 +368,15 @@ def power_percentage(
     Mirrors ``calculatePowerPercentage`` in the upstream JS: enumerate
     all non-empty laser subsets, sorted smallest-first, return the
     first one whose combined max power is sufficient.
+
+    MOLE turrets without assigned crew are excluded from the search —
+    a laser can't fire without a gunner.
     """
+    if not lasers:
+        return BreakResult(percentage=0.0, used_lasers=[], insufficient=True)
+
+    # Filter out un-crewed MOLE turrets before enumerating subsets
+    lasers = _filter_crewed(lasers)
     if not lasers:
         return BreakResult(percentage=0.0, used_lasers=[], insufficient=True)
 
@@ -949,6 +1056,9 @@ class TeamBreakResult:
     substitutes: list[SubstituteInfo] = field(default_factory=list)
     substitute_result: BreakResult | None = None
     search_scope: str = ""  # "solo" | "team" | "cluster" | "fleet" | ""
+    # Crew reallocations applied this rock (cleared next rock)
+    reallocations: list[Reallocation] = field(default_factory=list)
+    excluded_donor_ships: set[str] = field(default_factory=set)
 
 
 def team_breakability(
@@ -960,6 +1070,7 @@ def team_breakability(
     fleet_configs: list[tuple[str, str, list[LaserConfig]]],
     available_gadgets: list[GadgetInfo] | None = None,
     always_use_best_gadget: bool = False,
+    reassignable_pool: list[tuple[str, str, str, bool]] | None = None,
 ) -> TeamBreakResult:
     """Team-aware breakability with escalating search scope.
 
@@ -976,8 +1087,62 @@ def team_breakability(
         in the same cluster, sorted alphabetically by team_name.
     fleet_configs : [(team_name, cluster, configs)] for teams in OTHER
         clusters, sorted by cluster letter then team name.
+    reassignable_pool : optional list of (player, source_id, source_display,
+        is_mining_donor) tuples — players that can fill empty MOLE turrets.
+        Mining-ship donors get excluded from this rock's calculation.
     """
     gadgets = available_gadgets or []
+    pool = list(reassignable_pool or [])
+
+    # 0. Apply crew reallocation to fill empty MOLE turrets across all
+    # scopes. Donor mining ships get excluded so we don't double-count.
+    reallocations: list[Reallocation] = []
+    excluded_donors: set[str] = set()
+    if pool:
+        team_configs, exc_t, real_t = _reallocate_crew(team_configs, pool)
+        excluded_donors |= exc_t
+        reallocations.extend(real_t)
+        # Remove already-used players from the pool
+        used_players = {r.player_name for r in real_t}
+        pool = [p for p in pool if p[0] not in used_players]
+
+        new_cluster_configs: list[tuple[str, str, list[LaserConfig]]] = []
+        for tname, cl, cfgs in cluster_configs:
+            cfgs2, exc_c, real_c = _reallocate_crew(cfgs, pool)
+            excluded_donors |= exc_c
+            reallocations.extend(real_c)
+            used_players = {r.player_name for r in real_c}
+            pool = [p for p in pool if p[0] not in used_players]
+            new_cluster_configs.append((tname, cl, cfgs2))
+        cluster_configs = new_cluster_configs
+
+        new_fleet_configs: list[tuple[str, str, list[LaserConfig]]] = []
+        for tname, cl, cfgs in fleet_configs:
+            cfgs2, exc_f, real_f = _reallocate_crew(cfgs, pool)
+            excluded_donors |= exc_f
+            reallocations.extend(real_f)
+            used_players = {r.player_name for r in real_f}
+            pool = [p for p in pool if p[0] not in used_players]
+            new_fleet_configs.append((tname, cl, cfgs2))
+        fleet_configs = new_fleet_configs
+
+    # Filter out donor ships from all scopes so they don't double-count
+    if excluded_donors:
+        team_configs = [c for c in team_configs if c.ship_id not in excluded_donors]
+        cluster_configs = [
+            (tname, cl, [c for c in cfgs if c.ship_id not in excluded_donors])
+            for tname, cl, cfgs in cluster_configs
+        ]
+        fleet_configs = [
+            (tname, cl, [c for c in cfgs if c.ship_id not in excluded_donors])
+            for tname, cl, cfgs in fleet_configs
+        ]
+
+    # Helper: every return path needs reallocation context attached.
+    def _finalize(result: TeamBreakResult) -> TeamBreakResult:
+        result.reallocations = list(reallocations)
+        result.excluded_donor_ships = set(excluded_donors)
+        return result
 
     # 1. User solo
     user_turrets = [c for c in team_configs if c.ship_id == user_ship_id]
@@ -989,9 +1154,9 @@ def team_breakability(
         solo = BreakResult(percentage=0, used_lasers=[], insufficient=True)
 
     if not solo.insufficient:
-        return TeamBreakResult(
+        return _finalize(TeamBreakResult(
             user_can_solo=True, solo_result=solo, search_scope="solo",
-        )
+        ))
 
     # 2. Full team
     if team_configs:
@@ -1003,11 +1168,11 @@ def team_breakability(
                 c.ship_display for c in team_configs
                 if c.name in team_result.used_lasers
             })
-            return TeamBreakResult(
+            return _finalize(TeamBreakResult(
                 user_can_solo=False, solo_result=solo,
                 team_can_break=True, team_result=team_result,
                 team_ships_used=used_ships, search_scope="team",
-            )
+            ))
 
     # 3. Cluster search — add one team at a time from same cluster
     for team_name, cluster, extra_configs in cluster_configs:
@@ -1017,11 +1182,11 @@ def team_breakability(
         )
         if not result.insufficient:
             subs = _extract_substitutes(extra_configs, result, team_name, cluster)
-            return TeamBreakResult(
+            return _finalize(TeamBreakResult(
                 user_can_solo=False, solo_result=solo,
                 substitutes=subs, substitute_result=result,
                 search_scope="cluster",
-            )
+            ))
 
     # 4. Fleet-wide search — single other-cluster team at a time
     for team_name, cluster, extra_configs in fleet_configs:
@@ -1031,11 +1196,11 @@ def team_breakability(
         )
         if not result.insufficient:
             subs = _extract_substitutes(extra_configs, result, team_name, cluster)
-            return TeamBreakResult(
+            return _finalize(TeamBreakResult(
                 user_can_solo=False, solo_result=solo,
                 substitutes=subs, substitute_result=result,
                 search_scope="fleet",
-            )
+            ))
 
     # 5. All same-cluster teams combined. Steps 3/4 only tried ONE
     # substitute team at a time — if no single team supplies enough
@@ -1055,11 +1220,11 @@ def team_breakability(
                     subs.extend(_extract_substitutes(
                         extra_configs, result, team_name, cluster,
                     ))
-                return TeamBreakResult(
+                return _finalize(TeamBreakResult(
                     user_can_solo=False, solo_result=solo,
                     substitutes=subs, substitute_result=result,
                     search_scope="cluster",
-                )
+                ))
 
     # 6. Cumulative cross-cluster expansion. Start with the user's
     # team plus the entire home cluster, then pull in other clusters
@@ -1108,16 +1273,16 @@ def team_breakability(
             subs: list[SubstituteInfo] = []
             for t_name, cl, cfgs in added_teams:
                 subs.extend(_extract_substitutes(cfgs, result, t_name, cl))
-            return TeamBreakResult(
+            return _finalize(TeamBreakResult(
                 user_can_solo=False, solo_result=solo,
                 substitutes=subs, substitute_result=result,
                 search_scope="fleet",
-            )
+            ))
 
     # Nothing works even with every mining ship in the fleet.
-    return TeamBreakResult(
+    return _finalize(TeamBreakResult(
         user_can_solo=False, solo_result=solo, search_scope="",
-    )
+    ))
 
 
 def _extract_substitutes(

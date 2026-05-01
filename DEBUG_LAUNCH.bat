@@ -28,6 +28,12 @@ if exist "%LOCALAPPDATA%\Python" (
     )
 )
 
+:: Explicit Python 3.14 (winget pythoncore install) — preferred for SC_Toolbox
+if exist "%LOCALAPPDATA%\Python\pythoncore-3.14-64\python.exe" (
+    set "PYTHON_EXE=%LOCALAPPDATA%\Python\pythoncore-3.14-64\python.exe"
+    goto :got_py
+)
+
 :: Standard paths
 for %%V in (314 313 312 311 310 39 38) do (
     if exist "%LOCALAPPDATA%\Programs\Python\Python%%V\python.exe" (

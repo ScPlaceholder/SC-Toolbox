@@ -104,6 +104,7 @@ class LedgerScene(QGraphicsScene):
                 unique_id=ship.unique_id,
                 mothership_id=ship.mothership_id,
                 strike_group=ship.strike_group,
+                laser_crew=dict(getattr(ship, "laser_crew", {}) or {}),
             )
             sx, sy = ship._pos.get("x", 0), ship._pos.get("y", 0)
             if sx == 0 and sy == 0:
@@ -156,6 +157,7 @@ class LedgerScene(QGraphicsScene):
                 unique_id=ship.unique_id,
                 mothership_id=ship.mothership_id,
                 strike_group=ship.strike_group,
+                laser_crew=dict(getattr(ship, "laser_crew", {}) or {}),
             )
             sx, sy = ship._pos.get("x", 0), ship._pos.get("y", 0)
             if sx == 0 and sy == 0:
@@ -200,6 +202,7 @@ class LedgerScene(QGraphicsScene):
                     unique_id=s_node.unique_id,
                     mothership_id=s_node.mothership_id,
                     strike_group=s_node.strike_group,
+                    laser_crew=dict(getattr(s_node, "laser_crew", {}) or {}),
                 ))
 
         for t_node in self._teams:
@@ -215,6 +218,7 @@ class LedgerScene(QGraphicsScene):
                     unique_id=s_node.unique_id,
                     mothership_id=s_node.mothership_id,
                     strike_group=s_node.strike_group,
+                    laser_crew=dict(getattr(s_node, "laser_crew", {}) or {}),
                 ))
             parent = self._team_parent.get(t_node)
             parent_leader = ""
@@ -240,6 +244,7 @@ class LedgerScene(QGraphicsScene):
                 unique_id=s_node.unique_id,
                 mothership_id=s_node.mothership_id,
                 strike_group=s_node.strike_group,
+                laser_crew=dict(getattr(s_node, "laser_crew", {}) or {}),
             ))
 
         # Strike groups
@@ -483,10 +488,12 @@ class LedgerScene(QGraphicsScene):
         self, name: str, ship_type: str, loadout_path: str = "",
         crew: list[str] | None = None, model_crew: int = 0,
         unique_id: str = "", mothership_id: str = "", strike_group: str = "",
+        laser_crew: dict[int, list[str]] | None = None,
     ) -> ShipNode:
         s = ShipNode(
             name, ship_type, loadout_path, crew, model_crew=model_crew,
             unique_id=unique_id, mothership_id=mothership_id, strike_group=strike_group,
+            laser_crew=laser_crew,
         )
         self.addItem(s)
         self._ships.append(s)
@@ -497,7 +504,14 @@ class LedgerScene(QGraphicsScene):
         s.drag_released.connect(self._try_snap_ship)
         s.ship_dropped_on_me.connect(lambda info, sn=s: self.assign_ship_to_mothership(sn, info))
         s.request_add_strike_group.connect(self.add_strike_group)
+        s.request_config_turret_crew.connect(self._on_config_turret_crew)
         return s
+
+    def _on_config_turret_crew(self, ship_node) -> None:
+        """Show a popup to configure per-turret crew on a MOLE."""
+        # Lazy import to avoid Qt circular deps
+        from .turret_crew_popup import show_turret_crew_popup
+        show_turret_crew_popup(ship_node, self.hierarchy_changed.emit)
 
     def _create_strike_group_node(
         self, name: str, mothership_id: str, leader: str = "",

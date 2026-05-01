@@ -67,6 +67,12 @@ _BUILTIN_SKILLS: list[dict] = [
         "script": "hud_app.py", "hotkey": "<shift>+8",
         "settings_key": "hotkey_battle_buddy",
     },
+    {
+        "id": "mouse_blocker", "name": N_("Mouse Blocker"), "icon": "\U0001f6ab",
+        "color": "#ff3355", "folder": "Mouse_Blocker",
+        "script": "mouse_blocker_app.py", "hotkey": "<shift>+0",
+        "settings_key": "hotkey_mouse_blocker",
+    },
 ]
 
 _BUILTIN_INDEX: dict[str, dict] = {s["id"]: s for s in _BUILTIN_SKILLS}

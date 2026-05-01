@@ -97,8 +97,13 @@ def _update_location(monitor: "RefineryMonitor", line: str) -> None:
     if m:
         raw_code = m.group(1)
         name = _resolve_location(raw_code)
-        if name != monitor._current_location:
-            monitor._current_location = name
+        with monitor._lock:
+            if name != monitor._current_location:
+                monitor._current_location = name
+                changed = True
+            else:
+                changed = False
+        if changed:
             log.debug("Player location: %s (%s)", name, raw_code)
 
 
@@ -119,6 +124,11 @@ class RefineryMonitor:
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._pos: int = 0
+        # _seen_ids and _current_location are written from the worker
+        # thread (_run) and read from the main thread (current_location
+        # property + dispatch path). _lock guards both to prevent torn
+        # reads (e.g. set membership tests racing with .add()/.clear()).
+        self._lock = threading.Lock()
         self._seen_ids: set[str] = set()
         self._current_location: str = ""  # human-readable player location
 
@@ -148,12 +158,14 @@ class RefineryMonitor:
     @property
     def current_location(self) -> str:
         """Human-readable player location from the most recent log."""
-        return self._current_location
+        with self._lock:
+            return self._current_location
 
     def _run(self) -> None:
         # Phase 1: backfill from LogBackups + full Game.log
         results = self._backfill()
-        self._seen_ids = {e["id"] for e in results}
+        with self._lock:
+            self._seen_ids = {e["id"] for e in results}
         if results:
             self._dispatch(results)
 
@@ -179,6 +191,8 @@ class RefineryMonitor:
                     log.info("RefineryMonitor: log rotated, seeking to 0")
                     self._pos = 0
                     fh.seek(0)
+                    with self._lock:
+                        self._seen_ids.clear()
 
                 line = fh.readline()
                 if line:
@@ -187,14 +201,18 @@ class RefineryMonitor:
                     # Track player location changes
                     _update_location(self, stripped)
                     entry = _parse_refinery_line(stripped)
-                    if entry and entry["id"] not in self._seen_ids:
-                        self._seen_ids.add(entry["id"])
-                        # Re-dispatch full sorted list with new entry
-                        results.append(entry)
-                        results.sort(
-                            key=lambda e: e["timestamp"], reverse=True,
-                        )
-                        self._dispatch(list(results))
+                    if entry:
+                        with self._lock:
+                            is_new = entry["id"] not in self._seen_ids
+                            if is_new:
+                                self._seen_ids.add(entry["id"])
+                        if is_new:
+                            # Re-dispatch full sorted list with new entry
+                            results.append(entry)
+                            results.sort(
+                                key=lambda e: e["timestamp"], reverse=True,
+                            )
+                            self._dispatch(list(results))
                 else:
                     time.sleep(_POLL_INTERVAL)
 
@@ -245,7 +263,8 @@ class RefineryMonitor:
                         # Track last location
                         m = _LOCATION_RE.search(line)
                         if m:
-                            self._current_location = _resolve_location(m.group(1))
+                            with self._lock:
+                                self._current_location = _resolve_location(m.group(1))
             except OSError as exc:
                 log.warning("Could not read Game.log: %s", exc)
 

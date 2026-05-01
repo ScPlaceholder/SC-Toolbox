@@ -58,6 +58,13 @@ class DigitReservoir:
 
         Returns True if the sample was actually written to disk.
         """
+        # Honour the same kill switch the in-repo training_collector
+        # uses, so disabling auto-collection from one place stops ALL
+        # disk writes (signal training_data + CRNN dataset + the user
+        # reservoir) instead of leaving the reservoir to keep growing.
+        import os as _os
+        if _os.environ.get("SC_TOOLBOX_AUTO_COLLECT", "0") != "1":
+            return False
         if digit_char not in DIGIT_CLASSES:
             return False
         if image_28x28.shape != (28, 28):

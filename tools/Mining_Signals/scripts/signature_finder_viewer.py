@@ -119,13 +119,119 @@ def _annotate(
 # UI
 # ─────────────────────────────────────────────────────────────
 
-from PySide6.QtCore import Qt, QTimer  # noqa: E402
+from PySide6.QtCore import Qt, QObject, QRunnable, QThreadPool, QTimer, Signal  # noqa: E402
 from PySide6.QtGui import QColor, QFont, QPalette, QPixmap  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
     QApplication, QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy,
     QVBoxLayout, QWidget,
 )
 from PIL.ImageQt import ImageQt  # noqa: E402
+
+
+# ─────────────────────────────────────────────────────────────
+# Worker plumbing — moves the heavy scan work off the UI thread.
+# ─────────────────────────────────────────────────────────────
+
+
+class _SigScanResult:
+    """Plain payload object passed from worker → UI via queued signal."""
+    __slots__ = (
+        "annotated", "icon_found", "digit_box", "value", "dt_ms",
+        "anchor_error", "ocr_error",
+    )
+
+    def __init__(self):
+        self.annotated: Optional[Image.Image] = None
+        self.icon_found = None  # tuple(x1,y1,x2,y2,score) or None
+        self.digit_box = None
+        self.value = None
+        self.dt_ms = 0.0
+        self.anchor_error: Optional[str] = None
+        self.ocr_error: Optional[str] = None
+
+
+class _SigScanSignaler(QObject):
+    """Lives on the UI thread; emits ``done`` queued from a worker thread."""
+    done = Signal(object)
+
+
+class _SigScanWorker(QRunnable):
+    """One scan tick. All heavy work (capture, NCC anchor, OCR, annotate,
+    resize) runs in ``run`` on a pool thread. Pure-Python / numpy / PIL
+    only — no widget access."""
+
+    def __init__(
+        self,
+        region: dict,
+        anchor_mod,
+        api_mod,
+        signaler: _SigScanSignaler,
+        target_w: int,
+        target_h: int,
+    ):
+        super().__init__()
+        self._region = region
+        self._anchor = anchor_mod
+        self._api = api_mod
+        self._signaler = signaler
+        # Snapshot of label size at submit time — used for the resize so
+        # the worker doesn't have to touch the widget.
+        self._target_w = target_w
+        self._target_h = target_h
+
+    def run(self):
+        result = _SigScanResult()
+        t0 = time.monotonic()
+        try:
+            img = _capture(self._region)
+            if img is None:
+                result.anchor_error = "capture failed"
+                result.dt_ms = (time.monotonic() - t0) * 1000.0
+                self._signaler.done.emit(result)
+                return
+
+            gray = np.asarray(img.convert("L"), dtype=np.uint8)
+            try:
+                result.icon_found = self._anchor.find_icon(gray)
+            except Exception as e:
+                result.anchor_error = f"anchor error: {e}"
+            try:
+                result.digit_box = self._anchor.find_digit_crop_box(gray)
+            except Exception:
+                result.digit_box = None
+            try:
+                result.value = self._api._signal_recognize_pil(img)
+            except Exception as e:
+                result.ocr_error = str(e)
+
+            icon_xyxy = None
+            if result.icon_found is not None:
+                x1, y1, x2, y2, _score = result.icon_found
+                icon_xyxy = (x1, y1, x2, y2)
+            annotated = _annotate(img, icon_xyxy, result.digit_box)
+
+            max_w = max(200, self._target_w - 16)
+            max_h = max(100, self._target_h - 16)
+            ratio = min(max_w / annotated.width, max_h / annotated.height)
+            if ratio > 1:
+                annotated = annotated.resize(
+                    (int(annotated.width * ratio), int(annotated.height * ratio)),
+                    Image.NEAREST,
+                )
+            elif ratio < 1:
+                annotated = annotated.resize(
+                    (int(annotated.width * ratio), int(annotated.height * ratio)),
+                    Image.LANCZOS,
+                )
+            result.annotated = annotated
+            result.dt_ms = (time.monotonic() - t0) * 1000.0
+        except Exception as e:
+            # Safety net — never let an exception kill the worker without
+            # delivering a result, or _scan_in_progress would stay True
+            # forever.
+            result.anchor_error = f"worker crashed: {e}"
+            result.dt_ms = (time.monotonic() - t0) * 1000.0
+        self._signaler.done.emit(result)
 
 
 class SignatureFinderViewer(QWidget):
@@ -155,6 +261,17 @@ class SignatureFinderViewer(QWidget):
         # last move event, which feels instant to the user.
         self._move_pause_until = 0.0
         self._move_pause_seconds = 0.4
+
+        # Off-thread scan pipeline. Pool size = 1 so we never run two
+        # scans concurrently; combined with ``_scan_in_progress`` the
+        # worst case is exactly one queued scan at a time.
+        self._pool = QThreadPool()
+        self._pool.setMaxThreadCount(1)
+        self._signaler = _SigScanSignaler()
+        # Default cross-thread connection is QueuedConnection — the
+        # slot will run on the UI thread (this object's thread).
+        self._signaler.done.connect(self._on_scan_result)
+        self._scan_in_progress = False
 
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._poll)
@@ -284,11 +401,21 @@ class SignatureFinderViewer(QWidget):
         return True
 
     def _poll(self):
+        # ── UI-thread only: gating, heartbeat, work submission ──
         # Skip while the user is dragging/repositioning the window
         # (see __init__ comment on _move_pause_until). The next
         # tick after the pause window expires will catch up.
         if time.monotonic() < self._move_pause_until:
             return
+        # Heartbeat so the OCR pipeline knows we're watching and
+        # keeps producing diagnostic dumps. Without this the dumps
+        # are gated off and we'd see stale frames. (Kept on UI thread
+        # per refactor brief — separate cleanup planned.)
+        try:
+            from ocr.sc_ocr import debug_overlay as _dbg
+            _dbg.viewer_heartbeat()
+        except Exception:
+            pass
         if self._region is None:
             self._reload_region()
             if self._region is None:
@@ -296,54 +423,51 @@ class SignatureFinderViewer(QWidget):
         if not self._ensure_imports():
             return
 
-        t0 = time.monotonic()
-        img = _capture(self._region)
-        if img is None:
-            self._image_lbl.setText("(capture failed)")
+        # If the previous scan is still running, skip this tick to
+        # avoid backlog. Pool is size-1 anyway, but the flag also
+        # prevents the queue from growing past one entry.
+        if self._scan_in_progress:
             return
 
-        # Run anchor + recognize
-        gray = np.asarray(img.convert("L"), dtype=np.uint8)
-        try:
-            icon_found = self._anchor.find_icon(gray)
-        except Exception as e:
-            icon_found = None
-            self._status_lbl.setText(f"anchor error: {e}")
-        try:
-            digit_box = self._anchor.find_digit_crop_box(gray)
-        except Exception:
-            digit_box = None
-        try:
-            value = self._api._signal_recognize_pil(img)
-        except Exception as e:
-            value = None
+        # Snapshot label size on UI thread; pass into worker so the
+        # worker never touches widgets.
+        target_w = self._image_lbl.width()
+        target_h = self._image_lbl.height()
 
-        dt_ms = (time.monotonic() - t0) * 1000.0
+        worker = _SigScanWorker(
+            self._region, self._anchor, self._api, self._signaler,
+            target_w, target_h,
+        )
+        self._scan_in_progress = True
+        self._pool.start(worker)
 
-        # Annotate the captured image
-        icon_xyxy = None
-        if icon_found is not None:
-            x1, y1, x2, y2, _score = icon_found
-            icon_xyxy = (x1, y1, x2, y2)
-        annotated = _annotate(img, icon_xyxy, digit_box)
-        # Scale to fit the label's current size while keeping aspect.
-        max_w = max(200, self._image_lbl.width() - 16)
-        max_h = max(100, self._image_lbl.height() - 16)
-        ratio = min(max_w / annotated.width, max_h / annotated.height)
-        if ratio > 1:
-            annotated = annotated.resize(
-                (int(annotated.width * ratio), int(annotated.height * ratio)),
-                Image.NEAREST,
-            )
-        elif ratio < 1:
-            annotated = annotated.resize(
-                (int(annotated.width * ratio), int(annotated.height * ratio)),
-                Image.LANCZOS,
-            )
-        qim = ImageQt(annotated)
+    def _on_scan_result(self, result: "_SigScanResult"):
+        """Queued slot — runs on UI thread. Applies all widget updates
+        from the worker's result payload."""
+        # Always clear the in-flight flag first so a slot exception
+        # can't wedge the timer permanently.
+        self._scan_in_progress = False
+
+        # Capture failure: the worker bails before producing an
+        # annotated image. Mirror the previous behaviour: replace the
+        # pixmap area with a text placeholder and stop.
+        if result.annotated is None:
+            self._image_lbl.setText("(capture failed)")
+            if result.anchor_error:
+                self._status_lbl.setText(result.anchor_error)
+            return
+
+        if result.anchor_error:
+            self._status_lbl.setText(result.anchor_error)
+
+        # Pixmap (ImageQt must run on UI thread — it produces a QImage
+        # which the QPixmap factory expects to be used from the GUI
+        # thread).
+        qim = ImageQt(result.annotated)
         self._image_lbl.setPixmap(QPixmap.fromImage(qim))
 
-        # Big result + status line
+        # Big result line
+        value = result.value
         if value is not None:
             self._result_lbl.setText(f"{value:,}")
             self._result_lbl.setStyleSheet(
@@ -355,6 +479,8 @@ class SignatureFinderViewer(QWidget):
                 f"color: {RED}; background: transparent;"
             )
 
+        icon_found = result.icon_found
+        digit_box = result.digit_box
         anchor_status = (
             f"anchor: x={icon_found[0]}..{icon_found[2]} score={icon_found[4]:.2f}"
             if icon_found is not None else "anchor: MISS"
@@ -364,12 +490,12 @@ class SignatureFinderViewer(QWidget):
             if digit_box is not None else "crop: —"
         )
         self._status_lbl.setText(
-            f"{anchor_status}  |  {crop_status}  |  {dt_ms:.0f} ms"
+            f"{anchor_status}  |  {crop_status}  |  {result.dt_ms:.0f} ms"
         )
 
         # History
         ts = datetime.now().strftime("%H:%M:%S")
-        line = f"{ts}  {value!s:>7}  ({dt_ms:.0f} ms)"
+        line = f"{ts}  {value!s:>7}  ({result.dt_ms:.0f} ms)"
         self._history.append(line)
         self._history_lbl.setText("\n".join(self._history))
 

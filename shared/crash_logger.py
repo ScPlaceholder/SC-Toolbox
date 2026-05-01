@@ -27,6 +27,7 @@ from shared.constants import (
     CRASH_LOG_FORMAT,
     LOG_DATE_FORMAT,
 )
+from shared.log_sanitizer import PIISanitizingFormatter
 
 _BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _LOG_DIR = os.path.join(_BASE_DIR, "logs")
@@ -85,13 +86,19 @@ def init_crash_logging(skill_name: str) -> logging.Logger:
         encoding="utf-8",
     )
     fh.setLevel(logging.DEBUG)
-    fh.setFormatter(formatter)
+    # Crash logs are the most likely artifact a user shares for support;
+    # scrub PII (paths, username, hostname, secrets) before disk write.
+    # This also redacts unhandled-exception tracebacks via formatException.
+    fh.setFormatter(PIISanitizingFormatter(formatter))
     root.addHandler(fh)
 
-    # stderr handler — WARNING+ so process_manager's log file captures them
+    # stderr handler — WARNING+ so process_manager's log file captures them.
+    # process_manager pipes subprocess stderr to a per-skill .log file
+    # (a file the user may share for support), so this output also gets
+    # the PII filter despite being labelled "stderr".
     sh = logging.StreamHandler(sys.stderr)
     sh.setLevel(logging.WARNING)
-    sh.setFormatter(formatter)
+    sh.setFormatter(PIISanitizingFormatter(formatter))
     root.addHandler(sh)
 
     log = logging.getLogger(skill_name)

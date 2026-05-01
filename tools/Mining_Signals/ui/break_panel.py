@@ -20,7 +20,8 @@ from PySide6.QtWidgets import (
 
 from shared.qt.theme import P
 
-ACCENT = "#33dd88"
+from .theme import ACCENT
+
 RED = "#ff4444"
 YELLOW = "#ffc107"
 DIM = P.fg_dim
@@ -67,6 +68,38 @@ def _build_rows(
 
         widgets.append(row_widget)
     return widgets
+
+
+def _result_signature(result) -> tuple:
+    """Cheap, hashable fingerprint of the BreakResult fields that
+    actually affect how the panel renders. Used by ``update_state`` to
+    short-circuit rebuilds when nothing visible has changed.
+
+    Keep in sync with every getattr(result, ...) call inside the
+    rebuild path. Missing attrs become None so older/partial result
+    shapes don't blow up."""
+    if result is None:
+        return ()
+    cp = getattr(result, "charge_profile", None)
+    cp_sig = (
+        None if cp is None
+        else (
+            round(getattr(cp, "min_throttle_pct", 0.0) or 0.0, 1),
+            None if getattr(cp, "est_total_time_sec", float("inf")) == float("inf")
+            else round(cp.est_total_time_sec, 0),
+        )
+    )
+    lasers = tuple(getattr(result, "used_lasers", ()) or ())
+    return (
+        bool(getattr(result, "insufficient", False)),
+        bool(getattr(result, "unbreakable", False)),
+        round(getattr(result, "missing_power", 0.0) or 0.0, 0),
+        round(getattr(result, "percentage", 0.0) or 0.0, 0),
+        getattr(result, "gadget_used", None),
+        int(getattr(result, "active_modules_needed", 0) or 0),
+        cp_sig,
+        lasers,
+    )
 
 
 def _build_separator(parent: QWidget) -> QFrame:
@@ -180,6 +213,16 @@ class BreakPanel(QWidget):
 
         self._children: list[QWidget] = []
         self._ship_label = ""
+        # Persistent "full" skeleton — lazily built the first time we
+        # enter the full-data state, then reused. All subsequent
+        # updates mutate the rows in-place to eliminate rebuild flicker.
+        self._full_title: QLabel | None = None
+        self._full_section: _CollapsibleSection | None = None
+        self._full_spacer: QWidget | None = None
+        # Pool of pre-allocated row widgets inside the YOU section.
+        # Each entry: (container, label_lbl, value_lbl).
+        self._row_pool: list[tuple[QWidget, QLabel, QLabel]] = []
+        self._state: str = ""  # "idle" | "idle_msg" | "full"
         self._build_idle()
 
     def _clear(self) -> None:
@@ -221,7 +264,10 @@ class BreakPanel(QWidget):
     # ── public API ──
 
     def clear(self) -> None:
+        self._tear_down_full()
         self._build_idle()
+        self._state = "idle"
+        self._last_sig = None
 
     def set_ship_label(self, text: str) -> None:
         self._ship_label = text or ""
@@ -235,114 +281,252 @@ class BreakPanel(QWidget):
         ship_label: str = "",
         result=None,
         no_ship: bool = False,
+        mineral: str | None = None,
     ) -> None:
         """Push a new snapshot of rock stats + break result into the panel."""
         if ship_label:
             self._ship_label = ship_label
 
+        # ── Anti-flicker gate ──
+        # `update_state` is called on every HUD scan (~1 Hz). Most scans
+        # produce the SAME values as the previous scan (same rock, same
+        # ship, same loadout) — rebuilding the whole widget tree then
+        # causes a visible flash as Qt tears down and repaints. Build a
+        # cheap signature of everything that affects rendering and skip
+        # the rebuild if it matches the last one.
+        sig = (
+            no_ship,
+            self._ship_label,
+            mineral,
+            None if mass is None else round(float(mass)),
+            None if resistance is None else round(float(resistance)),
+            None if instability is None else round(float(instability), 2),
+            _result_signature(result),
+        )
+        if getattr(self, "_last_sig", None) == sig:
+            return
+        # Defer paints while we rebuild; single repaint at the end
+        # prevents the mid-rebuild empty frame that looks like flicker.
+        self.setUpdatesEnabled(False)
+        try:
+            self._rebuild_for_sig(
+                mass=mass, resistance=resistance, instability=instability,
+                result=result, no_ship=no_ship, mineral=mineral,
+            )
+            self._last_sig = sig
+        finally:
+            self.setUpdatesEnabled(True)
+
+    def _rebuild_for_sig(
+        self,
+        *,
+        mass: float | None,
+        resistance: float | None,
+        instability: float | None,
+        result,
+        no_ship: bool,
+        mineral: str | None,
+    ) -> None:
         if no_ship:
-            self._clear()
-            self._build_idle_msg("Select a mining ship",
-                                 "Open the Mining Ships tab to load a loadout.")
+            if self._state != "no_ship":
+                self._tear_down_full()
+                self._clear()
+                self._build_idle_msg(
+                    "Select a mining ship",
+                    "Open the Mining Ships tab to load a loadout.",
+                )
+                self._state = "no_ship"
             return
 
-        if mass is None or resistance is None:
-            self._build_idle()
+        if mass is None or resistance is None or result is None:
+            if self._state != "idle":
+                self._tear_down_full()
+                self._clear()
+                self._build_idle()
+                self._state = "idle"
             return
 
-        if result is None:
-            self._build_idle()
-            return
+        # ── Full data state: in-place update, no teardown ──
+        self._ensure_full_skeleton()
+        self._state = "full"
+        self._apply_full(
+            mass=mass, resistance=resistance, instability=instability,
+            result=result, mineral=mineral,
+        )
 
-        # ── Rebuild the sectioned layout ──
+    def _tear_down_full(self) -> None:
+        """Drop the persistent full-state skeleton so _clear can run."""
+        self._full_title = None
+        self._full_section = None
+        self._full_spacer = None
+        self._row_pool.clear()
+
+    def _ensure_full_skeleton(self) -> None:
+        """Lazily build the title / separator / YOU section / spacer
+        the FIRST time we enter the full-data state. Subsequent calls
+        are no-ops — the skeleton persists across scans and only row
+        text/colors are mutated in :meth:`_apply_full`."""
+        if self._full_section is not None:
+            return
+        # Coming from idle state → tear down the idle widgets first.
         self._clear()
 
-        can_break = not getattr(result, "insufficient", False)
-        unbreakable = getattr(result, "unbreakable", False)
-        accent = ACCENT if (can_break and not unbreakable) else RED
-
-        # Title
         title = QLabel("ADVANCED BREAKABILITY ASSISTANCE", self)
-        title.setStyleSheet(
-            f"font-family: Electrolize, Consolas, monospace; font-size: 9pt; "
-            f"font-weight: bold; color: {accent}; background: transparent;"
-        )
         self._root.addWidget(title)
         self._children.append(title)
+        self._full_title = title
 
         sep = _build_separator(self)
         self._root.addWidget(sep)
         self._children.append(sep)
 
-        # ── YOU section ──
-        you_section = _CollapsibleSection(
+        section = _CollapsibleSection(
             "YOU", "Active Miner", icon="\U0001f9d1",
-            accent_color=accent, parent=self,
+            accent_color=ACCENT, parent=self,
         )
-        you_rows: list[tuple[str, str, str]] = []
+        self._root.addWidget(section)
+        self._children.append(section)
+        self._full_section = section
 
+        spacer = QWidget(self)
+        spacer.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        self._root.addWidget(spacer)
+        self._children.append(spacer)
+        self._full_spacer = spacer
+
+    def _apply_full(
+        self,
+        *,
+        mass: float | None,
+        resistance: float | None,
+        instability: float | None,
+        result,
+        mineral: str | None,
+    ) -> None:
+        """Mutate the persistent skeleton to reflect the current rock
+        + result. Only label text and per-row colors change; no widgets
+        are created or destroyed on the steady-state path, so there is
+        no flicker between scans."""
+        can_break = not getattr(result, "insufficient", False)
+        unbreakable = getattr(result, "unbreakable", False)
+        accent = ACCENT if (can_break and not unbreakable) else RED
+
+        # Retint the title (red on unbreakable / insufficient).
+        if self._full_title is not None:
+            self._full_title.setStyleSheet(
+                f"font-family: Electrolize, Consolas, monospace; "
+                f"font-size: 9pt; font-weight: bold; color: {accent}; "
+                f"background: transparent;"
+            )
+
+        # Build the desired row list — same logic as the old rebuild,
+        # just collected into a list we then diff against the pool.
+        rows: list[tuple[str, str, str]] = []
         if self._ship_label:
-            you_rows.append(("Ship:", self._ship_label, P.fg))
+            rows.append(("Ship:", self._ship_label, P.fg))
+        if mineral:
+            rows.append(("Resource:", str(mineral), P.fg))
         if mass is not None:
-            you_rows.append(("Mass:", f"{mass:,.0f} kg", P.fg))
+            rows.append(("Mass:", f"{mass:,.0f} kg", P.fg))
         if resistance is not None:
-            you_rows.append(("Resist:", f"{resistance:.0f}%", P.fg))
+            rows.append(("Resist:", f"{resistance:.0f}%", P.fg))
         if instability is not None:
-            you_rows.append(("Instab:", f"{instability:.2f}", P.fg))
+            rows.append(("Instab:", f"{instability:.2f}", P.fg))
 
-        # Verdict
         if unbreakable:
-            you_rows.append(("Status:", "UNBREAKABLE", RED))
+            rows.append(("Status:", "UNBREAKABLE", RED))
         elif not can_break:
             missing = getattr(result, "missing_power", 0.0) or 0.0
             status = (
                 f"CANNOT BREAK (+{missing:,.0f} MW)"
                 if missing > 0 else "CANNOT BREAK"
             )
-            you_rows.append(("Status:", status, RED))
+            rows.append(("Status:", status, RED))
             gadget = getattr(result, "gadget_used", None)
             if gadget:
-                you_rows.append(("Gadget:", gadget, YELLOW))
+                rows.append(("Gadget:", gadget, YELLOW))
         else:
             pct = getattr(result, "percentage", None)
             pct_str = f"{pct:.0f}%" if pct is not None else "?"
-            you_rows.append(("Power:", pct_str, ACCENT))
+            rows.append(("Power:", pct_str, ACCENT))
 
         if getattr(result, "active_modules_needed", 0):
-            you_rows.append(
-                ("Active Mods:", f"{result.active_modules_needed} activation(s)", YELLOW),
+            rows.append(
+                ("Active Mods:",
+                 f"{result.active_modules_needed} activation(s)", YELLOW),
             )
 
-        # Charge simulation
         cp = getattr(result, "charge_profile", None)
         if cp is not None and can_break and not unbreakable:
             throttle_color = YELLOW if cp.min_throttle_pct > 50 else ACCENT
-            you_rows.append(("Min Throttle:", f"{cp.min_throttle_pct:.0f}%", throttle_color))
+            rows.append(("Min Throttle:",
+                         f"{cp.min_throttle_pct:.0f}%", throttle_color))
             if cp.est_total_time_sec < float("inf"):
                 time_color = YELLOW if cp.est_total_time_sec > 60 else ACCENT
-                you_rows.append(("Est. Time:", f"~{cp.est_total_time_sec:.0f}s", time_color))
+                rows.append(("Est. Time:",
+                             f"~{cp.est_total_time_sec:.0f}s", time_color))
 
-        # Resistance match
         if can_break and not unbreakable:
-            you_rows.append(("Resistance:", "\u2713 Can Break", ACCENT))
+            rows.append(("Resistance:", "\u2713 Can Break", ACCENT))
         elif not unbreakable:
-            you_rows.append(("Resistance:", "\u2717 Needs Help", RED))
+            rows.append(("Resistance:", "\u2717 Needs Help", RED))
 
-        # Laser list
         used_lasers = getattr(result, "used_lasers", []) or []
         for name in used_lasers:
             short = name.split(" > ", 1)[1] if " > " in name else name
-            you_rows.append(("  Laser:", short, DIM))
+            rows.append(("  Laser:", short, DIM))
 
-        you_section.add_rows(you_rows)
-        self._root.addWidget(you_section)
-        self._children.append(you_section)
+        self._apply_row_pool(rows)
 
-        # Spacer
-        spacer = QWidget(self)
-        spacer.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
-        self._root.addWidget(spacer)
-        self._children.append(spacer)
+    def _apply_row_pool(self, rows: list[tuple[str, str, str]]) -> None:
+        """Reconcile the row pool against ``rows`` — reuse existing
+        label widgets via ``setText``/restyle, grow the pool if we need
+        more slots, and hide any leftover rows. Never deletes widgets
+        during a steady-state update, which is what keeps the panel
+        flicker-free."""
+        section = self._full_section
+        if section is None:
+            return
+        content_layout = section._content_layout
+        # Grow the pool if needed.
+        while len(self._row_pool) < len(rows):
+            container = QWidget(section._content)
+            lay = QHBoxLayout(container)
+            lay.setContentsMargins(0, 0, 0, 0)
+            lay.setSpacing(6)
+            lbl = QLabel("", container)
+            lbl.setFixedWidth(_LABEL_W)
+            lay.addWidget(lbl)
+            val = QLabel("", container)
+            val.setWordWrap(True)
+            val.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            lay.addWidget(val, 1)
+            content_layout.addWidget(container)
+            self._row_pool.append((container, lbl, val))
+
+        # Update existing rows in-place.
+        for i, (label_text, value_text, color) in enumerate(rows):
+            container, lbl, val = self._row_pool[i]
+            if lbl.text() != label_text:
+                lbl.setText(label_text)
+            lbl.setStyleSheet(
+                f"font-family: Consolas, monospace; font-size: 8pt; "
+                f"color: {DIM}; background: transparent;"
+            )
+            if val.text() != value_text:
+                val.setText(value_text)
+            val.setStyleSheet(
+                f"font-family: Consolas, monospace; font-size: 9pt; "
+                f"font-weight: bold; color: {color}; background: transparent;"
+            )
+            if not container.isVisible():
+                container.setVisible(True)
+
+        # Hide any surplus rows from previous updates.
+        for j in range(len(rows), len(self._row_pool)):
+            container, _, _ = self._row_pool[j]
+            if container.isVisible():
+                container.setVisible(False)
 
     def _build_idle_msg(self, title: str, detail: str) -> None:
         """Show a simple message state."""

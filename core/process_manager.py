@@ -317,6 +317,49 @@ class ManagedProcess:
                 self._send_unlocked({"type": "show"})
                 self._visible = True
 
+    def start_with_env(
+        self,
+        extra_env: dict[str, str],
+        visible_after: bool = True,
+    ) -> bool:
+        """Spawn the subprocess with extra env vars merged on top of the
+        registered env, for THIS launch only.  Subsequent spawns
+        (from show/toggle/etc.) use the original registered env.
+
+        Use case: pre-spawning a skill in hidden / pre-warm mode by
+        injecting ``SC_TOOLBOX_PRELOAD=1`` into its env once, without
+        biasing every later cold-spawn from a user toggle into the same
+        hidden-startup behaviour.
+
+        ``visible_after`` controls the post-spawn ``_visible`` flag.
+        Default True matches normal start behaviour.  Set False when
+        the subprocess is being launched in pre-warm-hidden mode so
+        the next ``toggle()`` correctly issues ``show`` instead of
+        ``hide`` — and so the launcher doesn't need to send an
+        immediate ``hide`` IPC (which races against the subprocess's
+        own pre-warm timer in mouse_blocker_app.py).
+
+        Returns True on successful spawn, False otherwise (already
+        running, cooldown, etc.).
+        """
+        with self._lock:
+            if self.running:
+                return False
+            original_env = self._env
+            try:
+                merged: dict[str, str] = {}
+                if original_env:
+                    merged.update(original_env)
+                if extra_env:
+                    merged.update(extra_env)
+                self._env = merged
+                ok = self._start_unlocked()
+            finally:
+                self._env = original_env
+            if ok and not visible_after:
+                self._visible = False
+            return ok
+
     def health_check(self) -> dict[str, Any]:
         """Return a health-status dict for this process."""
         with self._lock:
@@ -438,34 +481,63 @@ class ProcessManager:
         count = 0
         my_pid = os.getpid()
         my_ppid = os.getppid()
-        for script in skill_scripts:
+        if not skill_scripts:
+            return 0
+        # Single consolidated `wmic` query across all skill scripts
+        # instead of one call per skill. Each wmic invocation takes
+        # 2–5 s on cold Windows — the old per-skill loop was the
+        # dominant reason the launcher stalled for ~25 s before the
+        # UI appeared. One call + one pass through the result returns
+        # in roughly the same time as a single per-skill query.
+        clauses = " or ".join(
+            f"commandline like '%{script}%'" for script in skill_scripts
+        )
+        where = f"name='python.exe' and ({clauses})"
+        try:
+            result = subprocess.run(
+                ["wmic", "process", "where", where,
+                 "get", "processid,commandline"],
+                capture_output=True, text=True, timeout=12,
+                startupinfo=_hidden_startupinfo(),
+            )
+            lines = result.stdout.strip().splitlines()
+        except (OSError, subprocess.SubprocessError,
+                subprocess.TimeoutExpired) as exc:
+            log.debug("process_manager: orphan scan failed: %s", exc)
+            return 0
+
+        # wmic output is "CommandLine ... ProcessId" with whitespace
+        # separation. ProcessId is always the last token on each line;
+        # every other column belongs to CommandLine.
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.rsplit(None, 1)
+            if len(parts) != 2:
+                continue
+            cmd_part, pid_str = parts
+            if not pid_str.isdigit():
+                continue
+            pid = int(pid_str)
+            if pid in (my_pid, my_ppid):
+                continue
+            # Match which script this is (for the log line only).
+            script = next(
+                (s for s in skill_scripts if s in cmd_part), "<unknown>",
+            )
+            log.info(
+                "process_manager: killing orphan %s (PID %d)", script, pid,
+            )
             try:
-                result = subprocess.run(
-                    ["wmic", "process", "where",
-                     f"name='python.exe' and commandline like '%{script}%'",
-                     "get", "processid"],
-                    capture_output=True, text=True, timeout=8,
+                subprocess.run(
+                    ["taskkill", "/F", "/PID", str(pid)],
+                    capture_output=True, timeout=5,
                     startupinfo=_hidden_startupinfo(),
                 )
-                for line in result.stdout.strip().splitlines():
-                    line = line.strip()
-                    if not line.isdigit():
-                        continue
-                    pid = int(line)
-                    if pid in (my_pid, my_ppid):
-                        continue
-                    log.info("process_manager: killing orphan %s (PID %d)", script, pid)
-                    try:
-                        subprocess.run(
-                            ["taskkill", "/F", "/PID", str(pid)],
-                            capture_output=True, timeout=5,
-                            startupinfo=_hidden_startupinfo(),
-                        )
-                        count += 1
-                    except (OSError, subprocess.SubprocessError):
-                        pass
-            except (OSError, subprocess.SubprocessError, subprocess.TimeoutExpired) as exc:
-                log.debug("process_manager: orphan scan failed for %s: %s", script, exc)
+                count += 1
+            except (OSError, subprocess.SubprocessError):
+                pass
         if count:
             log.info("process_manager: killed %d orphan process(es)", count)
         return count

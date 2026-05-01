@@ -90,6 +90,7 @@ class _DistanceCache:
     def __init__(self) -> None:
         self._data: dict[str, float] = {}
         self._lock = threading.Lock()
+        self._dirty = False
         self._load()
 
     def _load(self) -> None:
@@ -97,7 +98,11 @@ class _DistanceCache:
             if os.path.isfile(_CACHE_FILE):
                 with open(_CACHE_FILE, "r", encoding="utf-8") as f:
                     self._data = json.load(f)
-        except (OSError, json.JSONDecodeError):
+        except (OSError, json.JSONDecodeError) as exc:
+            log.warning(
+                "distance cache reset due to %s: %s",
+                type(exc).__name__, exc,
+            )
             self._data = {}
 
     def _save(self) -> None:
@@ -121,10 +126,14 @@ class _DistanceCache:
     def put(self, origin: int, dest: int, distance: float) -> None:
         with self._lock:
             self._data[self._key(origin, dest)] = distance
+            self._dirty = True
 
     def save(self) -> None:
         with self._lock:
+            if not self._dirty:
+                return
             self._save()
+            self._dirty = False
 
 
 _cache = _DistanceCache()
@@ -222,6 +231,10 @@ def nearest_refineries(
 
         dist = _fetch_distance(origin_id, dest_id)
         results.append((ref, dist))
+        # Persist after each fetch so partial progress survives an
+        # abrupt app close mid-loop.  ``save()`` short-circuits via a
+        # dirty flag when nothing changed, so this is cheap.
+        _cache.save()
 
     # Save any newly-fetched distances
     _cache.save()

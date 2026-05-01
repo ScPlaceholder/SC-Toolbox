@@ -18,6 +18,7 @@ from shared.constants import (
     LOG_FORMAT,
     LOG_DATE_FORMAT,
 )
+from shared.log_sanitizer import PIISanitizingFormatter
 
 _LOG_DIR: Optional[str] = None
 _CONFIGURED = False
@@ -91,7 +92,9 @@ def setup_logging(
                 backupCount=BACKUP_COUNT,
                 encoding="utf-8",
             )
-            fh.setFormatter(formatter)
+            # File output is the only thing a user shares for support;
+            # scrub PII (paths, username, hostname, secrets) at format time.
+            fh.setFormatter(PIISanitizingFormatter(formatter))
             fh.setLevel(level)
             root.addHandler(fh)
 

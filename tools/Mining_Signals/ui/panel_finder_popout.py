@@ -146,6 +146,15 @@ class PanelFinderPopout(QWidget):
         # Skip while the window is being dragged.
         if self._time.monotonic() < self._move_pause_until:
             return
+        # Heartbeat so the OCR pipeline keeps writing
+        # debug_panel_overlay.png. If no viewer touches this file
+        # within HEARTBEAT_TTL_SEC the pipeline skips the write
+        # entirely.
+        try:
+            from ocr.sc_ocr import debug_overlay as _dbg
+            _dbg.viewer_heartbeat_tag("overlay")
+        except Exception:
+            pass
         if not self._overlay_path.is_file():
             self._meta.setText(f"(missing: {self._overlay_path.name})")
             self._img.setText("Waiting for OCR pipeline…")
